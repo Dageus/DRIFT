@@ -16,4 +16,7 @@ optimizer_runs = 10_000
 via_ir = true
 evm_version = "paris"
 
+[fuzz]
+runs = 1000
+
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options

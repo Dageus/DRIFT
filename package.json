@@ -4,8 +4,10 @@
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-foundry": "^3.0.0",
-    "@nomicfoundation/hardhat-toolbox": "^7.0.0",
+    "hardhat": "^3.3.0",
     "ts-node": "^10.9.2",
     "typescript": "^6.0.2"
-  }
+  },
+  "name": "smart_contract_impl",
+  "type": "module"
 }
