@@ -6,44 +6,25 @@ import { DRIFTTypes } from "../Common.sol";
 /// @title  IDRIFTCore
 /// @notice Central DRIFT registry.
 interface IDRIFTCore {
-
     // Events ==================================================================
 
     /// @notice Emitted when a new context is registered.
-    event ContextRegistered(
-        bytes32 indexed uid,
-        string          name,
-        address indexed owner
-    );
+    event ContextRegistered(bytes32 indexed uid, string name, address indexed owner);
 
     /// @notice Emitted when a context is deactivated.
     event ContextDeactivated(bytes32 indexed uid);
 
     /// @notice Emitted when a schema is added to a context.
-    event SchemaAdded(
-        bytes32 indexed contextUID,
-        bytes32 indexed schemaUID,
-        address indexed adapter
-    );
+    event SchemaAdded(bytes32 indexed contextUID, bytes32 indexed schemaUID, address indexed adapter);
 
     /// @notice Emitted when a schema is removed from a context.
-    event SchemaRemoved(
-        bytes32 indexed contextUID,
-        bytes32 indexed schemaUID
-    );
+    event SchemaRemoved(bytes32 indexed contextUID, bytes32 indexed schemaUID);
 
     /// @notice Emitted when a node registers into a context.
-    event NodeRegistered(
-        bytes32 indexed contextUID,
-        address indexed node,
-        uint256         stakedAmount
-    );
+    event NodeRegistered(bytes32 indexed contextUID, address indexed node, uint256 stakedAmount);
 
     /// @notice Emitted when a node withdraws and leaves a context.
-    event NodeDeregistered(
-        bytes32 indexed contextUID,
-        address indexed node
-    );
+    event NodeDeregistered(bytes32 indexed contextUID, address indexed node);
 
     // Context management ======================================================
 
@@ -53,9 +34,9 @@ interface IDRIFTCore {
     /// @param  minimumStake  Minimum stake required to join. 0 for no requirement.
     /// @return uid           The context's unique identifier.
     function registerContext(
-        string  calldata name,
-        address          stakeToken,
-        uint256          minimumStake
+        string calldata name,
+        address stakeToken,
+        uint256 minimumStake
     ) external returns (bytes32 uid);
 
     /// @notice Deactivate a context. Existing node stakes are preserved.
@@ -67,19 +48,12 @@ interface IDRIFTCore {
     /// @param  contextUID  The context to configure.
     /// @param  schemaUID   Schema UID as registered in the attestation provider.
     /// @param  adapter     IAttestationProvider that can verify this schema.
-    function addSchema(
-        bytes32 contextUID,
-        bytes32 schemaUID,
-        address adapter
-    ) external;
+    function addSchema(bytes32 contextUID, bytes32 schemaUID, address adapter) external;
 
     /// @notice Remove a schema from a context.
     ///         Existing attestations are unaffected — only future
     ///         verifications will reject this schema.
-    function removeSchema(
-        bytes32 contextUID,
-        bytes32 schemaUID
-    ) external;
+    function removeSchema(bytes32 contextUID, bytes32 schemaUID) external;
 
     // Node registration =======================================================
 
@@ -91,10 +65,15 @@ interface IDRIFTCore {
     /// @param  contextUID  The context to join.
     function registerNode(bytes32 contextUID) external payable;
 
+    /// @notice Request deregister from a context and lock stake.
+    ///         Node's past attestations remain in EAS but will be
+    ///         ignored by the off-chain indexer going forward.
+    function requestDeregister(bytes32 contextUID) external;
+
     /// @notice Deregister from a context and withdraw stake.
     ///         Node's past attestations remain in EAS but will be
     ///         ignored by the off-chain indexer going forward.
-    function deregisterNode(bytes32 contextUID) external;
+    function executeDeregister(bytes32 contextUID) external;
 
     // Trust verification ======================================================
 
@@ -116,28 +95,22 @@ interface IDRIFTCore {
     // Views ===================================================================
 
     /// @notice Returns the full context record.
-    function getContext(bytes32 uid)
-        external view returns (DRIFTTypes.Context memory);
+    function getContext(bytes32 uid) external view returns (DRIFTTypes.Context memory);
 
     /// @notice Returns all schema UIDs accepted by a context.
     ///         Bounded by client configuration — safe to enumerate on-chain.
-    function getAcceptedSchemas(bytes32 contextUID)
-        external view returns (bytes32[] memory);
+    function getAcceptedSchemas(bytes32 contextUID) external view returns (bytes32[] memory);
 
     /// @notice Returns all adapter addresses registered for a schema in a context.
-    function getAdapters(bytes32 contextUID, bytes32 schemaUID)
-        external view returns (address[] memory);
+    function getAdapters(bytes32 contextUID, bytes32 schemaUID) external view returns (address[] memory);
 
     /// @notice Returns the staked amount for a node in a context.
     ///         Returns 0 if not registered.
-    function stakedAmount(bytes32 contextUID, address node)
-        external view returns (uint256);
+    function stakedAmount(bytes32 contextUID, address node) external view returns (uint256);
 
     /// @notice Returns true if a node is registered in a context.
-    function isRegistered(bytes32 contextUID, address node)
-        external view returns (bool);
+    function isRegistered(bytes32 contextUID, address node) external view returns (bool);
 
     /// @notice Returns true if a context exists and is active.
-    function contextExists(bytes32 uid)
-        external view returns (bool);
+    function contextExists(bytes32 uid) external view returns (bool);
 }

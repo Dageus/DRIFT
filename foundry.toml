@@ -3,18 +3,19 @@ src = "src"
 out = "out"
 libs = ["lib"]
 script = "scripts"
+evm_version = "cancun"
 
 [profile.dev]
 optimizer = true
 optimizer_runs = 200
 via_ir = true
-evm_version = "paris"
+evm_version = "cancun"
 
 [profile.ci]
 optimizer = true
 optimizer_runs = 10_000
 via_ir = true
-evm_version = "paris"
+evm_version = "cancun"
 
 [fuzz]
 runs = 1000
