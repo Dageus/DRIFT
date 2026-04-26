@@ -58,9 +58,7 @@ contract DRIFTCore is
     ) external onlyRole(CLIENT_ROLE) returns (bytes32 uid) {
         require(bytes(name).length > 0, "DRIFT: empty context name");
 
-        // Include owner in UID to prevent collision between two clients
-        // registering the same name.
-        uid = keccak256(abi.encodePacked(name, msg.sender));
+        uid = keccak256(abi.encodePacked(name));
 
         require(!_usedNames[uid], "DRIFT: name already taken");
 
@@ -80,6 +78,8 @@ contract DRIFTCore is
             minimumStake: minimumStake
         });
 
+        _grantRole(contextAdminRole(uid), msg.sender);
+
         emit ContextRegistered(uid, name, msg.sender);
     }
 
@@ -87,6 +87,11 @@ contract DRIFTCore is
     function deactivateContext(bytes32 contextUID) external onlyContextOwner(contextUID) {
         _contexts[contextUID].active = false;
         emit ContextDeactivated(contextUID);
+    }
+
+    /// @inheritdoc IDRIFTCore
+    function contextAdminRole(bytes32 contextUID) public pure returns (bytes32) {
+        return keccak256(abi.encodePacked("CONTEXT_ADMIN", contextUID));
     }
 
     // Schema management =======================================================
@@ -250,8 +255,7 @@ contract DRIFTCore is
 
     modifier onlyContextOwner(bytes32 contextUID) {
         require(_contextExists(contextUID), "DRIFT: context not found");
-        require(_contexts[contextUID].owner == msg.sender, "DRIFT: not context owner");
-        require(_contexts[contextUID].active, "DRIFT: context inactive");
+        require(hasRole(contextAdminRole(contextUID), msg.sender), "DRIFT: not context admin");
         _;
     }
 

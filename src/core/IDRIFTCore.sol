@@ -42,6 +42,9 @@ interface IDRIFTCore {
     /// @notice Deactivate a context. Existing node stakes are preserved.
     function deactivateContext(bytes32 contextUID) external;
 
+    /// @notice Return a unique Admin role for the given contextUID
+    function contextAdminRole(bytes32 contextUID) public pure returns (bytes32);
+
     // Schema management =======================================================
 
     /// @notice Add an accepted schema to a context.

@@ -12,18 +12,4 @@ library DRIFTTypes {
         uint256 minimumStake; // minimum balance required to be a valid subject
         bool active;
     }
-
-    /// @notice Normalized attestation data returned by any IAttestationProvider.
-    ///         Decouples DRIFT from EAS's internal struct layout.
-    struct AttestationData {
-        bytes32 uid;
-        bytes32 schemaUID;
-        address subject;
-        address attester;
-        address provider;
-        uint64 timestamp;
-        uint64 expirationTime;
-        bool revoked;
-        bytes data; // ABI-encoded per schema definition
-    }
 }
