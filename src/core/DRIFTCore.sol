@@ -225,11 +225,6 @@ contract DRIFTCore is
     }
 
     /// @inheritdoc IDRIFTCore
-    function getAcceptedSchemas(bytes32 contextUID) external view returns (bytes32[] memory) {
-        return _acceptedSchemas[contextUID].values();
-    }
-
-    /// @inheritdoc IDRIFTCore
     function getAdapter(bytes32 contextUID, bytes32 schemaUID) external view returns (address memory) {
         return _schemaAdapters[contextUID][schemaUID];
     }

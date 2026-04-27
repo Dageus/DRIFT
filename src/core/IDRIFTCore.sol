@@ -100,13 +100,6 @@ interface IDRIFTCore {
     /// @notice Returns the full context record.
     function getContext(bytes32 uid) external view returns (DRIFTTypes.Context memory);
 
-    /// @notice Returns all schema UIDs accepted by a context.
-    ///         Bounded by client configuration — safe to enumerate on-chain.
-    function getAcceptedSchemas(bytes32 contextUID) external view returns (bytes32[] memory);
-
-    /// @notice Returns all adapter addresses registered for a schema in a context.
-    function getAdapters(bytes32 contextUID, bytes32 schemaUID) external view returns (address[] memory);
-
     /// @notice Returns the staked amount for a node in a context.
     ///         Returns 0 if not registered.
     function stakedAmount(bytes32 contextUID, address node) external view returns (uint256);
