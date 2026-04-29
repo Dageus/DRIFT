@@ -7,7 +7,7 @@ import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/I
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { ReentrancyGuardTransient } from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 
-import { IDRIFTCore } from "../interfaces/IDRIFTCore.sol";
+import { IDRIFTCore } from "./IDRIFTCore.sol";
 import { IAttestationProvider } from "../interfaces/IAttestationProvider.sol";
 import { DRIFTCoreStorage } from "./DRIFTCoreStorage.sol";
 import { DRIFTTypes } from "../Common.sol";
@@ -23,6 +23,27 @@ contract DRIFTCore is
     DRIFTCoreStorage,
     IDRIFTCore
 {
+    // Errors ==================================================================
+    error ContextTaken();
+    error ContextNotActive(bytes32 contextUID);
+    error UnauthorizedCaller(bytes32 role, address caller);
+    error InsufficientStake(uint256 provided, uint256 required);
+
+    // NOTE: should we include uint256 unlockTime, uint256 currentTime?
+    error TimelockActive();
+
+    // new errors
+    error ZeroAddress();
+    error ZeroUID();
+    error SchemaNotFound(bytes32 contextUID, bytes32 schemaUID);
+    error NodeAlreadyRegistered(bytes32 contextUID, address node);
+    error StakeNotRequired();
+    error NativeTokenNotAccepted();
+    error DeregistrationAlreadyRequested(address node);
+    error NoDeregistrationRequest(address node);
+    error UnbondingPeriodActive(uint256 unlockTime, uint256 currentTime);
+    error ContextNotFound(bytes32 contextUID);
+
     // Constants ===============================================================
 
     /// @notice Granted to addresses allowed to register contexts.
@@ -44,7 +65,6 @@ contract DRIFTCore is
     /// @param  admin  Receives DEFAULT_ADMIN_ROLE. Can upgrade and grant roles.
     function initialize(address admin) external initializer {
         __AccessControl_init();
-        __UUPSUpgradeable_init();
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
     }
 
@@ -60,7 +80,9 @@ contract DRIFTCore is
 
         uid = keccak256(abi.encodePacked(name));
 
-        require(!_usedNames[uid], "DRIFT: name already taken");
+        if (_usedNames[uid]) {
+            revert ContextTaken();
+        }
 
         _usedNames[uid] = true;
 
@@ -122,16 +144,24 @@ contract DRIFTCore is
     /// @inheritdoc IDRIFTCore
     function registerNode(bytes32 contextUID) external payable {
         DRIFTTypes.Context memory ctx = _contexts[contextUID];
-        require(ctx.active, "DRIFT: context inactive");
+        if (!ctx.active) {
+            revert ContextNotActive(contextUID);
+        }
+
         require(_stakes[contextUID][msg.sender] == 0, "DRIFT: already registered");
-        require(_unlockTimes[contextUID][msg.sender] == 0, "DRIFT: deregistration pending");
+
+        if (_unlockTimes[contextUID][msg.sender] != 0) {
+            revert TimelockActive();
+        }
 
         uint256 staked;
 
         if (ctx.minimumStake > 0) {
             if (ctx.stakeToken == address(0)) {
                 // Native ETH
-                require(msg.value >= ctx.minimumStake, "DRIFT: insufficient ETH stake");
+                if (msg.value < ctx.minimumStake) {
+                    revert InsufficientStake(msg.value, ctx.minimumStake);
+                }
                 staked = msg.value;
             } else {
                 // ERC-20 — caller must have approved DRIFTCore first
@@ -252,6 +282,13 @@ contract DRIFTCore is
         require(_contextExists(contextUID), "DRIFT: context not found");
         require(hasRole(contextAdminRole(contextUID), msg.sender), "DRIFT: not context admin");
         _;
+    }
+
+    // Helpers =================================================================
+
+    function _contextExists(bytes32 contextUID) internal view returns (bool) {
+        // If the uid matches what was passed, it was initialized
+        return _contexts[contextUID].uid == contextUID;
     }
 
     // UUPS ====================================================================

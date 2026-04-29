@@ -4,7 +4,7 @@ pragma solidity 0.8.28;
 import { DRIFTTypes } from "../Common.sol";
 
 /// @title  IDRIFTCore
-/// @notice Central DRIFT registry.
+/// @notice DRIFT - Decentralized Reputation Infrastructure for Trust interface
 interface IDRIFTCore {
     // Events ==================================================================
 
@@ -22,6 +22,9 @@ interface IDRIFTCore {
 
     /// @notice Emitted when a node registers into a context.
     event NodeRegistered(bytes32 indexed contextUID, address indexed node, uint256 stakedAmount);
+
+    /// @notice Emitted when a node requests a deregister.
+    event DeregisterRequested(bytes32 indexed contextUID, address indexed node, uint256 unlockAt);
 
     /// @notice Emitted when a node withdraws and leaves a context.
     event NodeDeregistered(bytes32 indexed contextUID, address indexed node);
@@ -94,6 +97,18 @@ interface IDRIFTCore {
         address subject,
         address attester
     ) external view returns (bool);
+
+    // Reputation ==============================================================
+
+    /// @notice Called by DRIFTSettlement after verifying a score submission.
+    ///         Slashes or rewards a node based on their settled score.
+    function settleReputation(
+        bytes32 contextUID,
+        address node,
+        uint256 score // scaled by 10_000
+    ) external;
+    // ^^^^^^
+    //  onlyRole(SETTLER_ROLE);
 
     // Views ===================================================================
 

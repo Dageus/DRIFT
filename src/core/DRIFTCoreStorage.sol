@@ -3,12 +3,12 @@ pragma solidity 0.8.28;
 
 import { DRIFTTypes } from "../Common.sol";
 
-/// @title  DriftCoreStorage
+/// @title  DRIFTCoreStorage
 /// @notice Isolated storage layout for DRIFTCore.
 ///         Inherited by DRIFTCore to make upgrade storage safety explicit.
 abstract contract DRIFTCoreStorage {
     // Context UID => Context
-    mapping(bytes32 => Context) public contexts;
+    mapping(bytes32 => DRIFTTypes.Context) internal _contexts;
 
     // WARNING: this might be a massive gas cost for no reason
     // Context UID => used
