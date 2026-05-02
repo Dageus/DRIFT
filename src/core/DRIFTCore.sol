@@ -44,6 +44,9 @@ contract DRIFTCore is
     error UnbondingPeriodActive(uint256 unlockTime, uint256 currentTime);
     error ContextNotFound(bytes32 contextUID);
 
+    error NodeNotRegistered();
+    error PenaltyExceedsStake();
+
     // Constants ===============================================================
 
     /// @notice Granted to addresses allowed to register contexts.
@@ -53,6 +56,19 @@ contract DRIFTCore is
     /// @notice How long a node must wait between requesting and executing
     ///         deregistration. Prevents stake-then-slash-then-exit attacks.
     uint256 public constant UNBONDING_PERIOD = 7 days;
+
+    // Token Management ========================================================
+
+    IDRIFTToken public driftToken;
+    address public constant BURN_ADDRESS = 0x000000000000000000000000000000000000dEaD;
+
+    /// @notice Links the ERC-1155 token to the core registry.
+    function setDriftToken(address _tokenAddress) external {
+        _checkRole(DEFAULT_ADMIN_ROLE, msg.sender);
+        if (address(driftToken) != address(0)) revert TokenAlreadySet(); // Ensure it is only set once
+
+        driftToken = IDRIFTToken(_tokenAddress);
+    }
 
     // Constructor =============================================================
 
@@ -66,6 +82,9 @@ contract DRIFTCore is
     function initialize(address admin) external initializer {
         __AccessControl_init();
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
+
+        // self-governance
+        // _registerContext("DRIFT.Governance", address(0), 0);
     }
 
     // Context management ======================================================
@@ -76,7 +95,9 @@ contract DRIFTCore is
         address stakeToken,
         uint256 minimumStake
     ) external onlyRole(CLIENT_ROLE) returns (bytes32 uid) {
-        require(bytes(name).length > 0, "DRIFT: empty context name");
+        if (bytes(name).length == 0) {
+            revert EmptyContextName();
+        }
 
         uid = keccak256(abi.encodePacked(name));
 
@@ -106,7 +127,7 @@ contract DRIFTCore is
     }
 
     /// @inheritdoc IDRIFTCore
-    function deactivateContext(bytes32 contextUID) external onlyContextOwner(contextUID) {
+    function deactivateContext(bytes32 contextUID) external onlyContextAdmin(contextUID) {
         _contexts[contextUID].active = false;
         emit ContextDeactivated(contextUID);
     }
@@ -119,7 +140,7 @@ contract DRIFTCore is
     // Schema management =======================================================
 
     /// @inheritdoc IDRIFTCore
-    function addSchema(bytes32 contextUID, bytes32 schemaUID, address adapter) external onlyContextOwner(contextUID) {
+    function addSchema(bytes32 contextUID, bytes32 schemaUID, address adapter) external onlyContextAdmin(contextUID) {
         require(adapter != address(0), "DRIFT: zero adapter address");
         require(schemaUID != bytes32(0), "DRIFT: zero schema UID");
 
@@ -130,7 +151,7 @@ contract DRIFTCore is
     }
 
     /// @inheritdoc IDRIFTCore
-    function removeSchema(bytes32 contextUID, bytes32 schemaUID) external onlyContextOwner(contextUID) {
+    function removeSchema(bytes32 contextUID, bytes32 schemaUID) external onlyContextAdmin(contextUID) {
         require(_acceptedSchemas[contextUID][schemaUID], "DRIFT: schema not found");
 
         delete _acceptedSchemas[contextUID][schemaUID];
@@ -202,7 +223,6 @@ contract DRIFTCore is
         uint256 staked = _stakes[contextUID][msg.sender];
         DRIFTTypes.Context memory ctx = _contexts[contextUID];
 
-        // Clear state before transfer — prevents reentrancy
         delete _stakes[contextUID][msg.sender];
         delete _unlockTimes[contextUID][msg.sender];
 
@@ -246,6 +266,50 @@ contract DRIFTCore is
         return IAttestationProvider(adapter).isValid(attestationUID, schemaUID, subject);
     }
 
+    // Cryptoeconomic Enforcement ==============================================
+
+    /// @inheritdoc IDRIFTCore
+    function slash(bytes32 contextUID, address node, uint256 penaltyAmount) external onlyContextAdmin(contextUID) {
+        uint256 currentStake = _stakes[contextUID][node];
+        if (currentStake == 0) revert NodeNotRegistered();
+        if (currentStake < penaltyAmount) revert PenaltyExceedsStake();
+
+        // Deduct the penalty
+        uint256 newStake = currentStake - penaltyAmount;
+
+        if (newStake == 0) {
+            delete _stakes[contextUID][node];
+            delete _unlockTimes[contextUID][node];
+            emit NodeDeregistered(node);
+        } else {
+            _stakes[contextUID][node] = newStake;
+        }
+
+        uint256 tokenId = uint256(contextUID);
+
+        // BUG: do we slash reputation AND eth?
+
+        driftToken.slashReputation(node, tokenId, penaltyAmount);
+
+        (bool success, ) = BURN_ADDRESS.call{ value: penaltyAmount }("");
+        if (!success) revert ETHTransferFailed();
+
+        emit NodeSlashed(contextUID, node, penaltyAmount);
+    }
+
+    /// @inheritdoc IDRIFTCore
+    function reward(bytes32 contextUID, address node) external onlyContextAdmin(contextUID) {
+        if (_stakes[contextUID][node] == 0) revert NodeNotRegistered();
+
+        // Cast Context UID to Token ID
+        uint256 tokenId = uint256(contextUID);
+
+        // Mint reputation
+        driftToken.rewardReputation(node, tokenId, reputationAmount);
+
+        emit NodeRewarded(contextUID, node);
+    }
+
     // Views ===================================================================
 
     /// @inheritdoc IDRIFTCore
@@ -255,7 +319,7 @@ contract DRIFTCore is
     }
 
     /// @inheritdoc IDRIFTCore
-    function getAdapter(bytes32 contextUID, bytes32 schemaUID) external view returns (address memory) {
+    function getAdapter(bytes32 contextUID, bytes32 schemaUID) external view returns (address) {
         return _schemaAdapters[contextUID][schemaUID];
     }
 
@@ -278,9 +342,11 @@ contract DRIFTCore is
 
     // Modifiers ===============================================================
 
-    modifier onlyContextOwner(bytes32 contextUID) {
-        require(_contextExists(contextUID), "DRIFT: context not found");
-        require(hasRole(contextAdminRole(contextUID), msg.sender), "DRIFT: not context admin");
+    modifier onlyContextAdmin(bytes32 contextUID) {
+        if (!_contextExists(contextUID)) {
+            revert ContextNotFound(contextUID);
+        }
+        _checkRole(contextAdminRole(contextUID), msg.sender);
         _;
     }
 

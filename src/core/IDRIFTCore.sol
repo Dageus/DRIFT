@@ -29,6 +29,12 @@ interface IDRIFTCore {
     /// @notice Emitted when a node withdraws and leaves a context.
     event NodeDeregistered(bytes32 indexed contextUID, address indexed node);
 
+    /// @notice Emitted when a node gets slashed.
+    event NodeSlashed(bytes32 indexed contextUID, address indexed node, uint256 penalty);
+
+    /// @notice Emitted when a node gets rewarded
+    event NodeRewarded(bytes32 indexed contextUID, address indexed node);
+
     // Context management ======================================================
 
     /// @notice Register a new reputation context.
@@ -46,7 +52,7 @@ interface IDRIFTCore {
     function deactivateContext(bytes32 contextUID) external;
 
     /// @notice Return a unique Admin role for the given contextUID
-    function contextAdminRole(bytes32 contextUID) public pure returns (bytes32);
+    function contextAdminRole(bytes32 contextUID) external pure returns (bytes32);
 
     // Schema management =======================================================
 
@@ -98,22 +104,23 @@ interface IDRIFTCore {
         address attester
     ) external view returns (bool);
 
-    // Reputation ==============================================================
+    // Cryptoeconomic Enforcement ==============================================
 
-    /// @notice Called by DRIFTSettlement after verifying a score submission.
-    ///         Slashes or rewards a node based on their settled score.
-    function settleReputation(
-        bytes32 contextUID,
-        address node,
-        uint256 score // scaled by 10_000
-    ) external;
-    // ^^^^^^
-    //  onlyRole(SETTLER_ROLE);
+    /// @notice Slashes a registered node's stake.
+    ///         Only callable by the context administrator.
+    function slash(bytes32 contextUID, address node, uint256 penaltyAmount) external;
+
+    /// @notice Rewards a node (placeholder for MVP).
+    ///         Only callable by the context administrator.
+    function reward(bytes32 contextUID, address node) external;
 
     // Views ===================================================================
 
     /// @notice Returns the full context record.
     function getContext(bytes32 uid) external view returns (DRIFTTypes.Context memory);
+
+    /// @notice Returns the adapter for the given schema.
+    function getAdapter(bytes32 contextUID, bytes32 schemaUID) external view returns (address);
 
     /// @notice Returns the staked amount for a node in a context.
     ///         Returns 0 if not registered.
