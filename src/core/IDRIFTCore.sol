@@ -112,7 +112,7 @@ interface IDRIFTCore {
 
     /// @notice Rewards a node (placeholder for MVP).
     ///         Only callable by the context administrator.
-    function reward(bytes32 contextUID, address node) external;
+    function reward(bytes32 contextUID, address node, uint256 reputationAmount) external;
 
     // Views ===================================================================
 
@@ -121,6 +121,9 @@ interface IDRIFTCore {
 
     /// @notice Returns the adapter for the given schema.
     function getAdapter(bytes32 contextUID, bytes32 schemaUID) external view returns (address);
+
+    /// @notice Returns the financial stake of node in context.
+    function getStake(bytes32 contextUID, address node) external view returns (uint256);
 
     /// @notice Returns the staked amount for a node in a context.
     ///         Returns 0 if not registered.

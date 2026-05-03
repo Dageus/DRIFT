@@ -11,6 +11,7 @@ import { IDRIFTCore } from "./IDRIFTCore.sol";
 import { IAttestationProvider } from "../interfaces/IAttestationProvider.sol";
 import { DRIFTCoreStorage } from "./DRIFTCoreStorage.sol";
 import { DRIFTTypes } from "../Common.sol";
+import { IDRIFTToken } from "../IDRIFTToken.sol";
 
 /// @title  DRIFTCore
 /// @notice Central DRIFT registry.
@@ -24,28 +25,53 @@ contract DRIFTCore is
     IDRIFTCore
 {
     // Errors ==================================================================
-    error ContextTaken();
+
+    /// @notice Error thrown when a context name is taken
+    error ContextTaken(bytes32 contextUID);
+    /// @notice Error thrown when a context is inactive
     error ContextNotActive(bytes32 contextUID);
-    error UnauthorizedCaller(bytes32 role, address caller);
-    error InsufficientStake(uint256 provided, uint256 required);
-
-    // NOTE: should we include uint256 unlockTime, uint256 currentTime?
-    error TimelockActive();
-
-    // new errors
-    error ZeroAddress();
-    error ZeroUID();
-    error SchemaNotFound(bytes32 contextUID, bytes32 schemaUID);
-    error NodeAlreadyRegistered(bytes32 contextUID, address node);
-    error StakeNotRequired();
-    error NativeTokenNotAccepted();
-    error DeregistrationAlreadyRequested(address node);
-    error NoDeregistrationRequest(address node);
-    error UnbondingPeriodActive(uint256 unlockTime, uint256 currentTime);
+    /// @notice Error thrown when performing operations on an unknown context
     error ContextNotFound(bytes32 contextUID);
+    /// @notice Error thrown when registering an empty context name
+    error EmptyContextName();
 
-    error NodeNotRegistered();
-    error PenaltyExceedsStake();
+    /// @notice Error thrown when attempting to register an invalid adapter address
+    error InvalidAdapterAddress(bytes32 contextUID);
+    /// @notice Error thrown when attempting to register an invalid schema UID
+    error InvalidSchemaUID(bytes32 contextUID);
+
+    /// @notice Error thrown when a caller doesn't have the minimum role
+    error UnauthorizedCaller(bytes32 role, address caller);
+    /// @notice Error thrown when an operation is done on a timelocked node
+    error TimelockActive(bytes32 contextUID, address node);
+    /// @notice Error thrown when
+    error UnbondingPeriodActive(bytes32 contextUID, address node, uint256 unlockTime, uint256 currentTime);
+
+    /// @notice Error thrown when a schema does not exist for a given context
+    error SchemaNotFound(bytes32 contextUID, bytes32 schemaUID);
+
+    /// @notice Error thrown when attempting to deregister twice
+    error DeregistrationAlreadyRequested(bytes32 contextUID, address node);
+    /// @notice Error thrown when
+    error NoDeregistrationRequest(bytes32 contextUID, address node);
+    /// @notice Error thrown when referencing an unregistered node
+    error NodeNotRegistered(bytes32 contextUID, address node);
+    /// @notice Error thrown when a registered nodes attempts to re-register
+    error NodeAlreadyRegistered(bytes32 contextUID, address node);
+
+    /// @notice Error thrown when a node's penalty exceeds his stake
+    error PenaltyExceedsStake(bytes32 contextUID, address node, uint256 penalty);
+    /// @notice Error thrown when stake below the minimum was provided
+    error InsufficientStake(bytes32 contextUID, address node, uint256 provided, uint256 required);
+    /// @notice Error thrown when staking in a context that does not a have a minimum stake
+    error StakeNotRequired(bytes32 contextUID);
+
+    /// @notice Error thrown
+    error NativeTokenNotAccepted(bytes32 contextUID);
+    /// @notice Error thrown when a token has already been set for the context
+    error TokenAlreadySet();
+    /// @notice Error thrown when an ether transfer fails
+    error ETHTransferFailed();
 
     // Constants ===============================================================
 
@@ -65,7 +91,7 @@ contract DRIFTCore is
     /// @notice Links the ERC-1155 token to the core registry.
     function setDriftToken(address _tokenAddress) external {
         _checkRole(DEFAULT_ADMIN_ROLE, msg.sender);
-        if (address(driftToken) != address(0)) revert TokenAlreadySet(); // Ensure it is only set once
+        if (address(driftToken) != address(0)) revert TokenAlreadySet();
 
         driftToken = IDRIFTToken(_tokenAddress);
     }
@@ -102,7 +128,7 @@ contract DRIFTCore is
         uid = keccak256(abi.encodePacked(name));
 
         if (_usedNames[uid]) {
-            revert ContextTaken();
+            revert ContextTaken(uid);
         }
 
         _usedNames[uid] = true;
@@ -141,8 +167,12 @@ contract DRIFTCore is
 
     /// @inheritdoc IDRIFTCore
     function addSchema(bytes32 contextUID, bytes32 schemaUID, address adapter) external onlyContextAdmin(contextUID) {
-        require(adapter != address(0), "DRIFT: zero adapter address");
-        require(schemaUID != bytes32(0), "DRIFT: zero schema UID");
+        if (adapter == address(0)) {
+            revert InvalidAdapterAddress(contextUID);
+        }
+        if (schemaUID == bytes32(0)) {
+            revert InvalidSchemaUID(contextUID);
+        }
 
         _acceptedSchemas[contextUID][schemaUID] = true;
         _schemaAdapters[contextUID][schemaUID] = adapter;
@@ -152,7 +182,9 @@ contract DRIFTCore is
 
     /// @inheritdoc IDRIFTCore
     function removeSchema(bytes32 contextUID, bytes32 schemaUID) external onlyContextAdmin(contextUID) {
-        require(_acceptedSchemas[contextUID][schemaUID], "DRIFT: schema not found");
+        if (!_acceptedSchemas[contextUID][schemaUID]) {
+            revert SchemaNotFound(contextUID, schemaUID);
+        }
 
         delete _acceptedSchemas[contextUID][schemaUID];
         delete _schemaAdapters[contextUID][schemaUID];
@@ -169,10 +201,12 @@ contract DRIFTCore is
             revert ContextNotActive(contextUID);
         }
 
-        require(_stakes[contextUID][msg.sender] == 0, "DRIFT: already registered");
+        if (_stakes[contextUID][msg.sender] != 0) {
+            revert NodeAlreadyRegistered(contextUID, msg.sender);
+        }
 
         if (_unlockTimes[contextUID][msg.sender] != 0) {
-            revert TimelockActive();
+            revert TimelockActive(contextUID, msg.sender);
         }
 
         uint256 staked;
@@ -181,17 +215,21 @@ contract DRIFTCore is
             if (ctx.stakeToken == address(0)) {
                 // Native ETH
                 if (msg.value < ctx.minimumStake) {
-                    revert InsufficientStake(msg.value, ctx.minimumStake);
+                    revert InsufficientStake(contextUID, msg.sender, msg.value, ctx.minimumStake);
                 }
                 staked = msg.value;
             } else {
                 // ERC-20 — caller must have approved DRIFTCore first
-                require(msg.value == 0, "DRIFT: ETH not accepted for token stake");
+                if (msg.value != 0) {
+                    revert NativeTokenNotAccepted(contextUID);
+                }
                 IERC20(ctx.stakeToken).transferFrom(msg.sender, address(this), ctx.minimumStake);
                 staked = ctx.minimumStake;
             }
         } else {
-            require(msg.value == 0, "DRIFT: no stake required");
+            if (msg.value != 0) {
+                revert StakeNotRequired(contextUID);
+            }
             staked = 1; // sentinel: registered with no stake
         }
 
@@ -205,8 +243,12 @@ contract DRIFTCore is
     ///      Step 1: requestDeregister — locks stake, starts unbonding timer.
     ///      Step 2: executeDeregister — callable after UNBONDING_PERIOD.
     function requestDeregister(bytes32 contextUID) external {
-        require(_stakes[contextUID][msg.sender] > 0, "DRIFT: not registered");
-        require(_unlockTimes[contextUID][msg.sender] == 0, "DRIFT: already requested");
+        if (_stakes[contextUID][msg.sender] == 0) {
+            revert NodeNotRegistered(contextUID, msg.sender);
+        }
+        if (_unlockTimes[contextUID][msg.sender] != 0) {
+            revert DeregistrationAlreadyRequested(contextUID, msg.sender);
+        }
 
         uint256 unlockAt = block.timestamp + UNBONDING_PERIOD;
         _unlockTimes[contextUID][msg.sender] = unlockAt;
@@ -217,8 +259,12 @@ contract DRIFTCore is
     /// @inheritdoc IDRIFTCore
     function executeDeregister(bytes32 contextUID) external nonReentrant {
         uint256 unlockAt = _unlockTimes[contextUID][msg.sender];
-        require(unlockAt != 0, "DRIFT: no deregister request");
-        require(block.timestamp >= unlockAt, "DRIFT: unbonding period active");
+        if (unlockAt == 0) {
+          revert NoDeregistrationRequest(contextUID, msg.sender);
+        }
+        if (block.timestamp < unlockAt) {
+          revert UnbondingPeriodActive(contextUID, msg.sender, block.timestamp, unlockAt);
+        }
 
         uint256 staked = _stakes[contextUID][msg.sender];
         DRIFTTypes.Context memory ctx = _contexts[contextUID];
@@ -230,7 +276,9 @@ contract DRIFTCore is
         if (staked > 1) {
             if (ctx.stakeToken == address(0)) {
                 (bool ok, ) = msg.sender.call{ value: staked }("");
-                require(ok, "DRIFT: ETH transfer failed");
+                if (!ok) {
+                  revert ETHTransferFailed();
+                }
             } else {
                 IERC20(ctx.stakeToken).transfer(msg.sender, staked);
             }
@@ -271,8 +319,8 @@ contract DRIFTCore is
     /// @inheritdoc IDRIFTCore
     function slash(bytes32 contextUID, address node, uint256 penaltyAmount) external onlyContextAdmin(contextUID) {
         uint256 currentStake = _stakes[contextUID][node];
-        if (currentStake == 0) revert NodeNotRegistered();
-        if (currentStake < penaltyAmount) revert PenaltyExceedsStake();
+        if (currentStake == 0) revert NodeNotRegistered(contextUID, node);
+        if (currentStake < penaltyAmount) revert PenaltyExceedsStake(contextUID, node, penaltyAmount);
 
         // Deduct the penalty
         uint256 newStake = currentStake - penaltyAmount;
@@ -280,7 +328,7 @@ contract DRIFTCore is
         if (newStake == 0) {
             delete _stakes[contextUID][node];
             delete _unlockTimes[contextUID][node];
-            emit NodeDeregistered(node);
+            emit NodeDeregistered(contextUID, node);
         } else {
             _stakes[contextUID][node] = newStake;
         }
@@ -298,8 +346,8 @@ contract DRIFTCore is
     }
 
     /// @inheritdoc IDRIFTCore
-    function reward(bytes32 contextUID, address node) external onlyContextAdmin(contextUID) {
-        if (_stakes[contextUID][node] == 0) revert NodeNotRegistered();
+    function reward(bytes32 contextUID, address node, uint256 reputationAmount) external onlyContextAdmin(contextUID) {
+        if (_stakes[contextUID][node] == 0) revert NodeNotRegistered(contextUID, node);
 
         // Cast Context UID to Token ID
         uint256 tokenId = uint256(contextUID);
@@ -314,13 +362,20 @@ contract DRIFTCore is
 
     /// @inheritdoc IDRIFTCore
     function getContext(bytes32 uid) external view returns (DRIFTTypes.Context memory) {
-        require(_contextExists(uid), "DRIFT: context not found");
+        if (!_contextExists(uid)) {
+          revert ContextNotFound(uid);
+        }
         return _contexts[uid];
     }
 
     /// @inheritdoc IDRIFTCore
     function getAdapter(bytes32 contextUID, bytes32 schemaUID) external view returns (address) {
         return _schemaAdapters[contextUID][schemaUID];
+    }
+
+    /// @inheritdoc IDRIFTCore
+    function getStake(bytes32 contextUID, address node) external view returns (uint256) {
+        return _stakes[contextUID][node];
     }
 
     /// @inheritdoc IDRIFTCore
