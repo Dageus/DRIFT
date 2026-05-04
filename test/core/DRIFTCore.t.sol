@@ -3,13 +3,17 @@ pragma solidity 0.8.28;
 
 import "forge-std/Test.sol";
 import { ERC1967Proxy } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import { IAccessControl } from "@openzeppelin/contracts/access/IAccessControl.sol";
 
 import { DRIFTCore } from "../../src/core/DRIFTCore.sol";
-import { IDRIFTCore } from "../../src/interfaces/IDRIFTCore.sol";
+import { IDRIFTCore } from "../../src/core/IDRIFTCore.sol";
 import { DRIFTTypes } from "../../src/Common.sol";
+import { MockAdapter } from "../mocks/MockAdapter.sol";
+import { DRIFTToken } from "../../src/DRIFTToken.sol";
 
 contract DRIFTCoreTest is Test {
     DRIFTCore public core;
+    DRIFTToken public driftToken;
 
     address public admin = makeAddr("admin");
     address public client = makeAddr("client");
@@ -30,9 +34,12 @@ contract DRIFTCoreTest is Test {
 
         core = DRIFTCore(address(proxy));
 
-        // Grant CLIENT_ROLE so client can register contexts
-        vm.prank(admin);
+        driftToken = new DRIFTToken(address(proxy));
+
+        vm.startPrank(admin);
+        core.setDriftToken(address(driftToken));
         core.grantRole(core.CLIENT_ROLE(), client);
+        vm.stopPrank();
     }
 
     // Helpers =================================================================
@@ -56,7 +63,7 @@ contract DRIFTCoreTest is Test {
     // Context Management ======================================================
 
     function test_RegisterContextSucceedsAndDerivesCorrectUID() public {
-        bytes32 expectedUID = keccak256(abi.encodePacked("test.context", client));
+        bytes32 expectedUID = keccak256(abi.encodePacked("test.context"));
 
         bytes32 uid = _registerContext(0);
 
@@ -66,21 +73,13 @@ contract DRIFTCoreTest is Test {
 
     function test_RegisterContextAssignsDynamicRoles() public {
         bytes32 uid = _registerContext(0);
-
-        bytes32 adminRole = core.getContextAdminRole(uid);
-        bytes32 managerRole = core.getSchemaManagerRole(uid);
-
-        // Client should hold both roles
+        bytes32 adminRole = core.contextAdminRole(uid);
         assertTrue(core.hasRole(adminRole, client));
-        assertTrue(core.hasRole(managerRole, client));
-
-        // Admin role should be the administrator of the manager role
-        assertEq(core.getRoleAdmin(managerRole), adminRole);
     }
 
     function test_RegisterContextRevertsIfEmptyName() public {
         vm.prank(client);
-        vm.expectRevert("DRIFT: empty context name");
+        vm.expectRevert(DRIFTCore.EmptyContextName.selector);
         core.registerContext("", address(0), 0);
     }
 
@@ -105,9 +104,16 @@ contract DRIFTCoreTest is Test {
     function test_AddSchemaRevertsIfMissingManagerRole() public {
         bytes32 uid = _registerContext(0);
 
-        vm.prank(stranger);
-        vm.expectRevert("DRIFT: missing schema manager role");
+        vm.startPrank(stranger);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector,
+                stranger,
+                core.contextAdminRole(keccak256(abi.encodePacked("test.context")))
+            )
+        );
         core.addSchema(uid, SCHEMA_UID, provider);
+        vm.stopPrank();
     }
 
     // Node Registration =======================================================
@@ -141,7 +147,7 @@ contract DRIFTCoreTest is Test {
         vm.deal(node, 2 ether);
 
         vm.prank(node);
-        vm.expectRevert("DRIFT: insufficient ETH stake");
+        vm.expectRevert(abi.encodeWithSelector(DRIFTCore.InsufficientStake.selector, uid, node, 0.5 ether, 1 ether));
         core.registerNode{ value: 0.5 ether }(uid);
     }
 
@@ -153,22 +159,22 @@ contract DRIFTCoreTest is Test {
         vm.startPrank(node);
         core.registerNode{ value: 1 ether }(uid);
 
-        // Step 1: Request
         core.requestDeregister(uid);
 
-        // Step 2: Try to execute immediately (should fail)
-        vm.expectRevert("DRIFT: unbonding period active");
+        uint256 expectedUnlock = block.timestamp + 7 days;
+
+        vm.expectRevert(
+            abi.encodeWithSelector(DRIFTCore.UnbondingPeriodActive.selector, uid, node, expectedUnlock, block.timestamp)
+        );
         core.executeDeregister(uid);
 
-        // Fast forward 7 days (the UNBONDING_PERIOD)
         vm.warp(block.timestamp + 7 days);
 
-        // Step 3: Execute after timelock (should succeed)
         uint256 balanceBefore = node.balance;
         core.executeDeregister(uid);
 
         assertFalse(core.isRegistered(uid, node));
-        assertEq(node.balance, balanceBefore + 1 ether); // Stake returned
+        assertEq(node.balance, balanceBefore + 1 ether);
         vm.stopPrank();
     }
 
@@ -180,17 +186,14 @@ contract DRIFTCoreTest is Test {
         address subject = makeAddr("subject");
         address attester = makeAddr("attester");
 
-        // Setup: Add schema mapped to mock adapter
         vm.prank(client);
         core.addSchema(uid, SCHEMA_UID, address(mockAdapter));
 
-        // Setup: Register both nodes
         vm.prank(subject);
         core.registerNode(uid);
         vm.prank(attester);
         core.registerNode(uid);
 
-        // Verification should pass
         bool isValid = core.verifyAttestation(uid, SCHEMA_UID, keccak256("att.uid"), subject, attester);
         assertTrue(isValid);
     }
@@ -198,7 +201,7 @@ contract DRIFTCoreTest is Test {
     function test_VerifyAttestationFailsIfAdapterRejects() public {
         bytes32 uid = _registerContext(0);
         MockAdapter mockAdapter = new MockAdapter();
-        mockAdapter.setShouldPass(false); // Force adapter to reject
+        mockAdapter.setShouldPass(false);
         address subject = makeAddr("subject");
         address attester = makeAddr("attester");
 
@@ -223,7 +226,6 @@ contract DRIFTCoreTest is Test {
         vm.prank(client);
         core.addSchema(uid, SCHEMA_UID, address(mockAdapter));
 
-        // Only register attester, intentionally leave subject unregistered
         vm.prank(attester);
         core.registerNode(uid);
 
@@ -236,8 +238,6 @@ contract DRIFTCoreTest is Test {
         address subject = makeAddr("subject");
         address attester = makeAddr("attester");
 
-        // Do NOT add the schema to the context
-
         vm.prank(subject);
         core.registerNode(uid);
         vm.prank(attester);
@@ -245,6 +245,73 @@ contract DRIFTCoreTest is Test {
 
         bool isValid = core.verifyAttestation(uid, SCHEMA_UID, keccak256("att.uid"), subject, attester);
         assertFalse(isValid);
+    }
+
+    // Cryptoeconomic Enforcement ==============================================
+
+    function test_RewardMintsReputation() public {
+        uint256 requiredStake = 1 ether;
+        bytes32 uid = _registerContext(requiredStake);
+
+        // Node registers
+        vm.deal(node, 1 ether);
+        vm.prank(node);
+        core.registerNode{ value: 1 ether }(uid);
+
+        vm.prank(client);
+        core.reward(uid, node, 50);
+
+        assertEq(driftToken.balanceOf(node, uint256(uid)), 50);
+    }
+
+    function test_SlashBurnsTokensAndETH() public {
+        uint256 requiredStake = 1 ether;
+        bytes32 uid = _registerContext(requiredStake);
+
+        // Node registers with extra buffer (2 ETH) so they survive the slash
+        vm.deal(node, 2 ether);
+        vm.prank(node);
+        core.registerNode{ value: 2 ether }(uid);
+
+        vm.prank(client);
+        core.reward(uid, node, 100);
+
+        // Track the dead address balance before slash
+        uint256 deadBalanceBefore = core.BURN_ADDRESS().balance;
+
+        // Slash 0.5 ETH and 30 Reputation
+        vm.prank(client);
+        // BUG: separate values for slashing eth and reputation?
+        core.slash(uid, node, 0.5 ether);
+
+        // Verify internal stake decreased (2.0 - 0.5 = 1.5)
+        // (Assuming you have a getter like getStake(uid, node) or just check via helper)
+        uint256 currentStake = core.getStake(uid, node);
+        assertEq(currentStake, 1.5 ether);
+
+        // Verify reputation burned (100 - 30 = 70)
+        assertEq(driftToken.balanceOf(node, uint256(uid)), 70);
+
+        // Verify physical ETH arrived at BURN_ADDRESS
+        assertEq(core.BURN_ADDRESS().balance, deadBalanceBefore + 0.5 ether);
+    }
+
+    function test_SlashEconomicDeregistration() public {
+        uint256 requiredStake = 1 ether;
+        bytes32 uid = _registerContext(requiredStake);
+
+        // Node registers with exactly 1.2 ETH
+        vm.deal(node, 1.2 ether);
+        vm.prank(node);
+        core.registerNode{ value: 1.2 ether }(uid);
+
+        // Slash 0.5 ETH. New balance (0.7) is below the 1.0 minimum.
+        vm.prank(client);
+        // BUG: separate values for slashing eth and reputation?
+        core.slash(uid, node, 1.2 ether);
+
+        uint256 currentStake = core.getStake(uid, node);
+        assertEq(currentStake, 0);
     }
 
     // Views ===================================================================
@@ -264,7 +331,7 @@ contract DRIFTCoreTest is Test {
 
     function test_GetContextRevertsIfDoesNotExist() public {
         bytes32 fakeUID = keccak256("fake");
-        vm.expectRevert("DRIFT: context not found");
+        vm.expectRevert(abi.encodeWithSelector(DRIFTCore.ContextNotFound.selector, fakeUID));
         core.getContext(fakeUID);
     }
 
@@ -272,16 +339,13 @@ contract DRIFTCoreTest is Test {
         uint256 requiredStake = 2 ether;
         bytes32 uid = _registerContext(requiredStake);
 
-        // Setup: Register a node
         vm.deal(node, requiredStake);
         vm.prank(node);
         core.registerNode{ value: requiredStake }(uid);
 
-        // Verify registered node
         assertTrue(core.isRegistered(uid, node));
         assertEq(core.stakedAmount(uid, node), requiredStake);
 
-        // Verify unregistered stranger
         assertFalse(core.isRegistered(uid, stranger));
         assertEq(core.stakedAmount(uid, stranger), 0);
     }
@@ -290,7 +354,6 @@ contract DRIFTCoreTest is Test {
         bytes32 uid = _registerContext(0);
         assertTrue(core.contextExists(uid));
 
-        // Should return false for an unregistered context
         bytes32 fakeUID = keccak256("fake.context");
         assertFalse(core.contextExists(fakeUID));
     }

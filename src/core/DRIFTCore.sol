@@ -260,10 +260,10 @@ contract DRIFTCore is
     function executeDeregister(bytes32 contextUID) external nonReentrant {
         uint256 unlockAt = _unlockTimes[contextUID][msg.sender];
         if (unlockAt == 0) {
-          revert NoDeregistrationRequest(contextUID, msg.sender);
+            revert NoDeregistrationRequest(contextUID, msg.sender);
         }
         if (block.timestamp < unlockAt) {
-          revert UnbondingPeriodActive(contextUID, msg.sender, block.timestamp, unlockAt);
+            revert UnbondingPeriodActive(contextUID, msg.sender, unlockAt, block.timestamp);
         }
 
         uint256 staked = _stakes[contextUID][msg.sender];
@@ -277,7 +277,7 @@ contract DRIFTCore is
             if (ctx.stakeToken == address(0)) {
                 (bool ok, ) = msg.sender.call{ value: staked }("");
                 if (!ok) {
-                  revert ETHTransferFailed();
+                    revert ETHTransferFailed();
                 }
             } else {
                 IERC20(ctx.stakeToken).transfer(msg.sender, staked);
@@ -363,7 +363,7 @@ contract DRIFTCore is
     /// @inheritdoc IDRIFTCore
     function getContext(bytes32 uid) external view returns (DRIFTTypes.Context memory) {
         if (!_contextExists(uid)) {
-          revert ContextNotFound(uid);
+            revert ContextNotFound(uid);
         }
         return _contexts[uid];
     }
