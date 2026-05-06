@@ -20,11 +20,8 @@ abstract contract DRIFTCoreStorage {
     // Context UID => schema UID => adapter address
     mapping(bytes32 => mapping(bytes32 => address)) internal _schemaAdapters;
 
-    // Context UID => agent/node => stake
-    mapping(bytes32 => mapping(address => uint256)) internal _stakes;
-
-    // Context UID => Node => Unlock Timestamp
-    mapping(bytes32 => mapping(address => uint256)) internal _unlockTimes;
+    // Context UID => agent/node => is registered
+    mapping(bytes32 => mapping(address => bool)) internal _isRegistered;
 
     /// @dev Reserved storage slots for future upgrades.
     ///      Each variable added above must reduce this by its slot count.

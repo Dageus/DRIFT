@@ -44,10 +44,9 @@ contract DRIFTCoreTest is Test {
 
     // Helpers =================================================================
 
-    function _registerContext(uint256 minStake) internal returns (bytes32 uid) {
+    function _registerContext() internal returns (bytes32 uid) {
         vm.prank(client);
-        // address(0) indicates native ETH for staking
-        uid = core.registerContext("test.context", address(0), minStake);
+        uid = core.registerContext("test.context");
     }
 
     // Initialization & Global Roles ===========================================
@@ -65,14 +64,14 @@ contract DRIFTCoreTest is Test {
     function test_RegisterContextSucceedsAndDerivesCorrectUID() public {
         bytes32 expectedUID = keccak256(abi.encodePacked("test.context"));
 
-        bytes32 uid = _registerContext(0);
+        bytes32 uid = _registerContext();
 
         assertEq(uid, expectedUID);
         assertTrue(core.contextExists(uid));
     }
 
     function test_RegisterContextAssignsDynamicRoles() public {
-        bytes32 uid = _registerContext(0);
+        bytes32 uid = _registerContext();
         bytes32 adminRole = core.contextAdminRole(uid);
         assertTrue(core.hasRole(adminRole, client));
     }
@@ -80,19 +79,19 @@ contract DRIFTCoreTest is Test {
     function test_RegisterContextRevertsIfEmptyName() public {
         vm.prank(client);
         vm.expectRevert(DRIFTCore.EmptyContextName.selector);
-        core.registerContext("", address(0), 0);
+        core.registerContext("");
     }
 
     function test_RegisterContextRevertsIfNotClient() public {
         vm.prank(stranger);
         vm.expectRevert();
-        core.registerContext("test.context", address(0), 0);
+        core.registerContext("test.context");
     }
 
     // Schema Management =======================================================
 
     function test_AddSchemaSucceeds() public {
-        bytes32 uid = _registerContext(0);
+        bytes32 uid = _registerContext();
 
         vm.prank(client);
         vm.expectEmit(true, true, true, false);
@@ -102,7 +101,7 @@ contract DRIFTCoreTest is Test {
     }
 
     function test_AddSchemaRevertsIfMissingManagerRole() public {
-        bytes32 uid = _registerContext(0);
+        bytes32 uid = _registerContext();
 
         vm.startPrank(stranger);
         vm.expectRevert(
@@ -119,7 +118,7 @@ contract DRIFTCoreTest is Test {
     // Node Registration =======================================================
 
     function test_RegisterNodeSucceedsWithNoStakeRequired() public {
-        bytes32 uid = _registerContext(0);
+        bytes32 uid = _registerContext();
 
         vm.prank(node);
         core.registerNode(uid);
@@ -127,61 +126,10 @@ contract DRIFTCoreTest is Test {
         assertTrue(core.isRegistered(uid, node));
     }
 
-    function test_RegisterNodeSucceedsWithETHStake() public {
-        uint256 requiredStake = 1 ether;
-        bytes32 uid = _registerContext(requiredStake);
-
-        vm.deal(node, 2 ether);
-
-        vm.prank(node);
-        core.registerNode{ value: requiredStake }(uid);
-
-        assertTrue(core.isRegistered(uid, node));
-        assertEq(core.stakedAmount(uid, node), requiredStake);
-    }
-
-    function test_RegisterNodeRevertsIfInsufficientStake() public {
-        uint256 requiredStake = 1 ether;
-        bytes32 uid = _registerContext(requiredStake);
-
-        vm.deal(node, 2 ether);
-
-        vm.prank(node);
-        vm.expectRevert(abi.encodeWithSelector(DRIFTCore.InsufficientStake.selector, uid, node, 0.5 ether, 1 ether));
-        core.registerNode{ value: 0.5 ether }(uid);
-    }
-
-    function test_DeregisterEnforcesTimelock() public {
-        uint256 requiredStake = 1 ether;
-        bytes32 uid = _registerContext(requiredStake);
-
-        vm.deal(node, 1 ether);
-        vm.startPrank(node);
-        core.registerNode{ value: 1 ether }(uid);
-
-        core.requestDeregister(uid);
-
-        uint256 expectedUnlock = block.timestamp + 7 days;
-
-        vm.expectRevert(
-            abi.encodeWithSelector(DRIFTCore.UnbondingPeriodActive.selector, uid, node, expectedUnlock, block.timestamp)
-        );
-        core.executeDeregister(uid);
-
-        vm.warp(block.timestamp + 7 days);
-
-        uint256 balanceBefore = node.balance;
-        core.executeDeregister(uid);
-
-        assertFalse(core.isRegistered(uid, node));
-        assertEq(node.balance, balanceBefore + 1 ether);
-        vm.stopPrank();
-    }
-
     // Trust Verification ======================================================
 
     function test_VerifyAttestationSucceeds() public {
-        bytes32 uid = _registerContext(0);
+        bytes32 uid = _registerContext();
         MockAdapter mockAdapter = new MockAdapter();
         address subject = makeAddr("subject");
         address attester = makeAddr("attester");
@@ -199,7 +147,7 @@ contract DRIFTCoreTest is Test {
     }
 
     function test_VerifyAttestationFailsIfAdapterRejects() public {
-        bytes32 uid = _registerContext(0);
+        bytes32 uid = _registerContext();
         MockAdapter mockAdapter = new MockAdapter();
         mockAdapter.setShouldPass(false);
         address subject = makeAddr("subject");
@@ -218,7 +166,7 @@ contract DRIFTCoreTest is Test {
     }
 
     function test_VerifyAttestationFailsIfSubjectNotRegistered() public {
-        bytes32 uid = _registerContext(0);
+        bytes32 uid = _registerContext();
         MockAdapter mockAdapter = new MockAdapter();
         address subject = makeAddr("subject");
         address attester = makeAddr("attester");
@@ -234,7 +182,7 @@ contract DRIFTCoreTest is Test {
     }
 
     function test_VerifyAttestationFailsIfSchemaNotAccepted() public {
-        bytes32 uid = _registerContext(0);
+        bytes32 uid = _registerContext();
         address subject = makeAddr("subject");
         address attester = makeAddr("attester");
 
@@ -250,13 +198,11 @@ contract DRIFTCoreTest is Test {
     // Cryptoeconomic Enforcement ==============================================
 
     function test_RewardMintsReputation() public {
-        uint256 requiredStake = 1 ether;
-        bytes32 uid = _registerContext(requiredStake);
+        bytes32 uid = _registerContext();
 
         // Node registers
-        vm.deal(node, 1 ether);
         vm.prank(node);
-        core.registerNode{ value: 1 ether }(uid);
+        core.registerNode(uid);
 
         vm.prank(client);
         core.reward(uid, node, 50);
@@ -265,59 +211,26 @@ contract DRIFTCoreTest is Test {
     }
 
     function test_SlashBurnsTokensAndETH() public {
-        uint256 requiredStake = 1 ether;
-        bytes32 uid = _registerContext(requiredStake);
+        bytes32 uid = _registerContext();
 
-        // Node registers with extra buffer (2 ETH) so they survive the slash
-        vm.deal(node, 2 ether);
         vm.prank(node);
-        core.registerNode{ value: 2 ether }(uid);
+        core.registerNode(uid);
 
         vm.prank(client);
         core.reward(uid, node, 100);
 
-        // Track the dead address balance before slash
-        uint256 deadBalanceBefore = core.BURN_ADDRESS().balance;
-
-        // Slash 0.5 ETH and 30 Reputation
+        // Slash 30 Reputation
         vm.prank(client);
-        // BUG: separate values for slashing eth and reputation?
-        core.slash(uid, node, 0.5 ether);
-
-        // Verify internal stake decreased (2.0 - 0.5 = 1.5)
-        // (Assuming you have a getter like getStake(uid, node) or just check via helper)
-        uint256 currentStake = core.getStake(uid, node);
-        assertEq(currentStake, 1.5 ether);
+        core.slash(uid, node, 30);
 
         // Verify reputation burned (100 - 30 = 70)
         assertEq(driftToken.balanceOf(node, uint256(uid)), 70);
-
-        // Verify physical ETH arrived at BURN_ADDRESS
-        assertEq(core.BURN_ADDRESS().balance, deadBalanceBefore + 0.5 ether);
-    }
-
-    function test_SlashEconomicDeregistration() public {
-        uint256 requiredStake = 1 ether;
-        bytes32 uid = _registerContext(requiredStake);
-
-        // Node registers with exactly 1.2 ETH
-        vm.deal(node, 1.2 ether);
-        vm.prank(node);
-        core.registerNode{ value: 1.2 ether }(uid);
-
-        // Slash 0.5 ETH. New balance (0.7) is below the 1.0 minimum.
-        vm.prank(client);
-        // BUG: separate values for slashing eth and reputation?
-        core.slash(uid, node, 1.2 ether);
-
-        uint256 currentStake = core.getStake(uid, node);
-        assertEq(currentStake, 0);
     }
 
     // Views ===================================================================
 
     function test_GetContextReturnsCorrectData() public {
-        bytes32 uid = _registerContext(1 ether);
+        bytes32 uid = _registerContext();
 
         DRIFTTypes.Context memory ctx = core.getContext(uid);
 
@@ -325,8 +238,6 @@ contract DRIFTCoreTest is Test {
         assertEq(ctx.name, "test.context");
         assertEq(ctx.owner, client);
         assertTrue(ctx.active);
-        assertEq(ctx.minimumStake, 1 ether);
-        assertEq(ctx.stakeToken, address(0));
     }
 
     function test_GetContextRevertsIfDoesNotExist() public {
@@ -336,22 +247,17 @@ contract DRIFTCoreTest is Test {
     }
 
     function test_StakedAmountAndIsRegistered() public {
-        uint256 requiredStake = 2 ether;
-        bytes32 uid = _registerContext(requiredStake);
+        bytes32 uid = _registerContext();
 
-        vm.deal(node, requiredStake);
         vm.prank(node);
-        core.registerNode{ value: requiredStake }(uid);
+        core.registerNode(uid);
 
         assertTrue(core.isRegistered(uid, node));
-        assertEq(core.stakedAmount(uid, node), requiredStake);
-
         assertFalse(core.isRegistered(uid, stranger));
-        assertEq(core.stakedAmount(uid, stranger), 0);
     }
 
     function test_ContextExists() public {
-        bytes32 uid = _registerContext(0);
+        bytes32 uid = _registerContext();
         assertTrue(core.contextExists(uid));
 
         bytes32 fakeUID = keccak256("fake.context");

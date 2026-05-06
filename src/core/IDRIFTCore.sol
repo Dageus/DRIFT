@@ -21,10 +21,7 @@ interface IDRIFTCore {
     event SchemaRemoved(bytes32 indexed contextUID, bytes32 indexed schemaUID);
 
     /// @notice Emitted when a node registers into a context.
-    event NodeRegistered(bytes32 indexed contextUID, address indexed node, uint256 stakedAmount);
-
-    /// @notice Emitted when a node requests a deregister.
-    event DeregisterRequested(bytes32 indexed contextUID, address indexed node, uint256 unlockAt);
+    event NodeRegistered(bytes32 indexed contextUID, address indexed node);
 
     /// @notice Emitted when a node withdraws and leaves a context.
     event NodeDeregistered(bytes32 indexed contextUID, address indexed node);
@@ -39,14 +36,8 @@ interface IDRIFTCore {
 
     /// @notice Register a new reputation context.
     /// @param  name          Human-readable name, unique per owner.
-    /// @param  stakeToken    ERC-20 token used for stake. address(0) for ETH.
-    /// @param  minimumStake  Minimum stake required to join. 0 for no requirement.
     /// @return uid           The context's unique identifier.
-    function registerContext(
-        string calldata name,
-        address stakeToken,
-        uint256 minimumStake
-    ) external returns (bytes32 uid);
+    function registerContext(string calldata name) external returns (bytes32 uid);
 
     /// @notice Deactivate a context. Existing node stakes are preserved.
     function deactivateContext(bytes32 contextUID) external;
@@ -77,15 +68,10 @@ interface IDRIFTCore {
     /// @param  contextUID  The context to join.
     function registerNode(bytes32 contextUID) external payable;
 
-    /// @notice Request deregister from a context and lock stake.
+    /// @notice Deregister from a context.
     ///         Node's past attestations remain in EAS but will be
     ///         ignored by the off-chain indexer going forward.
-    function requestDeregister(bytes32 contextUID) external;
-
-    /// @notice Deregister from a context and withdraw stake.
-    ///         Node's past attestations remain in EAS but will be
-    ///         ignored by the off-chain indexer going forward.
-    function executeDeregister(bytes32 contextUID) external;
+    function deregisterNode(bytes32 contextUID) external;
 
     // Trust verification ======================================================
 
@@ -121,13 +107,6 @@ interface IDRIFTCore {
 
     /// @notice Returns the adapter for the given schema.
     function getAdapter(bytes32 contextUID, bytes32 schemaUID) external view returns (address);
-
-    /// @notice Returns the financial stake of node in context.
-    function getStake(bytes32 contextUID, address node) external view returns (uint256);
-
-    /// @notice Returns the staked amount for a node in a context.
-    ///         Returns 0 if not registered.
-    function stakedAmount(bytes32 contextUID, address node) external view returns (uint256);
 
     /// @notice Returns true if a node is registered in a context.
     function isRegistered(bytes32 contextUID, address node) external view returns (bool);

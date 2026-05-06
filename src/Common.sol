@@ -8,8 +8,6 @@ library DRIFTTypes {
         bytes32 uid; // keccak256(name + owner) ?
         string name; // "depin.helium"
         address owner; // who manages this context
-        address stakeToken; // ERC-20 token used for staking, address(0) if none
-        uint256 minimumStake; // minimum balance required to be a valid subject
         bool active;
     }
 }
