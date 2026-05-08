@@ -199,10 +199,15 @@ contract DRIFTCore is Initializable, AccessControlUpgradeable, UUPSUpgradeable, 
     // Cryptoeconomic Enforcement ==============================================
 
     /// @inheritdoc IDRIFTCore
-    function slash(bytes32 contextUID, address node, uint256 penaltyAmount) external onlyContextAdmin(contextUID) {
+    function slash(
+        bytes32 contextUID,
+        bytes32 role,
+        address node,
+        uint256 penaltyAmount
+    ) external onlyContextAdmin(contextUID) {
         if (!_isRegistered[contextUID][node]) revert NodeNotRegistered(contextUID, node);
 
-        uint256 tokenId = uint256(contextUID);
+        uint256 tokenId = uint256(keccak256(abi.encode(contextUID, role)));
 
         _isRegistered[contextUID][node] = false;
 
@@ -215,11 +220,16 @@ contract DRIFTCore is Initializable, AccessControlUpgradeable, UUPSUpgradeable, 
     }
 
     /// @inheritdoc IDRIFTCore
-    function reward(bytes32 contextUID, address node, uint256 reputationAmount) external onlyContextAdmin(contextUID) {
+    function reward(
+        bytes32 contextUID,
+        bytes32 role,
+        address node,
+        uint256 reputationAmount
+    ) external onlyContextAdmin(contextUID) {
         if (!_isRegistered[contextUID][node]) revert NodeNotRegistered(contextUID, node);
 
         // Cast Context UID to Token ID
-        uint256 tokenId = uint256(contextUID);
+        uint256 tokenId = uint256(keccak256(abi.encode(contextUID, role)));
 
         // Mint reputation
         driftToken.rewardReputation(node, tokenId, reputationAmount);

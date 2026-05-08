@@ -94,11 +94,11 @@ interface IDRIFTCore {
 
     /// @notice Slashes a registered node's stake.
     ///         Only callable by the context administrator.
-    function slash(bytes32 contextUID, address node, uint256 penaltyAmount) external;
+    function slash(bytes32 contextUID, bytes32 role, address node, uint256 penaltyAmount) external;
 
     /// @notice Rewards a node (placeholder for MVP).
     ///         Only callable by the context administrator.
-    function reward(bytes32 contextUID, address node, uint256 reputationAmount) external;
+    function reward(bytes32 contextUID, bytes32 role, address node, uint256 reputationAmount) external;
 
     // Views ===================================================================
 
