@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import { IAttestationProvider } from "../interfaces/IAttestationProvider.sol";
+import { IAttestationProvider } from "./IAttestationProvider.sol";
 
 /// @dev EAS interface
 interface IEAS {
