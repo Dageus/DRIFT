@@ -205,7 +205,8 @@ contract DRIFTCoreTest is Test {
         core.registerNode(uid);
 
         vm.prank(client);
-        core.reward(uid, node, 50);
+        // BUG: no role? empty string? bad API design
+        core.reward(uid, "", node, 50);
 
         assertEq(driftToken.balanceOf(node, uint256(uid)), 50);
     }
@@ -217,11 +218,13 @@ contract DRIFTCoreTest is Test {
         core.registerNode(uid);
 
         vm.prank(client);
-        core.reward(uid, node, 100);
+        // BUG: no role? empty string? bad API design
+        core.reward(uid, "", node, 100);
 
         // Slash 30 Reputation
         vm.prank(client);
-        core.slash(uid, node, 30);
+        // BUG: no role? empty string? bad API design
+        core.slash(uid, "", node, 30);
 
         // Verify reputation burned (100 - 30 = 70)
         assertEq(driftToken.balanceOf(node, uint256(uid)), 70);

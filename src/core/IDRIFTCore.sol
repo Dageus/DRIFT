@@ -3,9 +3,11 @@ pragma solidity 0.8.28;
 
 import { DRIFTTypes } from "../Common.sol";
 
+import { IAccessControl } from "@openzeppelin/contracts/access/IAccessControl.sol";
+
 /// @title  IDRIFTCore
 /// @notice DRIFT - Decentralized Reputation Infrastructure for Trust interface
-interface IDRIFTCore {
+interface IDRIFTCore is IAccessControl {
     // Events ==================================================================
 
     /// @notice Emitted when a new context is registered.

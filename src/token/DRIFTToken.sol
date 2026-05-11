@@ -2,6 +2,8 @@
 pragma solidity 0.8.28;
 
 import { ERC1155 } from "@openzeppelin/contracts/token/ERC1155/ERC1155.sol";
+import { IERC1155 } from "@openzeppelin/contracts/token/ERC1155/IERC1155.sol";
+
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { IDRIFTToken } from "./IDRIFTToken.sol";
 
@@ -25,7 +27,7 @@ contract DRIFTToken is ERC1155, Ownable, IDRIFTToken {
         uint256 id,
         uint256 amount,
         bytes memory data
-    ) public virtual override {
+    ) public virtual override(ERC1155, IERC1155) {
         revert("Non-transmissible token: Transfers are disabled.");
     }
 
@@ -35,7 +37,7 @@ contract DRIFTToken is ERC1155, Ownable, IDRIFTToken {
         uint256[] memory ids,
         uint256[] memory amounts,
         bytes memory data
-    ) public virtual override {
+    ) public virtual override(ERC1155, IERC1155) {
         revert("Non-transmissible token: Transfers are disabled.");
     }
 
