@@ -6,10 +6,10 @@ import { UUPSUpgradeable } from "@openzeppelin/contracts-upgradeable/proxy/utils
 import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
 import { IDRIFTCore } from "./IDRIFTCore.sol";
-import { IAttestationProvider } from "../interfaces/IAttestationProvider.sol";
+import { IAttestationProvider } from "../providers/IAttestationProvider.sol";
 import { DRIFTCoreStorage } from "./DRIFTCoreStorage.sol";
 import { DRIFTTypes } from "../Common.sol";
-import { IDRIFTToken } from "../IDRIFTToken.sol";
+import { IDRIFTToken } from "../token/IDRIFTToken.sol";
 
 /// @title  DRIFTCore
 /// @notice Central DRIFT registry.

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import { IAttestationProvider } from "../../src/interfaces/IAttestationProvider.sol";
+import { IAttestationProvider } from "../../src/providers/IAttestationProvider.sol";
 
 contract MockAdapter is IAttestationProvider {
     bool public shouldPass = true;

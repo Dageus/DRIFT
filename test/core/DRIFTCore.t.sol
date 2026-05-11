@@ -9,7 +9,7 @@ import { DRIFTCore } from "../../src/core/DRIFTCore.sol";
 import { IDRIFTCore } from "../../src/core/IDRIFTCore.sol";
 import { DRIFTTypes } from "../../src/Common.sol";
 import { MockAdapter } from "../mocks/MockAdapter.sol";
-import { DRIFTToken } from "../../src/DRIFTToken.sol";
+import { DRIFTToken } from "../../src/token/DRIFTToken.sol";
 
 contract DRIFTCoreTest is Test {
     DRIFTCore public core;
