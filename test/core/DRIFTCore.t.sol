@@ -206,12 +206,14 @@ contract DRIFTCoreTest is Test {
 
         vm.prank(client);
         // BUG: no role? empty string? bad API design
-        core.reward(uid, "", node, 50);
+        core.reward(uid, bytes32(0), node, 50);
 
-        assertEq(driftToken.balanceOf(node, uint256(uid)), 50);
+        uint256 expectedTokenId = uint256(keccak256(abi.encode(uid, bytes32(0))));
+
+        assertEq(driftToken.balanceOf(node, expectedTokenId), 50);
     }
 
-    function test_SlashBurnsTokensAndETH() public {
+    function test_SlashBurnsTokens() public {
         bytes32 uid = _registerContext();
 
         vm.prank(node);
@@ -219,15 +221,17 @@ contract DRIFTCoreTest is Test {
 
         vm.prank(client);
         // BUG: no role? empty string? bad API design
-        core.reward(uid, "", node, 100);
+        core.reward(uid, bytes32(0), node, 100);
 
         // Slash 30 Reputation
         vm.prank(client);
         // BUG: no role? empty string? bad API design
-        core.slash(uid, "", node, 30);
+        core.slash(uid, bytes32(0), node, 30);
 
         // Verify reputation burned (100 - 30 = 70)
-        assertEq(driftToken.balanceOf(node, uint256(uid)), 70);
+        uint256 expectedTokenId = uint256(keccak256(abi.encode(uid, bytes32(0))));
+
+        assertEq(driftToken.balanceOf(node, expectedTokenId), 70);
     }
 
     // Views ===================================================================
