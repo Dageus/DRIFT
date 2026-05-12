@@ -8,7 +8,6 @@
 ![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)
 ![Ethereum](https://img.shields.io/badge/Ethereum-3C3C3D?logo=ethereum&logoColor=white)
 ![Foundry](https://img.shields.io/badge/Built%20with-Foundry-orange?style=flat-square)
-![Hardhat](https://img.shields.io/badge/Built%20with-Hardhat-yellow?style=flat-square)
 
 </div>
 
@@ -44,9 +43,7 @@ Each context defines:
 
 - Which **adapter** verifies each schema
 
-- The **minimum stake** required for nodes to participate
-
-- A set of **context admins** (via OZ AccessControl) who can manage the context
+- A set of **admins** (via OZ AccessControl) who can manage the context
 
 Contexts are globally unique by name. The UID is derived as `keccak256(name)`,
 making it deterministic and human-derivable off-chain.
@@ -54,11 +51,9 @@ making it deterministic and human-derivable off-chain.
 ### Schema
 
 A schema defines the structure of an attestation's data payload.
-DRIFT does not store schema definitions — those live in the chosen attestation provider
-(e.g. EAS's `SchemaRegistry`).
+DRIFT does not store schema definitions — those live in the chosen attestation provider (e.g. EAS's `SchemaRegistry`).
 
 DRIFT only stores whether a schema is **accepted within a given context**, referenced by its UID.
-
 
 ### Adapter
 
@@ -68,52 +63,141 @@ verification logic into DRIFT's `isValid()` interface.
 
 DRIFT ships with a built-in **EAS adapter**.
 
+### Node
 
-### Node Registration
+Any entity (a user wallet, an off-chain server, or a sub-DAO) that registers within a Context to earn reputation.
 
-Any address may join a context by calling `registerNode(contextUID)` and providing the required stake.
-Registered nodes may attest about other registered nodes in EAS.
-Attestations from unregistered addresses are ignored by DRIFT's off-chain indexer.
+### Role
 
-Deregistration is a **two-step process**:
+A specific subset within a Context (e.g., `STUDENT` or `MODERATOR`).
+Reputation is mathematically scoped to a specific Context + Role pair.
 
-- `requestDeregister()` starts an unbonding period (7 days by default)
+### DRIFT Client / Template
 
-- `executeDeregister()` releases the stake.
+The execution layer (e.g., `WeightedGovernanceClient`).
+These are modular, isolated smart contracts plugged into the Core. They define how reputation is used within a specific Context.
 
-This prevents a node from submitting malicious attestations and immediately exiting
-before any slashing mechanism can act.
+## Design Decisions
 
+**Why not store attestations on-chain?**
 
-### Trust Verification
+TODO
 
-`verifyAttestation()` is DRIFT's core on-chain primitive.
-Given a context, schema, attestation UID, subject, and attester, it checks:
+**Why off-chain reputation computation?**
 
-1. The context is active
+TODO
 
-2. The schema is accepted in this context
+**Why ERC-1155 for reputation tokens?**
 
-3. The attester is a registered node
+TODO
 
-4. The subject is a registered node
+**Why soulbound tokens?**
 
-5. The registered adapter validates the attestation UID
+TODO
+
+## System Architecture
+
+### Contract Design
+
+```mermaid
+graph TB
+    subgraph OffChain ["Off-Chain Environment"]
+        DATA["Attestation & Data Registries"]:::offchainNode
+        SDK["DRIFT SDK<br/>- Reads raw data<br/>- Runs reputation algorithm<br/>- Generates EIP-712 Signatures"]:::offchainNode
+    end
+
+    subgraph OnChain ["On-Chain Ecosystem"]
+        CORE["DRIFTCore (Registry & Firewall)<br/>- Node & Context Management<br/>- Role Authorization"]:::onchainNode
+
+        TOKEN["DRIFTToken (ERC-1155)<br/>• Soulbound Ledger<br/>- Sole Authority: DRIFTCore"]:::onchainNode
+
+        subgraph Clients ["DRIFT Client Modules (Execution Logic)"]
+            BC["Business Client<br/>- Schema & Threshold policies"]:::onchainNode
+            WG["Governance Client<br/>- Context-specific voting weights"]:::onchainNode
+            CC["Cross-Context Client<br/>- Multi-context aggregation"]:::onchainNode
+        end
+
+        subgraph Consumers ["External Integrations"]
+            DAO["DAO Tooling<br/>- e.g., Snapshot, Tally"]:::consumerNode
+            DEFI["DeFi Protocols<br/>- e.g., Undercollateralized Loans"]:::consumerNode
+        end
+    end
+
+    %% Flow of Reputation (Write)
+    DATA -.-> SDK
+    SDK ==>|"1. Submit Signed Payload (settleReputation)"| Clients
+    Clients -->|"2. Verify Sig & Request Mint/Slash"| CORE
+    CORE -->|"3. Execute State Change"| TOKEN
+
+    %% Flow of Consumption (Read)
+    DAO --> WG
+    DAO --> CC
+    WG -.->|"Reads balance & applies math"| TOKEN
+    CC -.->|"Reads balance & applies math"| TOKEN
+    DEFI -.->|"Reads balance & assesses risk"| TOKEN
+
+```
+
+### Reputation Lifetime
+
+```mermaid
+graph TD
+    %% Data Sources (Left)
+    subgraph DataSources [External Data Environment]
+        A1[Attestation Registries<br/>e.g., EAS, Verax]:::userNode
+        %% A2[Web2 Proofs & Oracles<br/>e.g., zkTLS, Chainlink]:::userNode
+    end
+
+    %% Off-Chain SDK (Middle)
+    subgraph OffChain [Off-Chain Computation SDK]
+        B1(Data Aggregator):::offchainNode
+        B2{Context-Specific Algorithm}:::offchainNode
+        B3(Trusted Settler Signer):::offchainNode
+
+        B1 --> |Reads On-Chain Attestations| B2
+        B1 --> |Verifies Zero-Knowledge Proofs| B2
+        B2 --> |Calculates Reputation Delta| B3
+        B3 --> |Generates EIP-712 Signature| B4[SettleReputation Payload]:::offchainNode
+    end
+
+    %% On-Chain DRIFT (Right)
+    subgraph OnChain [DRIFT On-Chain Protocol]
+        C1[DRIFT Client<br/>e.g., Governance, Rewards]:::onchainNode
+        C2[DRIFTCore<br/>Registry & Firewall]:::onchainNode
+        C3[(DRIFTToken<br/>ERC-1155 Ledger)]:::onchainNode
+
+        C1 --> |1. Verifies EIP-712 Signature<br/>2. Calls core.reward/slash| C2
+        C2 --> |Hashes Context + Role<br/>Mints/Burns Soulbound Tokens| C3
+    end
+
+    %% Client Execution (Bottom)
+    subgraph Execution [Client Application/Execution]
+        D1[User Interaction<br/>e.g., Cast Vote, Claim Reward]:::userNode
+        D2[Client Engine<br/>Applies Context Logic & Multipliers]:::onchainNode
+        D3[Execute Action<br/>e.g., DAO Execution, Payout]:::onchainNode
+
+        D1 --> C1
+        C1 --> |Reads Reputation Power| D2
+        D2 --> |Checks Balances| C3
+        D2 --> |Thresholds Met| D3
+    end
+
+    %% Connections
+    A1 -.-> B1
+    %% A2 -.-> B1
+    B4 ==> |Relayer submits transaction| C1
+
+```
+
 
 ## Implementing a Client Contract
 
 DRIFT is designed to be plug-and-play for DAOs and protocols.
 A DAO's `Governor` contract registers a context and inherently receives the `CONTEXT_ADMIN` role.
 
-The Governor can securely delegate operational control
-by granting the `SCHEMA_MANAGER` role to a security multi-sig,
-allowing agile schema updates without requiring a full DAO vote for every change.
-
 To initialize a reputation context, a client must define:
 
-- **Context Name:** Human-readable label (Namespacing is secured by hashing the name with the deployer's address to prevent squatting).
-
-- **Minimum Stake & Token:** The financial requirements to join the context as a node (use `address(0)` for native ETH).
+- **Context Name:** Human-readable label (Namespacing is secured by hashing the name to prevent squatting).
 
 Once registered, the context administrators configure the trust boundaries by adding schemas:
 
@@ -152,24 +236,46 @@ EVM:
 ### File Structure
 
 ```
-drift/
-├── src/
-│   ├── Common.sol                      # Shared types (DRIFTTypes)
-│   ├── interfaces/
-│   │   ├── IDRIFTCore.sol              # Core interface
-│   │   ├── IAttestationProvider.sol    # Adapter interface
-│   │   └── IDRIFTClient.sol            # Client interface (WIP)
-│   ├── core/
-│   │   ├── DRIFTCoreStorage.sol        # Isolated storage layout
-│   │   └── DRIFTCore.sol               # Central registry (UUPS upgradeable)
-│   ├── adapters/
-│   │   └── EASAttestationAdapter.sol   # EAS implementation of IAttestationProvider
-│   └── client/
-│       └── DRIFTClient.sol             # Reference client implementation (WIP)
-├── sdk/                                # Future SDK for Web2 use
-└── test/
-    └── core/
-        └── DRIFTCore.t.sol             # Foundry test suite
+DRIFT
+├── sdk
+│   └── example.js
+├── src
+│   ├── client
+│   │   ├── DRIFTClientFactory.sol
+│   │   ├── IDRIFTClientMetadata.sol
+│   │   ├── IDRIFTClient.sol
+│   │   └── IDRIFTSettler.sol
+│   ├── Common.sol
+│   ├── core
+│   │   ├── DRIFTCore.sol
+│   │   ├── DRIFTCoreStorage.sol
+│   │   └── IDRIFTCore.sol
+│   ├── governance
+│   │   ├── DRIFTGovernanceFactory.sol
+│   │   └── IDRIFTGovernance.sol
+│   ├── providers
+│   │   ├── EAS.sol
+│   │   └── IAttestationProvider.sol
+│   ├── templates
+│   │   ├── CrossContextGovernance.sol
+│   │   ├── DemocraticGovernance.sol    // TODO
+│   │   ├── QuadraticGovernance.sol     // TODO
+│   │   └── WeightedGovernance.sol
+│   └── token
+│       ├── DRIFTToken.sol
+│       └── IDRIFTToken.sol
+└── test
+    ├── core
+    │   └── DRIFTCore.t.sol
+    ├── examples
+    │   └── University.t.sol
+    ├── mocks
+    │   ├── MockAdapter.sol
+    │   └── MockEAS.sol
+    ├── providers
+    │   └── EASAdapter.t.sol
+    └── templates
+        └── WeightedGovernance.t.sol
 ```
 
 
@@ -202,6 +308,12 @@ For gas snapshots:
 
 ```bash
 forge snapshot
+```
+
+For gas reports:
+
+```bash
+forge snapshot --gas-report
 ```
 
 For coverage:
