@@ -244,15 +244,13 @@ DRIFT
 │   │   ├── DRIFTClientFactory.sol
 │   │   ├── IDRIFTClientMetadata.sol
 │   │   ├── IDRIFTClient.sol
+│   │   ├── IDRIFTGovernance.sol
 │   │   └── IDRIFTSettler.sol
 │   ├── Common.sol
 │   ├── core
 │   │   ├── DRIFTCore.sol
 │   │   ├── DRIFTCoreStorage.sol
 │   │   └── IDRIFTCore.sol
-│   ├── governance
-│   │   ├── DRIFTGovernanceFactory.sol
-│   │   └── IDRIFTGovernance.sol
 │   ├── providers
 │   │   ├── EAS.sol
 │   │   └── IAttestationProvider.sol
@@ -324,4 +322,4 @@ forge coverage
 
 ## License
 
-DRIFT's future license should go here (probably MIT)
+MIT
