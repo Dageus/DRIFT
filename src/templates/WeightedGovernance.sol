@@ -10,7 +10,7 @@ import { IDRIFTCore } from "../core/IDRIFTCore.sol";
 import { IDRIFTToken } from "../token/IDRIFTToken.sol";
 import { IDRIFTSettler } from "../client/IDRIFTSettler.sol";
 import { IDRIFTClientMetadata } from "../client/IDRIFTClientMetadata.sol";
-import { IDRIFTGovernance } from "../governance/IDRIFTGovernance.sol";
+import { IDRIFTGovernance } from "../client/IDRIFTGovernance.sol";
 
 contract WeightedGovernanceClient is
     Initializable,

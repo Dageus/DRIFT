@@ -4,7 +4,7 @@ pragma solidity 0.8.28;
 import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import { IDRIFTCore } from "../core/IDRIFTCore.sol";
 import { IDRIFTToken } from "../token/IDRIFTToken.sol";
-import { IDRIFTGovernance } from "../governance/IDRIFTGovernance.sol";
+import { IDRIFTGovernance } from "../client/IDRIFTGovernance.sol";
 
 /// @notice Aggregates voting power across MULTIPLE contexts.
 contract CrossContextGovernance is Initializable, IDRIFTGovernance {

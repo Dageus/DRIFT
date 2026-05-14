@@ -133,7 +133,7 @@ contract UniversityScenarioTest is Test {
         vm.prank(bobProfessor);
         client.castVote(setupProposalId, true);
 
-        //  Fast forward past the deadline
+        // Fast forward past the deadline
         vm.warp(block.timestamp + 2 days);
         client.executeProposal(setupProposalId);
 

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import { IDRIFTClient } from "../client/IDRIFTClient.sol";
+import { IDRIFTClient } from "./IDRIFTClient.sol";
 
 /// @title IDRIFTGovernance
 /// @notice Pluggable governance module for DRIFT contexts
