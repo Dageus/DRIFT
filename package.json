@@ -1,5 +1,5 @@
 {
-  "name": "drift-monorepo",
+  "name": "DRIFT",
   "private": true,
   "workspaces": [
     "contracts",
