@@ -223,8 +223,6 @@ Testing:
 
 - [Foundry](https://www.getfoundry.sh/) - testing, fuzzying
 
-- [Hardhat](https://hardhat.org/) - deployment scripts, dApp development
-
 Solidity Contracts:
 
 - [OpenZeppelin v5](https://www.openzeppelin.com/) - access control, upgradeability, ERC standards
@@ -286,7 +284,7 @@ cd drift
 # Install Foundry dependencies
 forge install
 
-# Install Hardhat and JS dependencies
+# Install JS dependencies
 npm install  # or yarn install
 ```
 
