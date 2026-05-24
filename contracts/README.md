@@ -27,20 +27,6 @@ Addresses will be populated on first deployment.
 
 ## Development
 
-### Prerequisites
-
-Testing:
-
-- [Foundry](https://www.getfoundry.sh/) - testing, fuzzying
-
-Solidity Contracts:
-
-- [OpenZeppelin v5](https://www.openzeppelin.com/) - access control, upgradeability, ERC standards
-
-EVM:
-
-- [Cancun](https://www.evm.codes/?fork=cancun) - includes support for `ReentrancyGuardTransient` (EIP-1153)
-
 ### File Structure
 
 ```
@@ -57,6 +43,9 @@ contracts
 │   │   ├── DRIFTCore.sol
 │   │   ├── DRIFTCoreStorage.sol
 │   │   └── IDRIFTCore.sol
+│   ├── core
+│   │   ├── IPolicy.sol
+│   │   └── EASPolicy.sol
 │   ├── providers
 │   │   ├── EAS.sol
 │   │   └── IAttestationProvider.sol
@@ -82,6 +71,54 @@ contracts
         └── WeightedGovernance.t.sol
 ```
 
+
+### Prerequisites
+
+Testing:
+
+- [Foundry](https://www.getfoundry.sh/) - testing, fuzzying
+
+Solidity Contracts:
+
+- [OpenZeppelin v5](https://www.openzeppelin.com/) - access control, upgradeability, ERC standards
+
+EVM:
+
+- [Cancun](https://www.evm.codes/?fork=cancun) - includes support for `ReentrancyGuardTransient` (EIP-1153)
+
+## System Architecture
+
+```mermaid
+graph LR
+    subgraph OnChain ["On-Chain Ecosystem (DRIFT Contracts)"]
+
+        subgraph Core Ecosytem
+            CORE["DRIFTCore<br/>(Registry & Firewall)"]
+            GATE["ContextGatekeeper<br/>(Entry Policy Router)"]
+            TOKEN["DRIFTToken<br/>(ERC-1155 Ledger)"]
+        end
+
+        subgraph Policies ["Pluggable Policies"]
+            EAS_P["EASPolicy<br/>(Requires Specific Schema)"]
+            VOUCH_P["VouchPolicy<br/>(Requires Stake)"]
+        end
+
+        subgraph Clients ["Execution Clients"]
+            WG["WeightedGovernance<br/>(Voting & Proposals)"]
+            OTHER["... Future Clients"]
+        end
+
+        %% Registration Flow
+        User[User / Relayer] -->|"1. registerNode(proof)"| CORE
+        CORE -->|"2. checkEntry"| GATE
+        GATE -.->|"3. evaluate"| EAS_P & VOUCH_P
+
+        %% Execution Flow
+        User -->|"4. settleReputation(sig)"| WG
+        WG -->|"5. Verify & Request"| CORE
+        CORE -->|"6. Mint/Slash"| TOKEN
+    end
+```
 
 ### Setup
 

@@ -95,107 +95,13 @@ TODO
 
 TODO
 
-## System Architecture
-
-### Contract Design
-
-```mermaid
-graph TB
-    subgraph OffChain ["Off-Chain Environment"]
-        DATA["Attestation & Data Registries"]:::offchainNode
-        SDK["DRIFT SDK<br/>- Reads raw data<br/>- Runs reputation algorithm<br/>- Generates EIP-712 Signatures"]:::offchainNode
-    end
-
-    subgraph OnChain ["On-Chain Ecosystem"]
-        CORE["DRIFTCore (Registry & Firewall)<br/>- Node & Context Management<br/>- Role Authorization"]:::onchainNode
-
-        TOKEN["DRIFTToken (ERC-1155)<br/>• Soulbound Ledger<br/>- Sole Authority: DRIFTCore"]:::onchainNode
-
-        subgraph Clients ["DRIFT Client Modules (Execution Logic)"]
-            BC["Business Client<br/>- Schema & Threshold policies"]:::onchainNode
-            WG["Governance Client<br/>- Context-specific voting weights"]:::onchainNode
-            CC["Cross-Context Client<br/>- Multi-context aggregation"]:::onchainNode
-        end
-
-        subgraph Consumers ["External Integrations"]
-            DAO["DAO Tooling<br/>- e.g., Snapshot, Tally"]:::consumerNode
-            DEFI["DeFi Protocols<br/>- e.g., Undercollateralized Loans"]:::consumerNode
-        end
-    end
-
-    %% Flow of Reputation (Write)
-    DATA -.-> SDK
-    SDK ==>|"1. Submit Signed Payload (settleReputation)"| Clients
-    Clients -->|"2. Verify Sig & Request Mint/Slash"| CORE
-    CORE -->|"3. Execute State Change"| TOKEN
-
-    %% Flow of Consumption (Read)
-    DAO --> WG
-    DAO --> CC
-    WG -.->|"Reads balance & applies math"| TOKEN
-    CC -.->|"Reads balance & applies math"| TOKEN
-    DEFI -.->|"Reads balance & assesses risk"| TOKEN
-
-```
-
-### Reputation Lifetime
-
-```mermaid
-graph TD
-    %% Data Sources (Left)
-    subgraph DataSources [External Data Environment]
-        A1[Attestation Registries<br/>e.g., EAS, Verax]:::userNode
-        %% A2[Web2 Proofs & Oracles<br/>e.g., zkTLS, Chainlink]:::userNode
-    end
-
-    %% Off-Chain SDK (Middle)
-    subgraph OffChain [Off-Chain Computation SDK]
-        B1(Data Aggregator):::offchainNode
-        B2{Context-Specific Algorithm}:::offchainNode
-        B3(Trusted Settler Signer):::offchainNode
-
-        B1 --> |Reads On-Chain Attestations| B2
-        B1 --> |Verifies Zero-Knowledge Proofs| B2
-        B2 --> |Calculates Reputation Delta| B3
-        B3 --> |Generates EIP-712 Signature| B4[SettleReputation Payload]:::offchainNode
-    end
-
-    %% On-Chain DRIFT (Right)
-    subgraph OnChain [DRIFT On-Chain Protocol]
-        C1[DRIFT Client<br/>e.g., Governance, Rewards]:::onchainNode
-        C2[DRIFTCore<br/>Registry & Firewall]:::onchainNode
-        C3[(DRIFTToken<br/>ERC-1155 Ledger)]:::onchainNode
-
-        C1 --> |1. Verifies EIP-712 Signature<br/>2. Calls core.reward/slash| C2
-        C2 --> |Hashes Context + Role<br/>Mints/Burns Soulbound Tokens| C3
-    end
-
-    %% Client Execution (Bottom)
-    subgraph Execution [Client Application/Execution]
-        D1[User Interaction<br/>e.g., Cast Vote, Claim Reward]:::userNode
-        D2[Client Engine<br/>Applies Context Logic & Multipliers]:::onchainNode
-        D3[Execute Action<br/>e.g., DAO Execution, Payout]:::onchainNode
-
-        D1 --> C1
-        C1 --> |Reads Reputation Power| D2
-        D2 --> |Checks Balances| C3
-        D2 --> |Thresholds Met| D3
-    end
-
-    %% Connections
-    A1 -.-> B1
-    %% A2 -.-> B1
-    B4 ==> |Relayer submits transaction| C1
-
-```
-
 ## Repository Navigation
 
 This is a monorepo containing both the on-chain smart contracts and the off-chain TypeScript SDK.
 
-- [**`/contracts`**](./contracts/README.md) - The Foundry project containing the core protocol, ERC-1155 tokens, and client templates.
+- [`/contracts`](./contracts/README.md) - The Foundry project containing the core protocol, ERC-1155 tokens, and client templates.
 
-- [**`/sdk`**](./sdk/README.md) - The Node.js/TypeScript SDK for fetching attestations, running reputation algorithms, and generating EIP-712 signatures.
+- [`/sdk`](./sdk/README.md) - The Node.js/TypeScript SDK for fetching attestations, running reputation algorithms, and generating EIP-712 signatures.
 
 
 ## License
