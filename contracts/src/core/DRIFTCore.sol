@@ -10,7 +10,7 @@ import { IAttestationProvider } from "../providers/IAttestationProvider.sol";
 import { DRIFTCoreStorage } from "./DRIFTCoreStorage.sol";
 import { DRIFTTypes } from "../Common.sol";
 import { IDRIFTToken } from "../token/IDRIFTToken.sol";
-import { NodeStatus } from "../policies/IPolicy.sol";
+import { IPolicy, NodeStatus } from "../policies/IPolicy.sol";
 
 /// @title  DRIFTCore
 /// @notice Central DRIFT registry.
@@ -96,7 +96,7 @@ contract DRIFTCore is Initializable, AccessControlUpgradeable, UUPSUpgradeable, 
     // Context management ======================================================
 
     /// @inheritdoc IDRIFTCore
-    function registerContext(string calldata name) external onlyRole(CLIENT_ROLE) returns (bytes32 uid) {
+    function registerContext(string calldata name) external returns (bytes32 uid) {
         if (bytes(name).length == 0) {
             revert EmptyContextName();
         }
@@ -180,7 +180,7 @@ contract DRIFTCore is Initializable, AccessControlUpgradeable, UUPSUpgradeable, 
 
         nodeStatus[contextUID][msg.sender] = status;
 
-        emit NodeRegistered(contextUID, msg.sender, status);
+        emit NodeRegistered(contextUID, msg.sender);
     }
 
     /// @inheritdoc IDRIFTCore
