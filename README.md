@@ -15,95 +15,84 @@
 
 ## Introduction
 
-The DRIFT protocol aims to work atop an existing Attestation Layer
-(be it [EAS](https://attest.org/), [Verax](https://docs.ver.ax/verax-documentation), or a custom provider)
-and provides context-scoped, privacy-preserving reputation infrastructure for Web3 and Web2 systems.
+The DRIFT protocol works atop existing attestation layers (such as [EAS](https://attest.org/) or [Verax](https://docs.ver.ax/verax-documentation)) to provide context-scoped, privacy-preserving reputation infrastructure for Web3 and Web2 networks.
 
-DRIFT won't directly store attestations (since there are plenty of systems that
-excel at it), but instead will define trust boundaries within which those claims
-are meaningful, and provides the on-chain primitives and off-chain tooling to
-aggregate them into reputation scores.
+DRIFT does not directly store raw peer attestations. Instead, it defines strict cryptographic trust boundaries within which those external claims are mathematically meaningful. It supplies the immutable on-chain primitives and modular off-chain tooling required to aggregate records into verifiable, sybil-resistant reputation scores.
 
-DRIFT is designed around three principles:
+DRIFT is engineered around three fundamental pillars:
 
-- **Context isolation** — reputation is always scoped to a context. A node's score in a DePIN network is independent of its score in a DAO. Neither leaks into the other.
+- **Context Isolation** — Reputation is strictly scoped to a unique administrative domain. A node's performance score in a P2P DePIN storage network is isolated from its voting score inside a governance DAO, preventing cross-domain correlation leaks.
 
-- **Attestation-source agnosticism** — DRIFT does not depend on any specific attestation provider. Any system that implements `IAttestationProvider` can serve as a data source.
+- **Attestation-Source Agnosticism** — The core ledger does not depend on a rigid attestation primitive. Any decentralized identity or credential registry that implements the unified `IAttestationProvider` interface can be bound directly into a context as an authorized data stream.
 
-- **Off-chain computation, on-chain trust** — reputation scores are computed off-chain (via The Graph and decentralized compute networks) and verified on-chain only when needed, keeping gas costs minimal.
+- **Off-Chain Computation, On-Chain Trust** — Heavy graph computations (such as multiplication loops across trusted peer matrices via EigenTrust) run entirely off-chain inside edge runtimes. Validated outputs are committed to the execution chain using low-gas cryptographic proofs (EIP-712 signatures or Zero-Knowledge proofs) only during active mutations.
+
+---
 
 ## Core Concepts
 
 ### Context
 
-A **context** is a namespaced reputation domain registered by a client (a DApp, a DAO, a DePIN network, etc.).
-Each context defines:
+A **context** is a unique, namespaced reputation domain registered permissionlessly by a client framework (a DApp, DAO, or network). Each context exposes an anti-spam native commitment barrier (`0.01 ether`) and explicitly dictates its own verification profile:
 
-- Which attestation **schemas** it accepts
+- Which external attestation **schemas** it accepts.
 
-- Which **adapter** verifies each schema
+- Which verification **adapters** evaluate each schema.
 
-- A set of **admins** (via OZ AccessControl) who can manage the context
+- A set of **administrators** (via OpenZeppelin AccessControl) who manage local configurations.
 
-Contexts are globally unique by name. The UID is derived as `keccak256(name)`,
-making it deterministic and human-derivable off-chain.
+Context identifiers (`contextUID`) are globally unique and derived deterministically via `keccak256(abi.encodePacked(name))`.
 
 ### Schema
 
-A schema defines the structure of an attestation's data payload.
-DRIFT does not store schema definitions — those live in the chosen attestation provider (e.g. EAS's `SchemaRegistry`).
-
-DRIFT only stores whether a schema is **accepted within a given context**, referenced by its UID.
+A schema dictates the exact data fields contained within an identity claim. DRIFT does not manage global schema validation registries—those are left to the specialized attestation infrastructure (e.g., the EAS `SchemaRegistry`). DRIFT simply acts as a local firewall, storing whether a global `schemaUID` is white-listed within a specific context.
 
 ### Adapter
 
-An **adapter** is a contract implementing `IAttestationProvider`.
-It bridges DRIFT to a specific attestation backend, translating provider-specific
-verification logic into DRIFT's `isValid()` interface.
-
-DRIFT ships with a built-in **EAS adapter**.
+An **adapter** is an on-chain contract implementing the `IAttestationProvider` interface. It acts as a translation layer between DRIFT's core registry and individual validation networks, parsing multi-struct properties into a clean `isValid()` Boolean response. DRIFT ships with a natively integrated, gas-optimized **EAS Adapter**.
 
 ### Node
 
-Any entity (a user wallet, an off-chain server, or a sub-DAO) that registers within a Context to earn reputation.
+Any unique cryptographic identity (a user wallet, hardware device, or smart contract) that registers within a Context to participate and accumulate reputation weight.
 
 ### Role
 
-A specific subset within a Context (e.g., `STUDENT` or `MODERATOR`).
-Reputation is mathematically scoped to a specific Context + Role pair.
+A contextual subdivision (e.g., `STUDENT`, `PROFESSOR`, or `VALIDATOR`) mapped using a 32-byte hash. Dynamic reputation states are mathematically isolated per Context + Role pair.
 
 ### DRIFT Client / Template
 
-The execution layer (e.g., `WeightedGovernanceClient`).
-These are modular, isolated smart contracts plugged into the Core. They define how reputation is used within a specific Context.
+Pluggable execution models (e.g., `WeightedGovernanceClient.sol`) deployed via deterministic minimal proxies (EIP-1167). These sub-clones pull balances directly from the token ledgers to resolve application-specific actions, such as voting weights, rate limits, or payout thresholds.
+
+---
 
 ## Design Decisions
 
-**Why not store attestations on-chain?**
+### Why not store attestations on-chain?
 
-TODO
+Storing thousands of individual micro-attestations (e.g., packet delivery logs, file integrity audits, peer reviews) inside on-chain EVM storage channels causes severe **state bloat** and financially prohibitive operation costs due to the high gas penalties of the `SSTORE` opcode. DRIFT leaves raw interaction histories where they scale best—in decentralized off-chain data availability layers (such as Indexer graphs, IPFS, or Arweave via EAS). The smart contract layer is treated as an immutable ledger solely for consensus states, keeping the blockchain footprint lightweight.
 
-**Why off-chain reputation computation?**
+### Why off-chain reputation computation?
 
-TODO
+Advanced trust graph evaluation algorithms (such as **EigenTrust**) require complex matrix multiplications, looping through cascading peer-vouched trust networks to isolate and neutralize sybil account clusters. Running these multi-layer floating-point or big-integer matrix operations directly inside the Ethereum Virtual Machine (EVM) will instantly consume a block's full gas limit and trigger execution failures. DRIFT delegates heavy computation to the SDK/Compute edge tier, translating large transaction graphs into cheap, single-slot on-chain signature verification operations.
 
-**Why ERC-1155 for reputation tokens?**
+### Why ERC-1155 for reputation tokens?
 
-TODO
+Reputation is inherently multi-dimensional. Tracking a participant’s standing across dozens of independent contexts and sub-roles using individual ERC-20 contract deployments creates extreme gas overhead and a fragmented developer interface. The **EIP-1155 Multi-Token Standard** allows a single core contract registry to track an infinite array of distinct Context + Role configurations using a unified, gas-efficient balance mapping table.
 
-**Why soulbound tokens?**
+### Why soulbound tokens?
 
-TODO
+Financial assets derive utility from transferability; reputation derives utility from **unconditional identity attachment**. If reputation tokens could be transferred or traded on secondary open markets, malicious actors could simply buy high-reputation accounts to hijack governance structures or subvert peer-to-peer trust networks. To maintain complete cryptographic alignment with a node's actual behavior, all token transfer channels inside `DRIFTToken.sol` are hard-coded to unconditionally `revert`, making them permanently **Soulbound** to the receiving address.
+
+---
 
 ## Repository Navigation
 
-This is a monorepo containing both the on-chain smart contracts and the off-chain TypeScript SDK.
+This repository is organized as an integrated monorepo separating smart contract settlement frameworks from application runtime kits:
 
-- [`/contracts`](./contracts/README.md) - The Foundry project containing the core protocol, ERC-1155 tokens, and client templates.
+- [`/contracts`](./contracts/README.md) — The Foundry project containing core protocol registries, soulbound token factories, context gatekeepers, and governance template modules.
 
-- [`/sdk`](./sdk/README.md) - The Node.js/TypeScript SDK for fetching attestations, running reputation algorithms, and generating EIP-712 signatures.
-
+- [`/sdk`](./sdk/README.md) — The Node.js/TypeScript SDK housing data providers, custom error decoders, off-chain computation engines (EigenTrust), and EIP-712 settlement oracles.
 
 ## License
 
-MIT
+Distributed under the MIT License. See `LICENSE` for more information.
