@@ -8,6 +8,8 @@ import { IDRIFTGovernance } from "../client/IDRIFTGovernance.sol";
 
 /// @notice Aggregates voting power across MULTIPLE contexts.
 contract CrossContextGovernance is Initializable, IDRIFTGovernance {
+    error ArrayLengthMismatch();
+
     IDRIFTCore public core;
     IDRIFTToken public driftToken;
     bytes32 public contextUID;
@@ -38,8 +40,11 @@ contract CrossContextGovernance is Initializable, IDRIFTGovernance {
         mapping(address => bool) hasVoted;
     }
 
-    modifier onlyAdmin() {
-        require(msg.sender == admin, "Not admin");
+    modifier onlyContextAdmin() {
+        bytes32 adminRole = core.contextAdminRole(contextUID);
+        if (!core.hasRole(adminRole, msg.sender)) {
+            revert UnauthorizedSender(msg.sender);
+        }
         _;
     }
 
@@ -51,8 +56,13 @@ contract CrossContextGovernance is Initializable, IDRIFTGovernance {
         bytes32[] calldata _roles,
         uint256[] calldata _weights
     ) external initializer {
-        require(_contexts.length == _weights.length, "Mismatched");
-        require(_contexts.length == _roles.length, "Mismatched");
+        if (_contexts.length != _weights.length) {
+            revert ArrayLengthMismatch();
+        }
+
+        if (_contexts.length != _roles.length) {
+            revert ArrayLengthMismatch();
+        }
 
         core = IDRIFTCore(_core);
         driftToken = IDRIFTToken(_token);
@@ -83,7 +93,7 @@ contract CrossContextGovernance is Initializable, IDRIFTGovernance {
         address target,
         bytes calldata payload,
         uint256 durationInDays
-    ) external override onlyAdmin returns (uint256) {
+    ) external override onlyContextAdmin returns (uint256) {
         uint256 id = proposalCount++;
         Proposal storage p = proposals[id];
 
@@ -99,12 +109,12 @@ contract CrossContextGovernance is Initializable, IDRIFTGovernance {
 
     function castVote(uint256 proposalId, bool support) external override {
         Proposal storage p = proposals[proposalId];
-        require(p.exists, "No proposal");
-        require(block.timestamp < p.deadline, "Closed");
-        require(!p.hasVoted[msg.sender], "Voted");
+        if (!p.exists) revert ProposalNotFound(proposalId);
+        if (block.timestamp >= p.deadline) revert VotingClosed(p.deadline);
+        if (p.hasVoted[msg.sender]) revert AlreadyVoted(msg.sender, proposalId);
 
         uint256 power = getVotingPower(msg.sender);
-        require(power > 0, "No power");
+        if (power == 0) revert NoVotingPower(msg.sender);
 
         p.hasVoted[msg.sender] = true;
         if (support) p.votesFor += power;
@@ -115,15 +125,15 @@ contract CrossContextGovernance is Initializable, IDRIFTGovernance {
 
     function executeProposal(uint256 proposalId) external override {
         Proposal storage p = proposals[proposalId];
-        require(p.exists, "Proposal not found");
-        require(block.timestamp >= p.deadline, "Voting still active");
-        require(p.votesFor > p.votesAgainst, "Proposal defeated");
-        require(!p.executed, "Already executed");
+        if (!p.exists) revert ProposalNotFound(proposalId);
+        if (block.timestamp < p.deadline) revert VotingStillActive(p.deadline);
+        if (p.votesFor <= p.votesAgainst) revert ProposalDefeated(p.votesFor, p.votesAgainst);
+        if (p.executed) revert ProposalAlreadyExecuted(proposalId);
 
         p.executed = true;
 
         (bool success, ) = p.target.call(p.payload);
-        require(success, "Execution failed");
+        if (!success) revert ExecutionFailed();
 
         emit ProposalExecuted(proposalId);
     }
