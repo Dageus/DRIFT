@@ -6,10 +6,23 @@ import { IDRIFTClient } from "./IDRIFTClient.sol";
 /// @title IDRIFTGovernance
 /// @notice Pluggable governance module for DRIFT contexts
 interface IDRIFTGovernance is IDRIFTClient {
+    // Errors ==================================================================
+    error ProposalNotFound(uint256 proposalId);
+    error VotingStillActive(uint256 deadline);
+    error VotingClosed(uint256 deadline);
+    error ProposalDefeated(uint256 votesFor, uint256 votesAgainst);
+    error ProposalAlreadyExecuted(uint256 proposalId);
+    error AlreadyVoted(address voter, uint256 proposalId);
+    error NoVotingPower(address account);
+    error ExecutionFailed();
+    error UnauthorizedSender(address actual);
+
+    // Events ==================================================================
     event ProposalCreated(uint256 indexed proposalId, string description, uint256 deadline);
     event VoteCast(address indexed voter, uint256 indexed proposalId, bool support, uint256 weight);
     event ProposalExecuted(uint256 indexed proposalId);
 
+    // Methods =================================================================
     /// @notice Create a new proposal with an executable payload
     function createProposal(
         string calldata description,
