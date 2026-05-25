@@ -31,8 +31,16 @@ interface IDRIFTCore is IAccessControl {
     /// @notice Emitted when a node gets slashed.
     event NodeSlashed(bytes32 indexed contextUID, address indexed node, uint256 penalty);
 
-    /// @notice Emitted when a node gets rewarded
+    /// @notice Emitted when a node gets rewarded.
     event NodeRewarded(bytes32 indexed contextUID, address indexed node);
+
+    /// @notice Emitted when a context's policy gets updated.
+    event PolicyUpdated(bytes32 indexed contextUID, address indexed policy)
+
+    // Policies ================================================================
+
+    /// @notice updates a context's policy, emitting an event.
+    function setContextPolicy(bytes32 contextUID, address policyContract) external;
 
     // Context management ======================================================
 
