@@ -10,6 +10,7 @@ import { IAttestationProvider } from "../providers/IAttestationProvider.sol";
 import { DRIFTCoreStorage } from "./DRIFTCoreStorage.sol";
 import { DRIFTTypes } from "../Common.sol";
 import { IDRIFTToken } from "../token/IDRIFTToken.sol";
+import { NodeStatus } from "../policies/IPolicy.sol";
 
 /// @title  DRIFTCore
 /// @notice Central DRIFT registry.
@@ -56,14 +57,6 @@ contract DRIFTCore is Initializable, AccessControlUpgradeable, UUPSUpgradeable, 
     IDRIFTToken public driftToken;
     address public constant BURN_ADDRESS = 0x000000000000000000000000000000000000dEaD;
 
-    /// @notice Links the ERC-1155 token to the core registry.
-    function setDriftToken(address _tokenAddress) external {
-        _checkRole(DEFAULT_ADMIN_ROLE, msg.sender);
-        if (address(driftToken) != address(0)) revert TokenAlreadySet();
-
-        driftToken = IDRIFTToken(_tokenAddress);
-    }
-
     // Constructor =============================================================
 
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -79,6 +72,25 @@ contract DRIFTCore is Initializable, AccessControlUpgradeable, UUPSUpgradeable, 
 
         // self-governance
         // _registerContext("DRIFT.Governance", address(0), 0);
+    }
+
+    // Setters =================================================================
+
+    /// @notice Links the ERC-1155 token to the core registry.
+    function setDriftToken(address _tokenAddress) external {
+        _checkRole(DEFAULT_ADMIN_ROLE, msg.sender);
+        if (address(driftToken) != address(0)) revert TokenAlreadySet();
+
+        driftToken = IDRIFTToken(_tokenAddress);
+    }
+
+    // Policies ================================================================
+
+    /// @inheritdoc IDRIFTCore
+    function setContextPolicy(bytes32 contextUID, address policyContract) external onlyContextAdmin(contextUID) {
+        contextPolicies[contextUID] = policyContract;
+
+        emit PolicyUpdated(contextUID, policyContract);
     }
 
     // Context management ======================================================
@@ -147,25 +159,41 @@ contract DRIFTCore is Initializable, AccessControlUpgradeable, UUPSUpgradeable, 
     // Node registration =======================================================
 
     /// @inheritdoc IDRIFTCore
-    function registerNode(bytes32 contextUID) external payable {
+    function registerNode(bytes32 contextUID, bytes calldata entryProof) external payable {
         if (!_contexts[contextUID].active) {
             revert ContextNotActive(contextUID);
         }
-
-        if (_isRegistered[contextUID][msg.sender]) {
+        if (nodeStatus[contextUID][msg.sender] != NodeStatus.NONE) {
             revert NodeAlreadyRegistered(contextUID, msg.sender);
         }
 
-        _isRegistered[contextUID][msg.sender] = true;
+        address policyAddress = contextPolicies[contextUID];
+        NodeStatus status = NodeStatus.FULL;
 
-        emit NodeRegistered(contextUID, msg.sender);
+        if (policyAddress != address(0)) {
+            status = IPolicy(policyAddress).evaluate(msg.sender, contextUID, entryProof);
+            require(status != NodeStatus.NONE, "Policy rejected entry");
+        } else {
+            // If there's no entry policy, fallback checking if there's any required native token stake
+            // configured for open registration (keeps your payable parameter functional if needed)
+        }
+
+        nodeStatus[contextUID][msg.sender] = status;
+
+        emit NodeRegistered(contextUID, msg.sender, status);
     }
 
     /// @inheritdoc IDRIFTCore
     function deregisterNode(bytes32 contextUID) external {
-        if (!_isRegistered[contextUID][msg.sender]) revert NodeNotRegistered(contextUID, msg.sender);
+        if (nodeStatus[contextUID][msg.sender] == NodeStatus.NONE) {
+            revert NodeNotRegistered(contextUID, msg.sender);
+        }
+        if (nodeStatus[contextUID][msg.sender] == NodeStatus.BANNED) {
+            revert("Banned nodes cannot deregister");
+        }
 
-        _isRegistered[contextUID][msg.sender] = false;
+        delete nodeStatus[contextUID][msg.sender];
+
         emit NodeDeregistered(contextUID, msg.sender);
     }
 
@@ -185,11 +213,11 @@ contract DRIFTCore is Initializable, AccessControlUpgradeable, UUPSUpgradeable, 
         // must be accepted in this context
         if (!_acceptedSchemas[contextUID][schemaUID]) return false;
 
-        // must be a registered node in this context
-        if (!_isRegistered[contextUID][attester]) return false;
+        NodeStatus attesterStatus = nodeStatus[contextUID][attester];
+        NodeStatus subjectStatus = nodeStatus[contextUID][subject];
 
-        // must be a registered node in this context
-        if (!_isRegistered[contextUID][subject]) return false;
+        if (attesterStatus == NodeStatus.NONE || attesterStatus == NodeStatus.BANNED) return false;
+        if (subjectStatus == NodeStatus.NONE || subjectStatus == NodeStatus.BANNED) return false;
 
         address adapter = _schemaAdapters[contextUID][schemaUID];
         if (adapter == address(0)) return false;
@@ -205,11 +233,11 @@ contract DRIFTCore is Initializable, AccessControlUpgradeable, UUPSUpgradeable, 
         address node,
         uint256 penaltyAmount
     ) external onlyContextAdmin(contextUID) {
-        if (!_isRegistered[contextUID][node]) revert NodeNotRegistered(contextUID, node);
+        NodeStatus status = nodeStatus[contextUID][node];
+        if (status == NodeStatus.NONE || status == NodeStatus.BANNED)
+            revert NodeNotRegistered(contextUID, node);
 
         uint256 tokenId = uint256(keccak256(abi.encode(contextUID, role)));
-
-        _isRegistered[contextUID][node] = false;
 
         driftToken.slashReputation(node, tokenId, penaltyAmount);
 
@@ -226,7 +254,9 @@ contract DRIFTCore is Initializable, AccessControlUpgradeable, UUPSUpgradeable, 
         address node,
         uint256 reputationAmount
     ) external onlyContextAdmin(contextUID) {
-        if (!_isRegistered[contextUID][node]) revert NodeNotRegistered(contextUID, node);
+        NodeStatus status = nodeStatus[contextUID][node];
+        if (status == NodeStatus.NONE || status == NodeStatus.BANNED)
+            revert NodeNotRegistered(contextUID, node);
 
         // Cast Context UID to Token ID
         uint256 tokenId = uint256(keccak256(abi.encode(contextUID, role)));
@@ -254,7 +284,8 @@ contract DRIFTCore is Initializable, AccessControlUpgradeable, UUPSUpgradeable, 
 
     /// @inheritdoc IDRIFTCore
     function isRegistered(bytes32 contextUID, address node) external view returns (bool) {
-        return _isRegistered[contextUID][node];
+        NodeStatus status = nodeStatus[contextUID][node];
+        return status == NodeStatus.NONE || status == NodeStatus.BANNED;
     }
 
     /// @inheritdoc IDRIFTCore
