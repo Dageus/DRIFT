@@ -286,7 +286,7 @@ contract DRIFTCore is Initializable, AccessControlUpgradeable, UUPSUpgradeable, 
     /// @inheritdoc IDRIFTCore
     function isRegistered(bytes32 contextUID, address node) external view returns (bool) {
         NodeStatus status = nodeStatus[contextUID][node];
-        return status == NodeStatus.NONE || status == NodeStatus.BANNED;
+        return (status != NodeStatus.NONE && status != NodeStatus.BANNED);
     }
 
     /// @inheritdoc IDRIFTCore
