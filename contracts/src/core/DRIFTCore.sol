@@ -234,17 +234,19 @@ contract DRIFTCore is Initializable, AccessControlUpgradeable, UUPSUpgradeable, 
         uint256 penaltyAmount
     ) external onlyContextAdmin(contextUID) {
         NodeStatus status = nodeStatus[contextUID][node];
-        if (status == NodeStatus.NONE || status == NodeStatus.BANNED)
+        if (status == NodeStatus.NONE || status == NodeStatus.BANNED) {
             revert NodeNotRegistered(contextUID, node);
+        }
 
         uint256 tokenId = uint256(keccak256(abi.encode(contextUID, role)));
-
         driftToken.slashReputation(node, tokenId, penaltyAmount);
 
         emit NodeSlashed(contextUID, node, penaltyAmount);
 
-        // TODO:
-        // is a node eligible to be unregistered if his reputation is low enough?
+        if (driftToken.balanceOf(node, tokenId) == 0) {
+            nodeStatus[contextUID][node] = NodeStatus.NONE; // can also be NodeStatus.BANNED ?
+            emit NodeDeregistered(contextUID, node);
+        }
     }
 
     /// @inheritdoc IDRIFTCore
@@ -255,8 +257,7 @@ contract DRIFTCore is Initializable, AccessControlUpgradeable, UUPSUpgradeable, 
         uint256 reputationAmount
     ) external onlyContextAdmin(contextUID) {
         NodeStatus status = nodeStatus[contextUID][node];
-        if (status == NodeStatus.NONE || status == NodeStatus.BANNED)
-            revert NodeNotRegistered(contextUID, node);
+        if (status == NodeStatus.NONE || status == NodeStatus.BANNED) revert NodeNotRegistered(contextUID, node);
 
         // Cast Context UID to Token ID
         uint256 tokenId = uint256(keccak256(abi.encode(contextUID, role)));
