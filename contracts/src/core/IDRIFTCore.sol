@@ -35,7 +35,7 @@ interface IDRIFTCore is IAccessControl {
     event NodeRewarded(bytes32 indexed contextUID, address indexed node);
 
     /// @notice Emitted when a context's policy gets updated.
-    event PolicyUpdated(bytes32 indexed contextUID, address indexed policy)
+    event PolicyUpdated(bytes32 indexed contextUID, address indexed policy);
 
     // Policies ================================================================
 
@@ -76,7 +76,8 @@ interface IDRIFTCore is IAccessControl {
     ///         registered nodes and receive attestations from them.
     ///         Emits NodeRegistered.
     /// @param  contextUID  The context to join.
-    function registerNode(bytes32 contextUID) external payable;
+    /// @param  entryProof  Proof of node's entry
+    function registerNode(bytes32 contextUID, bytes calldata entryProof) external payable;
 
     /// @notice Deregister from a context.
     ///         Node's past attestations remain in EAS but will be
