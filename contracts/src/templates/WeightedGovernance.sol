@@ -22,6 +22,11 @@ contract WeightedGovernanceClient is
     using ECDSA for bytes32;
     using MessageHashUtils for bytes32;
 
+    error ArrayLengthMismatch();
+    error InvalidSettlerSignature();
+    error SignatureAlreadyConsumed(bytes32 digest);
+    error NodeNotRegistered(bytes32 contextUID, address node);
+
     IDRIFTCore public core;
     IDRIFTToken public driftToken;
     bytes32 public contextUID;
@@ -54,7 +59,10 @@ contract WeightedGovernanceClient is
     }
 
     modifier onlyContextAdmin() {
-        require(core.hasRole(core.contextAdminRole(contextUID), msg.sender), "Not admin");
+        bytes32 adminRole = core.contextAdminRole(contextUID);
+        if (!core.hasRole(adminRole, msg.sender)) {
+            revert UnauthorizedSender(msg.sender);
+        }
         _;
     }
 
@@ -66,7 +74,9 @@ contract WeightedGovernanceClient is
         bytes32[] calldata _roles,
         uint256[] calldata _weights
     ) external initializer {
-        require(_roles.length == _weights.length, "Mismatched arrays");
+        if (_roles.length != _weights.length) {
+            revert ArrayLengthMismatch();
+        }
         __EIP712_init("DRIFT_WeightedGovernance", "1");
 
         core = IDRIFTCore(_core);
@@ -83,7 +93,9 @@ contract WeightedGovernanceClient is
     // Role Weights ============================================================
 
     function setRoleWeight(bytes32 role, uint256 weight) external {
-        require(msg.sender == address(this), "Only via proposal execution");
+        if (msg.sender != address(this)) {
+            revert UnauthorizedSender(msg.sender);
+        }
         roleWeights[role] = weight;
         emit RoleWeightUpdated(role, weight);
     }
@@ -98,15 +110,21 @@ contract WeightedGovernanceClient is
         uint256 epoch,
         bytes calldata sig
     ) external override {
-        require(core.isRegistered(contextUID, node), "Node not registered");
+        if (!core.isRegistered(contextUID, node)) {
+            revert NodeNotRegistered(contextUID, node);
+        }
 
         bytes32 structHash = keccak256(abi.encode(SETTLE_TYPEHASH, contextUID, node, role, score, epoch));
         bytes32 digest = _hashTypedDataV4(structHash);
 
-        require(!consumedDigests[digest], "replay");
+        if (consumedDigests[digest]) {
+            revert SignatureAlreadyConsumed(digest);
+        }
         consumedDigests[digest] = true;
 
-        require(ECDSA.recover(digest, sig) == trustedSettler, "Invalid signature");
+        if (ECDSA.recover(digest, sig) != trustedSettler) {
+            revert InvalidSettlerSignature();
+        }
 
         core.reward(contextUID, role, node, score);
 
@@ -134,28 +152,31 @@ contract WeightedGovernanceClient is
         return id;
     }
 
+    /// @inheritdoc IDRIFTGovernance
     function executeProposal(uint256 proposalId) external {
         Proposal storage p = proposals[proposalId];
-        require(p.exists, "Proposal not found");
-        require(block.timestamp >= p.deadline, "Voting still active");
-        require(p.votesFor > p.votesAgainst, "Proposal defeated");
-        require(!p.executed, "Already executed");
+
+        if (!p.exists) revert ProposalNotFound(proposalId);
+        if (block.timestamp < p.deadline) revert VotingStillActive(p.deadline);
+        if (p.votesFor <= p.votesAgainst) revert ProposalDefeated(p.votesFor, p.votesAgainst);
+        if (p.executed) revert ProposalAlreadyExecuted(proposalId);
 
         p.executed = true;
 
         (bool success, ) = p.target.call(p.payload);
-        require(success, "Execution failed");
+        if (!success) revert ExecutionFailed();
     }
 
     /// @inheritdoc IDRIFTGovernance
     function castVote(uint256 proposalId, bool support) external override {
         Proposal storage p = proposals[proposalId];
-        require(p.exists, "Proposal not found");
-        require(block.timestamp < p.deadline, "Voting closed");
-        require(!p.hasVoted[msg.sender], "Already voted");
+
+        if (!p.exists) revert ProposalNotFound(proposalId);
+        if (block.timestamp >= p.deadline) revert VotingClosed(p.deadline);
+        if (p.hasVoted[msg.sender]) revert AlreadyVoted(msg.sender, proposalId);
 
         uint256 power = getVotingPower(msg.sender);
-        require(power > 0, "No voting power");
+        if (power == 0) revert NoVotingPower(msg.sender);
 
         p.hasVoted[msg.sender] = true;
 
