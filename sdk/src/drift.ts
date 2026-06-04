@@ -14,15 +14,15 @@ import { DriftFactory } from './factory';
  */
 export class Drift {
   public readonly client: DriftClient;
-  public readonly settler: DriftSettler;
   public readonly factory: DriftFactory;
+  public readonly settler?: DriftSettler;
 
   constructor(signerOrProvider: Signer | Provider, config: DriftConfig) {
     this.client = new DriftClient(config, signerOrProvider);
     this.factory = new DriftFactory(config.factoryAddress, signerOrProvider);
 
     // Settler only available if a signer was provided
-    if ('signMessage' in signerOrProvider) {
+    if (signerOrProvider instanceof Signer || 'signMessage' in signerOrProvider) {
       this.settler = new DriftSettler(signerOrProvider as Signer);
     }
   }

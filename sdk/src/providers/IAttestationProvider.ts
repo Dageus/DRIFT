@@ -6,6 +6,4 @@ export interface IAttestationProvider {
    * and normalizes it into our standard AttestationRecord format.
    */
   fetchUserRecords(contextUID: string, userAddress: string): Promise<AttestationRecord[]>;
-
-  fetchRecordsByAttester(attester: string, subject: string, schemaUID: string): Promise<AttestationRecord[]>;
 }

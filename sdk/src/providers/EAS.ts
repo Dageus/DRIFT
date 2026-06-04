@@ -58,21 +58,10 @@ export class EASProvider implements IAttestationProvider {
       })
     });
 
-    const { data } = await res.json();
-    return this._normalize(data.attestations);
-  }
-
-  async fetchRecordsByAttester(attester: string, subject: string, schemaUID: string): Promise<AttestationRecord[]> {
-    const res = await fetch(this.graphqlEndpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        query: FILTERED_QUERY,
-        variables: { attester, recipient: subject, schema: schemaUID }
-      })
-    });
-
-    const { data } = await res.json();
+    const json = await res.json();
+    if (json.errors) {
+      throw new Error(`EAS GraphQL error: ${JSON.stringify(json.errors)}`);
+    }
     return this._normalize(data.attestations);
   }
 

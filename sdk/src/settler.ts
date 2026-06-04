@@ -21,9 +21,6 @@ export class DriftSettler {
 
   constructor(signer: Signer) {
     this.signer = signer;
-    if (!signer.provider) {
-      throw new Error('DriftSettler: Signer must be connected to a provider.');
-    }
   }
 
   /**
@@ -86,12 +83,16 @@ export class DriftSettler {
     if (!isHexString(value, 32)) {
       throw new Error(
         `DRIFT SDK: '${name}' must be a 32-byte hex string (0x + 64 hex chars). Received: ${value}.\n` +
-        `Hint: use ethers.id("ROLE_NAME") or ethers.keccak256(ethers.toUtf8Bytes("name")) to derive it.`
+          `Hint: use ethers.id("ROLE_NAME") or ethers.keccak256(ethers.toUtf8Bytes("name")) to derive it.`
       );
     }
   }
 
   private async _fetchDomain(contractAddress: string): Promise<TypedDataDomain> {
+    const provider = this.signer.provider;
+    if (!provider) {
+      throw new Error('DriftSettler: Signer must have a provider to fetch EIP-712 domain.');
+    }
     const contract = new Contract(contractAddress, EIP712_ABI, this.signer.provider);
     const d = await contract.eip712Domain();
     return {

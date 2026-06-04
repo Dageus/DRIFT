@@ -13,17 +13,13 @@ const CORE_ABI = [
   'event ContextRegistered(bytes32 indexed uid, string name, address indexed owner)'
 ];
 
-const CLIENT_ABI = [
-  'function getScore(address node) external view returns (uint256 score, uint256 settledAt)',
-  'function getVotingPower(address account) external view returns (uint256)'
-];
+const CLIENT_ABI = ['function getVotingPower(address account) external view returns (uint256)'];
 
 const GOVERNANCE_CLIENT_ABI = [
   'function settleReputation(address node, bytes32 role, uint256 score, uint256 epoch, bytes calldata sig) external',
   'function castVote(uint256 proposalId, bool support) external',
   'function createProposal(string calldata description, address target, bytes calldata payload, uint256 durationInDays) external returns (uint256)',
   'function executeProposal(uint256 proposalId) external',
-  'function getScore(address node) external view returns (uint256 score, uint256 settledAt)',
   'function getVotingPower(address account) external view returns (uint256)'
 ];
 
@@ -221,10 +217,19 @@ export class DriftClient {
     return this._core.verifyAttestation(contextUID, schemaUID, attestationUID, subject, attester);
   }
 
-  public async getScore(clientAddress: string, node: string): Promise<{ score: bigint; settledAt: number }> {
-    const client = new Contract(clientAddress, CLIENT_ABI, this._core.runner);
-    const [score, settledAt] = await client.getScore(node);
-    return { score: BigInt(score), settledAt: Number(settledAt) };
+  public async getTokenBalance(
+    tokenAddress: string,
+    account: string,
+    contextUID: string,
+    role: string
+  ): Promise<bigint> {
+    const token = new Contract(
+      tokenAddress,
+      ['function balanceOf(address account, uint256 id) external view returns (uint256)'],
+      this._core.runner
+    );
+    const tokenId = keccak256(abi.encode(['bytes32', 'bytes32'], [contextUID, role]));
+    return BigInt(await token.balanceOf(account, tokenId));
   }
 
   public async getVotingPower(clientAddress: string, account: string): Promise<bigint> {
@@ -233,14 +238,15 @@ export class DriftClient {
   }
 
   public async getLocalReputation(
-    viewerAddress: string,
     subjectAddress: string,
-    schemaUID: string,
+    contextUID: string,
     provider: IAttestationProvider,
     engine: IReputationEngine
   ): Promise<bigint> {
-    const records = await provider.fetchRecordsByAttester(viewerAddress, subjectAddress, schemaUID);
+    const records = await provider.fetchUserRecords(contextUID, subjectAddress);
+
     if (records.length === 0) return 0n;
+
     return engine.calculateScore(records);
   }
 
