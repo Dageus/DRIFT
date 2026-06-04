@@ -5,7 +5,7 @@
     "contracts",
     "sdk"
   ],
-  "dependencies": {
-    "ethers": "^6.16.0"
+  "devDependencies": {
+    "@types/node": "^25.9.1"
   }
 }
