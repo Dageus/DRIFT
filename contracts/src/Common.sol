@@ -8,6 +8,7 @@ library DRIFTTypes {
         bytes32 uid; // keccak256(name + owner) ?
         string name; // "depin.helium"
         address owner; // who manages this context
+        string reputationAlgorithm;
         bool active;
     }
 }

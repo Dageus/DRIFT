@@ -11,7 +11,7 @@ interface IDRIFTCore is IAccessControl {
     // Events ==================================================================
 
     /// @notice Emitted when a new context is registered.
-    event ContextRegistered(bytes32 indexed uid, string name, address indexed owner);
+    event ContextRegistered(bytes32 indexed uid, string name, address indexed owner, string reputationAlgorithm);
 
     /// @notice Emitted when a context is deactivated.
     event ContextDeactivated(bytes32 indexed uid);

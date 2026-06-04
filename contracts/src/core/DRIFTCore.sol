@@ -69,9 +69,6 @@ contract DRIFTCore is Initializable, AccessControlUpgradeable, UUPSUpgradeable, 
     function initialize(address admin) external initializer {
         __AccessControl_init();
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
-
-        // self-governance
-        // _registerContext("DRIFT.Governance", address(0), 0);
     }
 
     // Setters =================================================================
@@ -96,7 +93,7 @@ contract DRIFTCore is Initializable, AccessControlUpgradeable, UUPSUpgradeable, 
     // Context management ======================================================
 
     /// @inheritdoc IDRIFTCore
-    function registerContext(string calldata name) external returns (bytes32 uid) {
+    function registerContext(string calldata name, string calldata reputationAlgorithm) external returns (bytes32 uid) {
         if (bytes(name).length == 0) {
             revert EmptyContextName();
         }
@@ -109,7 +106,13 @@ contract DRIFTCore is Initializable, AccessControlUpgradeable, UUPSUpgradeable, 
 
         _usedNames[uid] = true;
 
-        _contexts[uid] = DRIFTTypes.Context({ uid: uid, name: name, owner: msg.sender, active: true });
+        _contexts[uid] = DRIFTTypes.Context({
+            uid: uid,
+            name: name,
+            owner: msg.sender,
+            reputationAlgorithm: reputationAlgorithm,
+            active: true
+        });
 
         _grantRole(contextAdminRole(uid), msg.sender);
 
