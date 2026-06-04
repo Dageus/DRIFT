@@ -4,6 +4,8 @@ import type { AttestationRecord } from '../request';
 
 export type WeightResolver = (attester: string) => bigint;
 
+const MULTIPLIER = 10000n;
+
 export class EigenTrustEngine implements IReputationEngine {
   private readonly coder = AbiCoder.defaultAbiCoder();
 
@@ -42,6 +44,6 @@ export class EigenTrustEngine implements IReputationEngine {
       }
     }
 
-    return weight === 0n ? 0n : total / weight;
+    return weight === 0n ? 0n : (total * MULTIPLIER) / weight;
   }
 }

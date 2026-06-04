@@ -62,7 +62,7 @@ export class EASProvider implements IAttestationProvider {
     if (json.errors) {
       throw new Error(`EAS GraphQL error: ${JSON.stringify(json.errors)}`);
     }
-    return this._normalize(data.attestations);
+    return this._normalize(json.data.attestations);
   }
 
   private _normalize(attestations: any[]): AttestationRecord[] {

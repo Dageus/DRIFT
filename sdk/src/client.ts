@@ -1,10 +1,11 @@
 import { Signer, Provider, Contract } from 'ethers';
 import { IAttestationProvider } from './providers/IAttestationProvider';
 import { IReputationEngine } from './engines/IReputationEngine';
+import { ENGINES_MAPPING } from './engines/ReputationMapping';
 import { CORE_ERROR_DECODER, GOVERNANCE_ERROR_DECODER } from './errors';
 
 const CORE_ABI = [
-  'function registerContext(string calldata name) external payable returns (bytes32)',
+  'function registerContext(string calldata name, string calldata reputationAlgorithm) external payable returns (bytes32)',
   'function registerNode(bytes32 contextUID, bytes calldata entryProof) external payable',
   'function addSchema(bytes32 contextUID, bytes32 schemaUID, address adapter) external',
   'function setContextPolicy(bytes32 contextUID, address policyContract) external',
@@ -56,10 +57,14 @@ export class DriftClient {
 
   // Admin operations ==========================================================
 
-  public async registerContext(name: string): Promise<string> {
+  public async registerContext(name: string, reputationAlgorithm: string): Promise<string> {
+    if (!ENGINES_MAPPING[reputationAlgorithm]) {
+      throw new Error('DriftClient: Unknown reputation algorithm.')
+    }
+
     try {
       const tx = await this._requireSigner().sendTransaction(
-        await this._core.registerContext.populateTransaction(name)
+        await this._core.registerContext.populateTransaction(name, reputationAlgorithm)
       );
       const receipt = await tx.wait();
 
