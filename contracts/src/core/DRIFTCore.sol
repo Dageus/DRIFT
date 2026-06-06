@@ -46,12 +46,6 @@ contract DRIFTCore is Initializable, DRIFTCoreStorage, AccessControlUpgradeable,
     /// @notice Error thrown when a token has already been set for the context
     error TokenAlreadySet();
 
-    // Constants ===============================================================
-
-    /// @notice Granted to addresses allowed to register contexts.
-    ///         Granted to DRIFTClient contracts by the admin post-deploy.
-    bytes32 public constant CLIENT_ROLE = keccak256("CLIENT_ROLE");
-
     // Token Management ========================================================
 
     IDRIFTToken public driftToken;

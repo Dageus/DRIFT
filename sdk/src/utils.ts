@@ -1,7 +1,8 @@
 import { id, keccak256, AbiCoder } from 'ethers';
 
 /** Derives the contextUID from a human-readable name. Matches DRIFTCore. */
-export const contextUID = (name: string): string => id(name);
+export const contextUID = (name: string): string =>
+  keccak256(AbiCoder.defaultAbiCoder().encode(['string'], [name]));
 
 /** Derives a role identifier from a human-readable role name. */
 export const roleId = (roleName: string): string => id(roleName);

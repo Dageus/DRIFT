@@ -37,15 +37,7 @@ export class DriftSettler {
   ): Promise<{ score: bigint; signature: string }> {
     const records = await provider.fetchUserRecords(contextUID, userAddress);
 
-    // WARNING: what if the user is new? he might not have records yet
-    if (records.length === 0) {
-      throw new Error('DriftSettler: No valid attestations found for this user.');
-    }
-
-    // NOTE: alternative
-    // const score = records.length === 0 ? 0n : engine.calculateScore(records);
-
-    const score = engine.calculateScore(records);
+    const score = records.length === 0 ? 0n : engine.calculateScore(records);
 
     const signature = await this._signPayload(clientAddress, contextUID, role, userAddress, score, epoch);
 

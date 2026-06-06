@@ -3,6 +3,7 @@ import { roleId } from './utils';
 
 const FACTORY_ABI = [
   'function deployClient(bytes32 contextUID, address implementation, bytes calldata initData, bytes32 salt) external returns (address clone)',
+  'function contextClient(bytes32 contextUID) external view returns (address)',
   'event ClientDeployed(address indexed client, bytes32 indexed contextUID, address implementation)'
 ];
 
@@ -15,56 +16,58 @@ export class DriftFactory {
   private readonly iface: Interface;
 
   constructor(factoryAddress: string, signerOrProvider: Signer | Provider) {
-    this.iface    = new Interface(FACTORY_ABI);
+    this.iface = new Interface(FACTORY_ABI);
     this.contract = new Contract(factoryAddress, FACTORY_ABI, signerOrProvider);
   }
 
   public async deployClient(
-    contextUID:     string,
+    contextUID: string,
     implementation: string,
-    initData:       string,
-    salt:           string
+    initData: string,
+    salt: string
   ): Promise<string> {
-    const tx      = await this.contract.deployClient(contextUID, implementation, initData, salt);
+    const tx = await this.contract.deployClient(contextUID, implementation, initData, salt);
     const receipt = await tx.wait();
     return this._extractClientAddress(receipt);
   }
 
   public async deployWeightedGovernance(params: {
-    contextUID:     string;
+    contextUID: string;
     implementation: string;
-    coreAddress:    string;
-    tokenAddress:   string;
+    coreAddress: string;
+    tokenAddress: string;
     trustedSettler: string;
-    roles:          string[];
-    weights:        bigint[];
-    salt:           string;
+    roles: string[];
+    weights: bigint[];
+    salt: string;
   }): Promise<string> {
-    const encodedRoles = params.roles.map(r => roleId(r));
+    const encodedRoles = params.roles.map((r) => roleId(r));
 
-    const initData = new Interface(WEIGHTED_GOVERNANCE_INIT_ABI).encodeFunctionData(
-      'initialize',
-      [
-        params.coreAddress,
-        params.tokenAddress,
-        params.contextUID,
-        params.trustedSettler,
-        encodedRoles,
-        params.weights
-      ]
-    );
-
-    return this.deployClient(
+    const initData = new Interface(WEIGHTED_GOVERNANCE_INIT_ABI).encodeFunctionData('initialize', [
+      params.coreAddress,
+      params.tokenAddress,
       params.contextUID,
-      params.implementation,
-      initData,
-      id(params.salt)
-    );
+      params.trustedSettler,
+      encodedRoles,
+      params.weights
+    ]);
+
+    return this.deployClient(params.contextUID, params.implementation, initData, id(params.salt));
+  }
+
+  public async getClientAddress(contextUID: string): Promise<string> {
+    return await this.contract.contextClient(contextUID);
   }
 
   private _extractClientAddress(receipt: any): string {
     const log = receipt.logs
-      .map((l: any) => { try { return this.iface.parseLog(l); } catch { return null; } })
+      .map((l: any) => {
+        try {
+          return this.iface.parseLog(l);
+        } catch {
+          return null;
+        }
+      })
       .find((l: any) => l?.name === 'ClientDeployed');
 
     if (!log) throw new Error('DriftFactory: ClientDeployed event not found in receipt.');

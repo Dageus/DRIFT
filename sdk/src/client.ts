@@ -1,11 +1,11 @@
-import { Signer, Provider, Contract } from 'ethers';
+import { Signer, Provider, Contract, AbiCoder, keccak256 } from 'ethers';
 import { IAttestationProvider } from './providers/IAttestationProvider';
-import { IReputationEngine } from './engines/IReputationEngine';
-import { ENGINES_MAPPING } from './engines/ReputationMapping';
+import { REPUTATION_ENGINES } from './engines/EnginesMapping';
 import { CORE_ERROR_DECODER, GOVERNANCE_ERROR_DECODER } from './errors';
+import { ITrustStore } from './trust/ITrustStore';
 
 const CORE_ABI = [
-  'function registerContext(string calldata name, string calldata reputationAlgorithm) external payable returns (bytes32)',
+  'function registerContext(string calldata name, string calldata reputationAlgorithm) external returns (bytes32)',
   'function registerNode(bytes32 contextUID, bytes calldata entryProof) external payable',
   'function addSchema(bytes32 contextUID, bytes32 schemaUID, address adapter) external',
   'function setContextPolicy(bytes32 contextUID, address policyContract) external',
@@ -27,18 +27,24 @@ const GOVERNANCE_CLIENT_ABI = [
 export interface DriftConfig {
   coreAddress: string;
   factoryAddress: string;
+  attestationProvider: IAttestationProvider;
+  storageProvider: ITrustStore;
 }
 
 export class DriftClient {
   private readonly _core: Contract;
   public readonly config: DriftConfig;
   private readonly _signer?: Signer;
+  private readonly _provider: IAttestationProvider;
+  private readonly _trustStore: ITrustStore;
 
   constructor(config: DriftConfig, signerOrProvider: Signer | Provider) {
     const connected = signerOrProvider;
     this._signer = 'signMessage' in connected ? (connected as Signer) : undefined;
     this._core = new Contract(config.coreAddress, CORE_ABI, connected);
     this.config = config;
+    this._provider = config.attestationProvider;
+    this._trustStore = config.storageProvider;
   }
 
   // Error Decoding Utility ====================================================
@@ -58,8 +64,8 @@ export class DriftClient {
   // Admin operations ==========================================================
 
   public async registerContext(name: string, reputationAlgorithm: string): Promise<string> {
-    if (!ENGINES_MAPPING[reputationAlgorithm]) {
-      throw new Error('DriftClient: Unknown reputation algorithm.')
+    if (!REPUTATION_ENGINES[reputationAlgorithm]) {
+      throw new Error('DriftClient: Unknown reputation algorithm.');
     }
 
     try {
@@ -222,7 +228,7 @@ export class DriftClient {
     return this._core.verifyAttestation(contextUID, schemaUID, attestationUID, subject, attester);
   }
 
-  public async getTokenBalance(
+  public async getReputationBalance(
     tokenAddress: string,
     account: string,
     contextUID: string,
@@ -233,7 +239,8 @@ export class DriftClient {
       ['function balanceOf(address account, uint256 id) external view returns (uint256)'],
       this._core.runner
     );
-    const tokenId = keccak256(abi.encode(['bytes32', 'bytes32'], [contextUID, role]));
+
+    const tokenId = keccak256(AbiCoder.defaultAbiCoder().encode(['bytes32', 'bytes32'], [contextUID, role]));
     return BigInt(await token.balanceOf(account, tokenId));
   }
 
@@ -245,13 +252,33 @@ export class DriftClient {
   public async getLocalReputation(
     subjectAddress: string,
     contextUID: string,
-    provider: IAttestationProvider,
-    engine: IReputationEngine
+    explicitViewer?: string
   ): Promise<bigint> {
-    const records = await provider.fetchUserRecords(contextUID, subjectAddress);
+    let activeViewer = explicitViewer;
+    if (!activeViewer && this._signer) {
+      activeViewer = await this._signer.getAddress();
+    }
 
-    if (records.length === 0) return 0n;
+    if (!activeViewer) {
+      throw new Error('DRIFT SDK: Operation requires an active signer or an explicit viewer address input.');
+    }
 
+    const contextStruct = await this._core.getContext(contextUID);
+    const algorithmLabel = contextStruct.reputationAlgorithm;
+
+    const engineFactory = REPUTATION_ENGINES[algorithmLabel];
+    if (!engineFactory) {
+      throw new Error(`DRIFT SDK: The on-chain algorithm '${algorithmLabel}' is unsupported by this SDK version.`);
+    }
+
+    const weightsMap = await this._trustStore.getWeights(activeViewer);
+
+    const engine = engineFactory({
+      schemaDefinition: 'uint256 score',
+      weightResolver: (attester) => BigInt(weightsMap.get(attester.toLowerCase()) ?? 1)
+    });
+
+    const records = await this._provider.fetchUserRecords(contextUID, subjectAddress);
     return engine.calculateScore(records);
   }
 
