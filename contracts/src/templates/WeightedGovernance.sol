@@ -24,7 +24,7 @@ contract WeightedGovernanceClient is
 
     error ArrayLengthMismatch();
     error InvalidSettlerSignature();
-    error SignatureAlreadyConsumed(bytes32 digest);
+    error InvalidEpoch(uint256 currEpoch, uint256 expectedEpoch);
     error NodeNotRegistered(bytes32 contextUID, address node);
 
     IDRIFTCore public core;
@@ -32,7 +32,9 @@ contract WeightedGovernanceClient is
     bytes32 public contextUID;
 
     address public trustedSettler;
-    mapping(bytes32 => bool) public consumedDigests;
+
+    // Context UID => Node => Role => expected next epoch
+    mapping(bytes32 => mapping(address => mapping(bytes32 => uint256))) public expectedEpoch;
 
     // keccak256(Settle(bytes32 contextUID,address node,bytes32 role,uint256 score,uint256 epoch))
     bytes32 public constant SETTLE_TYPEHASH =
@@ -64,6 +66,11 @@ contract WeightedGovernanceClient is
             revert UnauthorizedSender(msg.sender);
         }
         _;
+    }
+
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
     }
 
     function initialize(
@@ -114,19 +121,30 @@ contract WeightedGovernanceClient is
             revert NodeNotRegistered(contextUID, node);
         }
 
+        if (epoch != expectedEpoch[contextUID][node][role]) {
+            revert InvalidEpoch(epoch, expectedEpoch[contextUID][node][role]);
+        }
+
+        // Increment the epoch BEFORE execution (Checks-Effects-Interactions pattern)
+        expectedEpoch[contextUID][node][role]++;
+
         bytes32 structHash = keccak256(abi.encode(SETTLE_TYPEHASH, contextUID, node, role, score, epoch));
         bytes32 digest = _hashTypedDataV4(structHash);
-
-        if (consumedDigests[digest]) {
-            revert SignatureAlreadyConsumed(digest);
-        }
-        consumedDigests[digest] = true;
 
         if (ECDSA.recover(digest, sig) != trustedSettler) {
             revert InvalidSettlerSignature();
         }
 
-        core.reward(contextUID, role, node, score);
+        uint256 tokenId = uint256(keccak256(abi.encode(contextUID, role)));
+        uint256 currentReputation = driftToken.balanceOf(node, tokenId);
+
+        if (score > currentReputation) {
+            uint256 delta = score - currentReputation;
+            core.reward(contextUID, role, node, delta);
+        } else if (score < currentReputation) {
+            uint256 delta = currentReputation - score;
+            core.slash(contextUID, role, node, delta);
+        }
 
         emit ReputationSettled(contextUID, node, role, score, epoch);
     }

@@ -48,6 +48,11 @@ contract CrossContextGovernance is Initializable, IDRIFTGovernance {
         _;
     }
 
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
     function initialize(
         address _core,
         address _token,
