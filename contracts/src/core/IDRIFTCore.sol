@@ -47,7 +47,7 @@ interface IDRIFTCore is IAccessControl {
     /// @notice Register a new reputation context.
     /// @param  name          Human-readable name, unique per owner.
     /// @return uid           The context's unique identifier.
-    function registerContext(string calldata name) external returns (bytes32 uid);
+    function registerContext(string calldata name, string calldata reputationAlgorithm) external returns (bytes32 uid);
 
     /// @notice Deactivate a context. Existing node stakes are preserved.
     function deactivateContext(bytes32 contextUID) external;

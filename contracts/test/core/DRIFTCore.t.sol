@@ -37,7 +37,7 @@ contract DRIFTCoreTest is Test {
 
     function _registerContext() internal returns (bytes32 uid) {
         vm.prank(creator);
-        uid = core.registerContext("test.context");
+        uid = core.registerContext("test.context", ""); // reputation algorithms aren't important here
     }
 
     function test_AdminHasDefaultAdminRole() public view {
@@ -61,7 +61,7 @@ contract DRIFTCoreTest is Test {
     function test_RegisterContextRevertsIfEmptyName() public {
         vm.prank(creator);
         vm.expectRevert(DRIFTCore.EmptyContextName.selector);
-        core.registerContext("");
+        core.registerContext("", ""); // reputation algorithms aren't important here
     }
 
     function test_AddSchemaSucceeds() public {

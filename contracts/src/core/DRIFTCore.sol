@@ -15,7 +15,7 @@ import { IPolicy, NodeStatus } from "../policies/IPolicy.sol";
 /// @title  DRIFTCore
 /// @notice Central DRIFT registry.
 /// @dev    UUPS upgradeable. All storage declared in DRIFTCoreStorage.
-contract DRIFTCore is Initializable, AccessControlUpgradeable, UUPSUpgradeable, DRIFTCoreStorage, IDRIFTCore {
+contract DRIFTCore is Initializable, DRIFTCoreStorage, AccessControlUpgradeable, UUPSUpgradeable, IDRIFTCore {
     // Errors ==================================================================
 
     /// @notice Error thrown when a context name is taken
@@ -116,7 +116,7 @@ contract DRIFTCore is Initializable, AccessControlUpgradeable, UUPSUpgradeable, 
 
         _grantRole(contextAdminRole(uid), msg.sender);
 
-        emit ContextRegistered(uid, name, msg.sender);
+        emit ContextRegistered(uid, name, msg.sender, reputationAlgorithm);
     }
 
     /// @inheritdoc IDRIFTCore

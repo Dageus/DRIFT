@@ -35,7 +35,7 @@ contract WeightedGovernanceClientTest is Test {
         factory = new DRIFTClientFactory(address(core));
 
         vm.startPrank(admin);
-        contextUID = core.registerContext("test.university");
+        contextUID = core.registerContext("test.university", ""); // reputation algorithms aren't important here
         vm.stopPrank();
 
         bytes32[] memory roles = new bytes32[](2);

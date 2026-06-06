@@ -84,6 +84,9 @@ contract WeightedGovernanceClient is
         if (_roles.length != _weights.length) {
             revert ArrayLengthMismatch();
         }
+
+        require(_roles.length <= 10, "Ecosystem role cap exceeded");
+
         __EIP712_init("DRIFT_WeightedGovernance", "1");
 
         core = IDRIFTCore(_core);

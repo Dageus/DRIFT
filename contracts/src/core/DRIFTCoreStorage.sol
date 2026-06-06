@@ -8,11 +8,6 @@ import { NodeStatus } from "../policies/IPolicy.sol";
 /// @notice Isolated storage layout for DRIFTCore.
 ///         Inherited by DRIFTCore to make upgrade storage safety explicit.
 abstract contract DRIFTCoreStorage {
-    // Context UID => IPolicy
-    mapping(bytes32 => address) public contextPolicies;
-    // Context UID => Node Address => Status
-    mapping(bytes32 => mapping(address => NodeStatus)) public nodeStatus;
-
     // Context UID => Context
     mapping(bytes32 => DRIFTTypes.Context) internal _contexts;
 
@@ -25,6 +20,13 @@ abstract contract DRIFTCoreStorage {
 
     // Context UID => schema UID => adapter address
     mapping(bytes32 => mapping(bytes32 => address)) internal _schemaAdapters;
+
+    // Context UID => Node Address => Status
+    mapping(bytes32 => mapping(address => NodeStatus)) public nodeStatus;
+
+    // WARNING: contexts are limited to one policy. Should we allow more?
+    // Context UID => IPolicy
+    mapping(bytes32 => address) public contextPolicies;
 
     /// @dev Reserved storage slots for future upgrades.
     ///      Each variable added above must reduce this by its slot count.

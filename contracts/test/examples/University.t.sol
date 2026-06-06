@@ -42,7 +42,7 @@ contract UniversityScenarioTest is Test {
         mockAdapter = new MockAdapter();
 
         vm.startPrank(president);
-        contextUID = core.registerContext("Harvard.v1");
+        contextUID = core.registerContext("Harvard.v1", ""); // reputation algorithms aren't important here
         vm.stopPrank();
 
         bytes32[] memory roles = new bytes32[](2);
@@ -65,7 +65,6 @@ contract UniversityScenarioTest is Test {
 
         bytes32 adminRole = core.contextAdminRole(contextUID);
         vm.startPrank(president);
-        core.grantRole(adminRole, president);
         address cloneAddr = factory.deployClient(contextUID, address(template), initData, bytes32("salt"));
         client = WeightedGovernanceClient(cloneAddr);
         core.grantRole(adminRole, address(client));
