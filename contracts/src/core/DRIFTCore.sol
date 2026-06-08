@@ -100,17 +100,11 @@ contract DRIFTCore is Initializable, DRIFTCoreStorage, AccessControlUpgradeable,
 
         _usedNames[uid] = true;
 
-        _contexts[uid] = DRIFTTypes.Context({
-            uid: uid,
-            name: name,
-            owner: msg.sender,
-            reputationAlgorithm: reputationAlgorithm,
-            active: true
-        });
+        _contexts[uid] = DRIFTTypes.Context({ uid: uid, name: name, owner: msg.sender, active: true });
 
         _grantRole(contextAdminRole(uid), msg.sender);
 
-        emit ContextRegistered(uid, name, msg.sender, reputationAlgorithm);
+        emit ContextRegistered(uid, name, msg.sender);
     }
 
     /// @inheritdoc IDRIFTCore

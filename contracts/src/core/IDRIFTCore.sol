@@ -11,7 +11,7 @@ interface IDRIFTCore is IAccessControl {
     // Events ==================================================================
 
     /// @notice Emitted when a new context is registered.
-    event ContextRegistered(bytes32 indexed uid, string name, address indexed owner, string reputationAlgorithm);
+    event ContextRegistered(bytes32 indexed uid, string name, address indexed owner);
 
     /// @notice Emitted when a context is deactivated.
     event ContextDeactivated(bytes32 indexed uid);
@@ -77,7 +77,7 @@ interface IDRIFTCore is IAccessControl {
     ///         Emits NodeRegistered.
     /// @param  contextUID  The context to join.
     /// @param  entryProof  Proof of node's entry
-    function registerNode(bytes32 contextUID, bytes calldata entryProof) external payable;
+    function registerNode(bytes32 contextUID, bytes calldata entryProof) external;
 
     /// @notice Deregister from a context.
     ///         Node's past attestations remain in EAS but will be
