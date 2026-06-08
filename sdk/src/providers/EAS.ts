@@ -21,27 +21,6 @@ const USER_QUERY = `
   }
 `;
 
-const FILTERED_QUERY = `
-  query GetFilteredAttestations($attester: String!, $recipient: String!, $schema: String!) {
-    attestations(
-      where: {
-        attester:  { equals: $attester }
-        recipient: { equals: $recipient }
-        schemaId:  { equals: $schema }
-        revoked:   { equals: false }
-      }
-    ) {
-      id
-      schemaId
-      attester
-      recipient
-      timeCreated
-      revocationTime
-      data
-    }
-  }
-`;
-
 export class EASProvider implements IAttestationProvider {
   constructor(
     private readonly graphqlEndpoint: string,

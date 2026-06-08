@@ -24,7 +24,7 @@ const GOVERNANCE_CLIENT_ABI = [
   'function getVotingPower(address account) external view returns (uint256)'
 ];
 
-export interface DriftConfig {
+export interface DriftClientConfig {
   coreAddress: string;
   factoryAddress: string;
   attestationProvider: IAttestationProvider;
@@ -33,12 +33,12 @@ export interface DriftConfig {
 
 export class DriftClient {
   private readonly _core: Contract;
-  public readonly config: DriftConfig;
+  public readonly config: DriftClientConfig;
   private readonly _signer?: Signer;
   private readonly _provider: IAttestationProvider;
   private readonly _trustStore: ITrustStore;
 
-  constructor(config: DriftConfig, signerOrProvider: Signer | Provider) {
+  constructor(config: DriftClientConfig, signerOrProvider: Signer | Provider) {
     const connected = signerOrProvider;
     this._signer = 'signMessage' in connected ? (connected as Signer) : undefined;
     this._core = new Contract(config.coreAddress, CORE_ABI, connected);
