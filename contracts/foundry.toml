@@ -20,4 +20,9 @@ evm_version = "cancun"
 [fuzz]
 runs = 1000
 
+[rpc_endpoints]
+sepolia = "${RPC_SEPOLIA}"
+arbitrum-sepolia = "${RPC_ARBITRUM_SEPOLIA}"
+avalanche-fuji = "${RPC_AVALANCHE_FUJI}"
+
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
