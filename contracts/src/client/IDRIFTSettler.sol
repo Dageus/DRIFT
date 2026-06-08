@@ -11,6 +11,8 @@ interface IDRIFTSettler {
         uint256 epoch
     );
 
+    event SettlerUpdated(address indexed oldSettler, address indexed newSettler);
+
     /// @notice Accept a signed reputation score and forward to Core for minting/slashing.
     /// @param node   The node being evaluated.
     /// @param role   The role this score maps to (bytes32(0) for flat contexts).
@@ -18,4 +20,16 @@ interface IDRIFTSettler {
     /// @param epoch  Replay protection — monotonic counter per node+role.
     /// @param sig    EIP-712 signature from the trusted settler.
     function settleReputation(address node, bytes32 role, uint256 score, uint256 epoch, bytes calldata sig) external;
+
+    /// @notice Batch version of settleReputation for gas-efficient bulk updates.
+    function settleReputationBatch(
+        address[] calldata nodes,
+        bytes32[] calldata roles,
+        uint256[] calldata scores,
+        uint256[] calldata epochs,
+        bytes[] calldata sigs
+    ) external;
+
+    /// @notice Rotate the trusted settler key. Must be called by the context admin.
+    function setTrustedSettler(address newSettler) external;
 }

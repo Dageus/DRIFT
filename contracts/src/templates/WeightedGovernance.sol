@@ -31,6 +31,8 @@ contract WeightedGovernanceClient is
     IDRIFTToken public driftToken;
     bytes32 public contextUID;
 
+    uint256 public proposalThreshold;
+
     address public trustedSettler;
 
     // Context UID => Node => Role => expected next epoch
@@ -60,9 +62,18 @@ contract WeightedGovernanceClient is
         mapping(address => bool) hasVoted;
     }
 
+    // Modifiers ===============================================================
+
     modifier onlyContextAdmin() {
         bytes32 adminRole = core.contextAdminRole(contextUID);
         if (!core.hasRole(adminRole, msg.sender)) {
+            revert UnauthorizedSender(msg.sender);
+        }
+        _;
+    }
+
+    modifier withThreshold() {
+        if (getVotingPower(msg.sender) < proposalThreshold) {
             revert UnauthorizedSender(msg.sender);
         }
         _;
@@ -78,6 +89,7 @@ contract WeightedGovernanceClient is
         address _token,
         bytes32 _contextUID,
         address _trustedSettler,
+        uint256 _proposalThreshold,
         bytes32[] calldata _roles,
         uint256[] calldata _weights
     ) external initializer {
@@ -93,6 +105,7 @@ contract WeightedGovernanceClient is
         driftToken = IDRIFTToken(_token);
         contextUID = _contextUID;
         trustedSettler = _trustedSettler;
+        proposalThreshold = _proposalThreshold;
 
         for (uint256 i = 0; i < _roles.length; i++) {
             activeRoles.push(_roles[i]);
@@ -103,7 +116,7 @@ contract WeightedGovernanceClient is
     // Role Weights ============================================================
 
     function setRoleWeight(bytes32 role, uint256 weight) external {
-        if (msg.sender != address(this)) {
+        if (msg.sender != address(this) && !core.hasRole(core.contextAdminRole(contextUID), msg.sender)) {
             revert UnauthorizedSender(msg.sender);
         }
         roleWeights[role] = weight;
@@ -152,6 +165,25 @@ contract WeightedGovernanceClient is
         emit ReputationSettled(contextUID, node, role, score, epoch);
     }
 
+    /// @inheritdoc IDRIFTSettler
+    function settleReputationBatch(
+        address[] calldata nodes,
+        bytes32[] calldata roles,
+        uint256[] calldata scores,
+        uint256[] calldata epochs,
+        bytes[] calldata sigs
+    ) external override {
+        // TODO:
+    }
+
+    /// @inheritdoc IDRIFTSettler
+    function setTrustedSettler(address newSettler) external onlyContextAdmin {
+        require(newSettler != address(0), "DRIFT: zero settler");
+        address oldSettler = trustedSettler;
+        trustedSettler = newSettler;
+        emit SettlerUpdated(oldSettler, trustedSettler);
+    }
+
     // Governance ==============================================================
 
     /// @inheritdoc IDRIFTGovernance
@@ -160,7 +192,7 @@ contract WeightedGovernanceClient is
         address target,
         bytes calldata payload,
         uint256 durationInDays
-    ) external override onlyContextAdmin returns (uint256) {
+    ) external override onlyContextAdmin withThreshold returns (uint256) {
         uint256 id = proposalCount++;
         Proposal storage p = proposals[id];
         p.description = description;
@@ -212,6 +244,8 @@ contract WeightedGovernanceClient is
 
     /// @inheritdoc IDRIFTGovernance
     function getVotingPower(address account) public view override returns (uint256 totalPower) {
+        if (!core.isRegistered(contextUID, account)) return 0;
+
         for (uint256 i = 0; i < activeRoles.length; i++) {
             bytes32 role = activeRoles[i];
             uint256 weight = roleWeights[role];
@@ -245,7 +279,6 @@ contract WeightedGovernanceClient is
         )
     {
         Proposal storage p = proposals[proposalId];
-        // Added p.executed to the return tuple
         return (p.description, p.target, p.payload, p.votesFor, p.votesAgainst, p.deadline, p.executed, p.exists);
     }
 
