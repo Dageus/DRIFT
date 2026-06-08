@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import { DRIFTTypes } from "../Common.sol";
+import { NodeStatus } from "../policies/IPolicy.sol";
 
 import { IAccessControl } from "@openzeppelin/contracts/access/IAccessControl.sol";
 
@@ -34,26 +35,38 @@ interface IDRIFTCore is IAccessControl {
     /// @notice Emitted when a node gets rewarded.
     event NodeRewarded(bytes32 indexed contextUID, address indexed node);
 
+    /// @notice Emitted when a node's status changes.
+    event NodeStatusUpdated(bytes32 indexed contextUID, address indexed node, NodeStatus status);
+
     /// @notice Emitted when a context's policy gets updated.
     event PolicyUpdated(bytes32 indexed contextUID, address indexed policy);
 
-    // Policies ================================================================
-
-    /// @notice updates a context's policy, emitting an event.
-    function setContextPolicy(bytes32 contextUID, address policyContract) external;
+    /// @notice Emitted when a context's client gets updated.
+    event ClientUpdated(bytes32 indexed contextUID, address indexed client);
 
     // Context management ======================================================
 
     /// @notice Register a new reputation context.
     /// @param  name          Human-readable name, unique per owner.
     /// @return uid           The context's unique identifier.
-    function registerContext(string calldata name, string calldata reputationAlgorithm) external returns (bytes32 uid);
+    function registerContext(string calldata name) external returns (bytes32 uid);
 
     /// @notice Deactivate a context. Existing node stakes are preserved.
     function deactivateContext(bytes32 contextUID) external;
 
     /// @notice Return a unique Admin role for the given contextUID
     function contextAdminRole(bytes32 contextUID) external pure returns (bytes32);
+
+    // Policy management =======================================================
+
+    /// @notice updates a context's policy, emitting an event.
+    function setContextPolicy(bytes32 contextUID, address policyContract) external;
+
+    // Client management =======================================================
+
+    /// @notice updates a context's policy, emitting an event.
+    function setContextClient(bytes32 contextUID, address clientContract) external;
+
 
     // Schema management =======================================================
 
@@ -118,6 +131,9 @@ interface IDRIFTCore is IAccessControl {
 
     /// @notice Returns the adapter for the given schema.
     function getAdapter(bytes32 contextUID, bytes32 schemaUID) external view returns (address);
+
+    /// @notice Returns the client address for the given context.
+    function getContextClient(bytes32 contextUID) external view returns (address);
 
     /// @notice Returns true if a node is registered in a context.
     function isRegistered(bytes32 contextUID, address node) external view returns (bool);

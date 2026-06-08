@@ -32,8 +32,8 @@ contract DRIFTCore is Initializable, DRIFTCoreStorage, AccessControlUpgradeable,
     /// @notice Error thrown when attempting to register an invalid schema UID
     error InvalidSchemaUID(bytes32 contextUID);
 
-    /// @notice Error thrown when a caller doesn't have the minimum role
-    error UnauthorizedCaller(bytes32 role, address caller);
+    /// @notice Error thrown when a caller doesn't have the required permissions
+    error UnauthorizedCaller(address caller);
 
     /// @notice Error thrown when a schema does not exist for a given context
     error SchemaNotFound(bytes32 contextUID, bytes32 schemaUID);
@@ -48,8 +48,8 @@ contract DRIFTCore is Initializable, DRIFTCoreStorage, AccessControlUpgradeable,
 
     // Token Management ========================================================
 
-    IDRIFTToken public driftToken;
     address public constant BURN_ADDRESS = 0x000000000000000000000000000000000000dEaD;
+    bytes32 public constant FACTORY_ROLE = keccak256("FACTORY_ROLE");
 
     // Constructor =============================================================
 
@@ -65,29 +65,19 @@ contract DRIFTCore is Initializable, DRIFTCoreStorage, AccessControlUpgradeable,
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
     }
 
-    // Setters =================================================================
+    // DRIFT Token =============================================================
 
     /// @notice Links the ERC-1155 token to the core registry.
-    function setDriftToken(address _tokenAddress) external {
-        _checkRole(DEFAULT_ADMIN_ROLE, msg.sender);
+    function setDriftToken(address _tokenAddress) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (address(driftToken) != address(0)) revert TokenAlreadySet();
 
         driftToken = IDRIFTToken(_tokenAddress);
     }
 
-    // Policies ================================================================
-
-    /// @inheritdoc IDRIFTCore
-    function setContextPolicy(bytes32 contextUID, address policyContract) external onlyContextAdmin(contextUID) {
-        contextPolicies[contextUID] = policyContract;
-
-        emit PolicyUpdated(contextUID, policyContract);
-    }
-
     // Context management ======================================================
 
     /// @inheritdoc IDRIFTCore
-    function registerContext(string calldata name, string calldata reputationAlgorithm) external returns (bytes32 uid) {
+    function registerContext(string calldata name) external returns (bytes32 uid) {
         if (bytes(name).length == 0) {
             revert EmptyContextName();
         }
@@ -116,6 +106,25 @@ contract DRIFTCore is Initializable, DRIFTCoreStorage, AccessControlUpgradeable,
     /// @inheritdoc IDRIFTCore
     function contextAdminRole(bytes32 contextUID) public pure returns (bytes32) {
         return keccak256(abi.encodePacked("CONTEXT_ADMIN", contextUID));
+    }
+
+    // Policy management =======================================================
+
+    /// @inheritdoc IDRIFTCore
+    function setContextPolicy(bytes32 contextUID, address policyContract) external onlyContextAdmin(contextUID) {
+        _contextPolicies[contextUID] = policyContract;
+
+        emit PolicyUpdated(contextUID, policyContract);
+    }
+
+    // Client management =======================================================
+
+    /// @inheritdoc IDRIFTCore
+    // WARNING: shouldn't the factory be the only one allowed to do this?
+    function setContextClient(bytes32 contextUID, address clientContract) external onlyRole(FACTORY_ROLE) {
+        _contextClients[contextUID] = clientContract;
+
+        emit ClientUpdated(contextUID, clientContract);
     }
 
     // Schema management =======================================================
@@ -147,10 +156,10 @@ contract DRIFTCore is Initializable, DRIFTCoreStorage, AccessControlUpgradeable,
         emit SchemaRemoved(contextUID, schemaUID);
     }
 
-    // Node registration =======================================================
+    // Node management =========================================================
 
     /// @inheritdoc IDRIFTCore
-    function registerNode(bytes32 contextUID, bytes calldata entryProof) external payable {
+    function registerNode(bytes32 contextUID, bytes calldata entryProof) external {
         if (!_contexts[contextUID].active) {
             revert ContextNotActive(contextUID);
         }
@@ -158,7 +167,7 @@ contract DRIFTCore is Initializable, DRIFTCoreStorage, AccessControlUpgradeable,
             revert NodeAlreadyRegistered(contextUID, msg.sender);
         }
 
-        address policyAddress = contextPolicies[contextUID];
+        address policyAddress = _contextPolicies[contextUID];
         NodeStatus status = NodeStatus.FULL;
 
         if (policyAddress != address(0)) {
@@ -166,7 +175,7 @@ contract DRIFTCore is Initializable, DRIFTCoreStorage, AccessControlUpgradeable,
             require(status != NodeStatus.NONE, "Policy rejected entry");
         } else {
             // If there's no entry policy, fallback checking if there's any required native token stake
-            // configured for open registration (keeps your payable parameter functional if needed)
+            // configured for open registration
         }
 
         nodeStatus[contextUID][msg.sender] = status;
@@ -185,7 +194,20 @@ contract DRIFTCore is Initializable, DRIFTCoreStorage, AccessControlUpgradeable,
 
         delete nodeStatus[contextUID][msg.sender];
 
+        // BUG: what about the reputation tokens of that user?
+
         emit NodeDeregistered(contextUID, msg.sender);
+    }
+
+    function setNodeStatus(
+        bytes32 contextUID,
+        address node,
+        NodeStatus newStatus
+    ) external onlyContextAdmin(contextUID) {
+        if (nodeStatus[contextUID][node] == NodeStatus.BANNED) revert("Cannot unban node via status update");
+        nodeStatus[contextUID][node] = newStatus;
+        // Emit custom status transition event
+        emit NodeStatusUpdated(contextUID, node, newStatus);
     }
 
     // Trust verification ======================================================
@@ -215,7 +237,7 @@ contract DRIFTCore is Initializable, DRIFTCoreStorage, AccessControlUpgradeable,
         return IAttestationProvider(adapter).isValid(attestationUID, schemaUID, subject);
     }
 
-    // Cryptoeconomic Enforcement ==============================================
+    // Cryptoeconomic enforcement ==============================================
 
     /// @inheritdoc IDRIFTCore
     function slash(
@@ -223,7 +245,7 @@ contract DRIFTCore is Initializable, DRIFTCoreStorage, AccessControlUpgradeable,
         bytes32 role,
         address node,
         uint256 penaltyAmount
-    ) external onlyContextAdmin(contextUID) {
+    ) external onlyContextClient(contextUID) {
         NodeStatus status = nodeStatus[contextUID][node];
         if (status == NodeStatus.NONE || status == NodeStatus.BANNED) {
             revert NodeNotRegistered(contextUID, node);
@@ -233,11 +255,6 @@ contract DRIFTCore is Initializable, DRIFTCoreStorage, AccessControlUpgradeable,
         driftToken.slashReputation(node, tokenId, penaltyAmount);
 
         emit NodeSlashed(contextUID, node, penaltyAmount);
-
-        if (driftToken.balanceOf(node, tokenId) == 0) {
-            nodeStatus[contextUID][node] = NodeStatus.NONE; // can also be NodeStatus.BANNED ?
-            emit NodeDeregistered(contextUID, node);
-        }
     }
 
     /// @inheritdoc IDRIFTCore
@@ -246,7 +263,7 @@ contract DRIFTCore is Initializable, DRIFTCoreStorage, AccessControlUpgradeable,
         bytes32 role,
         address node,
         uint256 reputationAmount
-    ) external onlyContextAdmin(contextUID) {
+    ) external onlyContextClient(contextUID) {
         NodeStatus status = nodeStatus[contextUID][node];
         if (status == NodeStatus.NONE || status == NodeStatus.BANNED) revert NodeNotRegistered(contextUID, node);
 
@@ -275,6 +292,11 @@ contract DRIFTCore is Initializable, DRIFTCoreStorage, AccessControlUpgradeable,
     }
 
     /// @inheritdoc IDRIFTCore
+    function getContextClient(bytes32 contextUID) external view returns (address) {
+        return _contextClients[contextUID];
+    }
+
+    /// @inheritdoc IDRIFTCore
     function isRegistered(bytes32 contextUID, address node) external view returns (bool) {
         NodeStatus status = nodeStatus[contextUID][node];
         return (status != NodeStatus.NONE && status != NodeStatus.BANNED);
@@ -295,10 +317,16 @@ contract DRIFTCore is Initializable, DRIFTCoreStorage, AccessControlUpgradeable,
         _;
     }
 
+    modifier onlyContextClient(bytes32 contextUID) {
+        if (msg.sender != _contextClients[contextUID]) {
+            revert UnauthorizedCaller(msg.sender);
+        }
+        _;
+    }
+
     // Helpers =================================================================
 
     function _contextExists(bytes32 contextUID) internal view returns (bool) {
-        // If the uid matches what was passed, it was initialized
         return _contexts[contextUID].uid == contextUID;
     }
 

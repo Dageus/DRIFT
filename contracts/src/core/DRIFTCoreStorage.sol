@@ -3,11 +3,14 @@ pragma solidity 0.8.28;
 
 import { DRIFTTypes } from "../Common.sol";
 import { NodeStatus } from "../policies/IPolicy.sol";
+import { IDRIFTToken } from "../token/IDRIFTToken.sol";
 
 /// @title  DRIFTCoreStorage
 /// @notice Isolated storage layout for DRIFTCore.
 ///         Inherited by DRIFTCore to make upgrade storage safety explicit.
 abstract contract DRIFTCoreStorage {
+    IDRIFTToken public driftToken;
+
     // Context UID => Context
     mapping(bytes32 => DRIFTTypes.Context) internal _contexts;
 
@@ -26,9 +29,12 @@ abstract contract DRIFTCoreStorage {
 
     // WARNING: contexts are limited to one policy. Should we allow more?
     // Context UID => IPolicy
-    mapping(bytes32 => address) public contextPolicies;
+    mapping(bytes32 => address) public _contextPolicies;
+
+    // Context UID => client address
+    mapping(bytes32 => address) internal _contextClients;
 
     /// @dev Reserved storage slots for future upgrades.
     ///      Each variable added above must reduce this by its slot count.
-    uint256[45] private __gap;
+    uint256[43] private __gap;
 }
