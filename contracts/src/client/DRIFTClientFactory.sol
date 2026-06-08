@@ -7,10 +7,6 @@ import { IDRIFTCore } from "../core/IDRIFTCore.sol";
 contract DRIFTClientFactory {
     IDRIFTCore public immutable core;
 
-    mapping(bytes32 => address) public contextClient;
-
-    event ClientDeployed(address indexed client, bytes32 indexed contextUID, address implementation);
-
     constructor(address _core) {
         core = IDRIFTCore(_core);
     }
@@ -28,7 +24,6 @@ contract DRIFTClientFactory {
     ) external returns (address clone) {
         bytes32 adminRole = core.contextAdminRole(contextUID);
         require(core.hasRole(adminRole, msg.sender), "Not context admin");
-        require(contextClient[contextUID] == address(0), "Client already exists");
         require(implementation != address(0), "Invalid implementation");
 
         clone = Clones.cloneDeterministic(implementation, keccak256(abi.encodePacked(contextUID, salt)));
@@ -43,7 +38,6 @@ contract DRIFTClientFactory {
             }
         }
 
-        contextClient[contextUID] = clone;
-        emit ClientDeployed(clone, contextUID, implementation);
+        core.setContextClient(contextUID, clone);
     }
 }
