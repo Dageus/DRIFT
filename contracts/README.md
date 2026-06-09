@@ -139,6 +139,49 @@ forge snapshot --gas-report
 forge test --rpc-url https://api.avax-test.network/ext/bc/C/rpc --match-path test/providers/EASAdapter.t.sol
 ```
 
+**Deploying the contract**:
+
+```bash
+export RPC_URL="https://ethereum-sepolia-rpc.publicnode.com" # for example
+export PRIVATE_KEY="..."
+export ETHERSCAN_API_KEY="..."
+forge script script/Deploy.s.sol:DeployScript \
+  --rpc-url $RPC_URL \
+  --private-key $PRIVATE_KEY \
+  --broadcast \
+  --verify \
+  -vvvv
+```
+
+You can also do:
+
+```bash
+export PRIVATE_KEY="..."
+export ETHERSCAN_API_KEY="..."
+forge script script/Deploy.s.sol:DeployScript \
+  network_name \
+  --private-key $PRIVATE_KEY \
+  --broadcast \
+  --verify \
+  -vvvv
+```
+
+Check the `network_name` options in [`foundry.toml`](./foundry.toml).
+
+**Dry deployment**:
+
+```bash
+forge script script/Deploy.s.sol:DeployScript --rpc-url $RPC_URL
+```
+
+**Local deployment**:
+
+```bash
+anvil --fork-url $SEPOLIA_RPC_URL --port 8545
+
+forge script script/Deploy.s.sol:DeployScript --rpc-url http://127.0.0.1:8545 --broadcast
+```
+
 Here are some useful URLs:
 
 - AVALANCHE: `https://api.avax.network/ext/bc/C/rpc`
@@ -150,5 +193,3 @@ Here are some useful URLs:
 - Optimism: `https://mainnet.optimism.io/`
 
 - Base: `https://1rpc.io/base`
-
-
