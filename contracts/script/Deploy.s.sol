@@ -73,7 +73,7 @@ contract DeployScript is Script {
     // Upgrade ===============================================================
 
     function _upgrade(address proxyAddr, address admin) internal {
-        console2.log("Existing system proxy detected at:", existingProxy);
+        console2.log("Existing system proxy detected at:", proxyAddr);
         console2.log("Initializing UUPS implementation upgrade sequence...");
 
         DRIFTCore core = DRIFTCore(proxyAddr);

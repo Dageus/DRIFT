@@ -4,6 +4,9 @@ out = "out"
 libs = ["lib"]
 script = "scripts"
 evm_version = "cancun"
+fs_permissions = [
+  { access = "read-write", path = "./deployments" }
+]
 
 [profile.dev]
 optimizer = true

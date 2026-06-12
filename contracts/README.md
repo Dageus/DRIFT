@@ -177,7 +177,8 @@ forge script script/Deploy.s.sol:DeployScript --rpc-url $RPC_URL
 **Local deployment**:
 
 ```bash
-anvil --fork-url $SEPOLIA_RPC_URL --port 8545
+export RPC_URL="..."
+anvil --fork-url $RPC_URL --port 8545
 
 forge script script/Deploy.s.sol:DeployScript --rpc-url http://127.0.0.1:8545 --broadcast
 ```
