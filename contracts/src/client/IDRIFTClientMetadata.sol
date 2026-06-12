@@ -7,6 +7,9 @@ interface IDRIFTClientMetadata {
     /// @notice Returns the Semantic Version of the client (e.g., "1.0.0").
     function version() external pure returns (string memory);
 
+    /// @notice Returns the reputation algorithm used by the client.
+    function reputationAlgorithm() external view returns (string memory);
+
     /// @notice Returns human-readable metadata about this client.
     function metadata() external view returns (string memory name, string memory description);
 }

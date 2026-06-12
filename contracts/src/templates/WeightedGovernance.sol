@@ -23,9 +23,10 @@ contract WeightedGovernanceClient is
     using MessageHashUtils for bytes32;
 
     error ArrayLengthMismatch();
-    error InvalidSettlerSignature();
     error InvalidEpoch(uint256 currEpoch, uint256 expectedEpoch);
     error NodeNotRegistered(bytes32 contextUID, address node);
+
+    string private _reputationAlgorithm;
 
     IDRIFTCore public core;
     IDRIFTToken public driftToken;
@@ -90,6 +91,7 @@ contract WeightedGovernanceClient is
         bytes32 _contextUID,
         address _trustedSettler,
         uint256 _proposalThreshold,
+        string calldata initialAlgorithm,
         bytes32[] calldata _roles,
         uint256[] calldata _weights
     ) external initializer {
@@ -106,6 +108,7 @@ contract WeightedGovernanceClient is
         contextUID = _contextUID;
         trustedSettler = _trustedSettler;
         proposalThreshold = _proposalThreshold;
+        _reputationAlgorithm = initialAlgorithm;
 
         for (uint256 i = 0; i < _roles.length; i++) {
             activeRoles.push(_roles[i]);
@@ -182,6 +185,10 @@ contract WeightedGovernanceClient is
         address oldSettler = trustedSettler;
         trustedSettler = newSettler;
         emit SettlerUpdated(oldSettler, trustedSettler);
+    }
+
+    function setReputationAlgorithm(string calldata newAlgorithm) external onlyContextAdmin {
+        _reputationAlgorithm = newAlgorithm;
     }
 
     // Governance ==============================================================
@@ -287,6 +294,12 @@ contract WeightedGovernanceClient is
     /// @inheritdoc IDRIFTClientMetadata
     function version() external pure override returns (string memory) {
         return "1.0.0";
+    }
+
+
+    /// @inheritdoc IDRIFTClientMetadata
+    function reputationAlgorithm() external view returns (string memory) {
+        return _reputationAlgorithm;
     }
 
     /// @inheritdoc IDRIFTClientMetadata

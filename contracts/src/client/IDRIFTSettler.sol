@@ -3,6 +3,7 @@ pragma solidity 0.8.28;
 
 /// @notice Capability: accept signed reputation scores and forward to Core.
 interface IDRIFTSettler {
+    // Events ==================================================================
     event ReputationSettled(
         bytes32 indexed contextUID,
         address indexed node,
@@ -12,6 +13,11 @@ interface IDRIFTSettler {
     );
 
     event SettlerUpdated(address indexed oldSettler, address indexed newSettler);
+
+    // Errors ==================================================================
+
+    /// @notice thrown when a settler's signature doesn't match the expected.
+    error InvalidSettlerSignature();
 
     /// @notice Accept a signed reputation score and forward to Core for minting/slashing.
     /// @param node   The node being evaluated.
