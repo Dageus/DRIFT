@@ -1,10 +1,10 @@
 import { Signer, Provider, Contract } from 'ethers';
-import { DriftClient, DriftClientConfig } from './client';
+import { DriftFactory } from './modules/factory';
+import { CoreModule } from './modules/core';
+import { ReputationModule } from './modules/reputation';
+import { GovernanceModule } from './modules/governance';
 import { DriftSettler } from './settler';
-import { DriftFactory } from './factory';
 import { LocalTrustStore } from './trust/LocalTrustStore';
-import { EigenTrustEngine } from './engines/EigenTrust';
-import { WeightedLocalEngine } from './engines/WeightedLocalEngine';
 import type { ITrustStore } from './trust/ITrustStore';
 import type { IReputationEngine } from './engines/IReputationEngine';
 import type { IAttestationProvider } from './providers/IAttestationProvider';
@@ -17,8 +17,7 @@ import type {
   LocalReputationResult,
   VotingPowerOptions
 } from './types';
-
-// Public Configuration ========================================================
+import { REPUTATION_ENGINES } from './engines/EnginesMapping';
 
 export interface DriftConfig {
   coreAddress: string;
@@ -28,36 +27,25 @@ export interface DriftConfig {
   storageProvider?: ITrustStore;
 }
 
-// DRIFT SDK ===================================================================
-
 /**
  * Unified DRIFT SDK entry point.
- *
- * Provides intent-based reputation queries:
- *   - mode: "global"  → on-chain ERC-1155 balance (objective)
- *   - mode: "local"   → attestation-weighted local score (subjective)
- *   - mode: "voting"  → governance voting power
  *
  * Usage:
  *   const drift = new Drift(signer, {
  *     coreAddress: '0x...',
  *     factoryAddress: '0x...',
- *     graphqlUrl: 'https://sepolia.easscan.org/graphql'
+ *     attestationProvider: myAttestationProvider
  *   });
  *
- *   // Global (on-chain)
- *   const rep = await drift.getReputation("0xSubject...", {
- *     mode: "global", context: "0xContextUID...", role: "0xRole..."
- *   });
- *
- *   // Local (subjective)
- *   const rep = await drift.getReputation("0xSubject...", {
- *     mode: "local", context: "0xContextUID...", viewer: "0xMe...",
- *     schemaUID: "0xSchema..."
- *   });
+ *   await drift.core.registerContext('my-context');
+ *   await drift.governance.castVote(clientAddress, proposalId, true);
+ *   await drift.reputation.settleReputation(...);
  */
 export class Drift {
-  public readonly client: DriftClient;
+  // Modules — direct access, no .client. indirection
+  public readonly core: CoreModule;
+  public readonly reputation: ReputationModule;
+  public readonly governance: GovernanceModule;
   public readonly factory: DriftFactory;
   public readonly settler?: DriftSettler;
 
@@ -65,8 +53,8 @@ export class Drift {
   private readonly _provider: Provider;
   private _tokenAddress?: string;
 
-  private _attestationProvider?: IAttestationProvider;
-  private _trustStore?: ITrustStore;
+  private _attestationProvider: IAttestationProvider;
+  private _trustStore: ITrustStore;
 
   constructor(signerOrProvider: Signer | Provider, config: DriftConfig) {
     this._config = config;
@@ -75,14 +63,10 @@ export class Drift {
     this._attestationProvider = config.attestationProvider;
     this._trustStore = config.storageProvider ?? new LocalTrustStore();
 
-    const clientConfig: DriftClientConfig = {
-      coreAddress: config.coreAddress,
-      factoryAddress: config.factoryAddress,
-      attestationProvider: this._attestationProvider,
-      storageProvider: this._trustStore
-    };
-
-    this.client = new DriftClient(clientConfig, signerOrProvider);
+    // Direct module instantiation — one hop, not two
+    this.core = new CoreModule(config.coreAddress, signerOrProvider);
+    this.reputation = new ReputationModule(signerOrProvider);
+    this.governance = new GovernanceModule(signerOrProvider);
     this.factory = new DriftFactory(config.factoryAddress, signerOrProvider);
 
     if ('signMessage' in signerOrProvider) {
@@ -92,13 +76,6 @@ export class Drift {
 
   // Reputation Router =========================================================
 
-  /**
-   * Unified reputation query — routes to the correct backend based on mode.
-   *
-   * @param subject  The address being evaluated
-   * @param options  Routing configuration (global | local | voting)
-   * @returns Type-specific result based on mode
-   */
   public async getReputation<T extends ReputationOptions>(subject: string, options: T): Promise<ReputationResult<T>> {
     switch (options.mode) {
       case 'global':
@@ -112,7 +89,7 @@ export class Drift {
     }
   }
 
-  //  Global ===================================================================
+  // Global ===================================================================
 
   private async _getGlobalReputation(
     subject: string,
@@ -121,23 +98,23 @@ export class Drift {
     const tokenAddress = await this._resolveTokenAddress();
 
     if (options.role) {
-      // Specific role query
-      const balance = await this.client.getReputationBalance(tokenAddress, subject, options.context, options.role);
+      const balance = await this.reputation.getReputationBalance(
+        tokenAddress,
+        subject,
+        options.context,
+        options.role
+      );
       return { balance };
     }
 
-    // No role specified — query ALL roles by enumerating known role hashes
-    // This requires the caller to have registered roles or we use a default set
-    const defaultRoles = [
-      '0x' + '00'.repeat(32) // bytes32(0) = base role
-    ];
+    const defaultRoles = ['0x' + '00'.repeat(32)];
 
     const breakdown: Record<string, bigint> = {};
     let total = 0n;
 
     for (const role of defaultRoles) {
       try {
-        const bal = await this.client.getReputationBalance(tokenAddress, subject, options.context, role);
+        const bal = await this.reputation.getReputationBalance(tokenAddress, subject, options.context, role);
         if (bal > 0n) {
           breakdown[role] = bal;
           total += bal;
@@ -153,7 +130,7 @@ export class Drift {
   // Local =====================================================================
 
   private async _getLocalReputation(subject: string, options: LocalReputationOptions): Promise<LocalReputationResult> {
-    const engine = options.engine ?? this._resolveDefaultEngine(options.viewer, options.schemaDef);
+    const engine = options.engine ?? (await this._resolveDefaultEngine(options.viewer, options.schemaDef));
 
     const records = await this._attestationProvider.fetchUserRecords(options.context, subject);
 
@@ -161,10 +138,7 @@ export class Drift {
       return { score: 0n, attestationsUsed: 0, engine: engine.constructor.name };
     }
 
-    // Filter to requested schema
     const filtered = records.filter((r) => r.schemaUID === options.schemaUID);
-
-    // Compute score
     const score = engine.calculateScore(filtered);
 
     return {
@@ -177,7 +151,7 @@ export class Drift {
   // Voting ====================================================================
 
   private async _getVotingPower(subject: string, options: VotingPowerOptions): Promise<bigint> {
-    return this.client.getVotingPower(options.governanceClient, subject);
+    return this.governance.getVotingPower(options.governanceClient, subject);
   }
 
   // Resolvers =================================================================
@@ -188,7 +162,6 @@ export class Drift {
       this._tokenAddress = this._config.tokenAddress;
       return this._tokenAddress;
     }
-    // Query from Core
     const core = new Contract(
       this._config.coreAddress,
       ['function driftToken() external view returns (address)'],
@@ -198,42 +171,42 @@ export class Drift {
     return this._tokenAddress!;
   }
 
-  private _resolveDefaultEngine(viewer: string, schemaDef?: string): IReputationEngine {
-    const weights = this._trustStore.getWeights(viewer);
+  private async _resolveDefaultEngine(
+    contextUID: string,
+    viewer: string,
+    schemaDef?: string
+  ): Promise<IReputationEngine> {
+    const clientAddress = await this.core.getContextClient(contextUID);
+    const clientContract = new Contract(
+      clientAddress,
+      ['function reputationAlgorithm() external view returns (string)'],
+      this.core.contract.runner
+    );
+    const algorithmLabel = await clientContract.reputationAlgorithm();
 
-    const peerWeights: Record<string, bigint> = {};
-    for (const [addr, w] of weights) {
-      peerWeights[addr] = BigInt(w);
+    const engineFactory = REPUTATION_ENGINES[algorithmLabel];
+    if (!engineFactory) {
+      throw new Error(`DRIFT SDK: Unknown on-chain algorithm '${algorithmLabel}'.`);
     }
 
-    if (Object.keys(peerWeights).length > 0) {
-      return new WeightedLocalEngine({
-        peerWeights,
-        defaultWeight: 100n,
-        schemaDefinition: schemaDef ?? 'uint256 score'
-      });
-    }
-
-    return new EigenTrustEngine({
+    const weightsMap = await this._trustStore.getWeights(viewer);
+    return engineFactory({
       schemaDefinition: schemaDef ?? 'uint256 score',
-      weightResolver: () => 1n
+      weightResolver: (attester) => BigInt(weightsMap.get(attester.toLowerCase()) ?? 1)
     });
   }
 
-  // Set Trust Weights =========================================================
+  // Trust Weights =============================================================
 
-  /**
-   * Set the viewing user's trust weight for a specific attester.
-   * Persists to localStorage (or injected storageProvider).
-   */
-  public setTrust(viewer: string, attester: string, weight: number): void {
-    this._trustStore.setWeight(viewer, attester, weight);
+  public async setTrust(viewer: string, attester: string, weight: number): Promise<void> {
+    await this._trustStore.setWeight(viewer, attester, weight);
   }
 
-  /**
-   * Get the viewing user's current trust weights.
-   */
-  public getTrustGraph(viewer: string): Map<string, number> {
-    return this._trustStore.getWeights(viewer);
+  public async getTrustGraph(viewer: string): Promise<Map<string, number>> {
+    return await this._trustStore.getWeights(viewer);
+  }
+
+  public get provider(): Provider {
+    return this._provider;
   }
 }
