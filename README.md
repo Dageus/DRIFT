@@ -85,6 +85,17 @@ Financial assets derive utility from transferability; reputation derives utility
 
 ---
 
+## Deployments
+
+Contract addresses are stored in `packages/contracts/deployments/{chainId}.json`.
+
+| Network          | Chain ID | Deployment File |
+|------------------|----------|-----------------|
+| Ethereum Sepolia | 11155111 | [11155111.json](packages/contracts/deployments/11155111.json) |
+| Arbitrum Sepolia | 421614   | N/A |
+
+---
+
 ## Repository Navigation
 
 This repository is organized as an integrated monorepo separating smart contract settlement frameworks from application runtime kits:

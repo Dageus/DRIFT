@@ -5,7 +5,9 @@
 .direnv
 .envrc
 
+broadcast/
 cache/
+out/
 
 ### Solidity ###
 # Logs

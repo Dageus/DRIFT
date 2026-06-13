@@ -27,16 +27,6 @@ Once registered, the context administrators configure the trust boundaries by ad
 
 - **Provider Adapters:** The specific `IAttestationProvider` contract addresses (e.g., `EASAdapter`) that DRIFT will use to route and verify those specific schema UIDs.
 
-## Deployments
-
-| Network          | DRIFTCore | EASAdapter |
-|------------------|-----------|------------|
-| Ethereum Sepolia | —         | —          |
-| Arbitrum Sepolia | —         | —          |
-| Avalanche Fuji   | —         | —          |
-
-Addresses will be populated on first deployment.
-
 ## System Architecture
 
 ```mermaid
