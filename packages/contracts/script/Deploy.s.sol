@@ -17,7 +17,8 @@ contract DeployScript is Script {
     string private jsonOutput;
 
     function run() external {
-        uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
+        string memory mnemonic = vm.envString("MNEMONIC");
+        uint256 deployerPrivateKey = vm.deriveKey(mnemonic, 0);
         address admin = vm.addr(deployerPrivateKey);
 
         string memory root = vm.projectRoot();
