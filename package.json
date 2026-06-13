@@ -7,5 +7,12 @@
   ],
   "devDependencies": {
     "@types/node": "^25.9.1"
+  },
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "test": "npm run test --workspaces",
+    "test:sepolia": "npm run test:sepolia -w packages/sdk-core",
+    "benchmark": "tsx packages/sdk-core/scripts/benchmark.ts",
+    "metrics": "tsx packages/sdk-scenarios/scripts/run-metrics.ts"
   }
 }

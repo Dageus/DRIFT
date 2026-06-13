@@ -1,3 +1,0 @@
-# DRIFT SDK
-
-TODO

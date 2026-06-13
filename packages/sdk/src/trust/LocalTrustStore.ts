@@ -19,7 +19,7 @@ export class LocalTrustStore implements ITrustStore {
   /**
    * Load the viewer's trust weights from persistent storage.
    */
-  getWeights(viewerAddress: string): Map<string, number> {
+  async getWeights(viewerAddress: string): Promise<Map<string, number>> {
     const key = viewerAddress.toLowerCase();
 
     // Check memory cache first
@@ -49,7 +49,7 @@ export class LocalTrustStore implements ITrustStore {
    * Set a single trust weight for a viewer→attester pair.
    * @param weight 0-10000 (0 = no trust, 10000 = maximum trust)
    */
-  setWeight(viewerAddress: string, attesterAddress: string, weight: number): void {
+  async setWeight(viewerAddress: string, attesterAddress: string, weight: number): Promise<void> {
     const vKey = viewerAddress.toLowerCase();
     const aKey = attesterAddress.toLowerCase();
     const clamped = Math.max(0, Math.min(10000, weight));
@@ -65,24 +65,9 @@ export class LocalTrustStore implements ITrustStore {
   }
 
   /**
-   * Set multiple weights at once (e.g., imported from a file or QR code).
-   */
-  setWeights(viewerAddress: string, weights: Record<string, number>): void {
-    const vKey = viewerAddress.toLowerCase();
-    const map = new Map<string, number>();
-
-    for (const [attester, weight] of Object.entries(weights)) {
-      map.set(attester.toLowerCase(), Math.max(0, Math.min(10000, weight)));
-    }
-
-    this.cache.set(vKey, map);
-    this._persist(vKey);
-  }
-
-  /**
    * Remove a trust relationship.
    */
-  removeWeight(viewerAddress: string, attesterAddress: string): void {
+  async removeWeight(viewerAddress: string, attesterAddress: string): Promise<void> {
     const vKey = viewerAddress.toLowerCase();
     const aKey = attesterAddress.toLowerCase();
 
@@ -93,7 +78,7 @@ export class LocalTrustStore implements ITrustStore {
   /**
    * Reset all trust weights for a viewer.
    */
-  clear(viewerAddress: string): void {
+  async clear(viewerAddress: string): Promise<void> {
     const vKey = viewerAddress.toLowerCase();
     this.cache.delete(vKey);
     try {
@@ -109,21 +94,6 @@ export class LocalTrustStore implements ITrustStore {
     const vKey = viewerAddress.toLowerCase();
     const weights = Object.fromEntries(this.cache.get(vKey) ?? new Map());
     return JSON.stringify({ weights: { [vKey]: weights }, version: CURRENT_VERSION }, null, 2);
-  }
-
-  /**
-   * Import trust graph from JSON.
-   */
-  importGraph(viewerAddress: string, json: string): void {
-    const parsed = JSON.parse(json) as TrustGraph;
-    if (parsed.version !== CURRENT_VERSION) {
-      throw new Error(`Trust graph version mismatch: ${parsed.version} != ${CURRENT_VERSION}`);
-    }
-    const vKey = viewerAddress.toLowerCase();
-    const weights = parsed.weights[vKey];
-    if (weights) {
-      this.setWeights(viewerAddress, weights);
-    }
   }
 
   private _persist(vKey: string): void {

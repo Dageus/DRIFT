@@ -16,5 +16,8 @@
   "dependencies": {
     "dotenv": "^17.4.2",
     "ethers": "^6.16.0"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.8"
   }
 }

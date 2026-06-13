@@ -45,6 +45,40 @@ export class DriftSettler {
   }
 
   /**
+   * Orchestrates the off-chain pipeline for a batch of users.
+   * Required for mass-settlement and global algorithms.
+   */
+  public async generateBatchSettlementSignatures(
+    clientAddress: string,
+    contextUID: string,
+    role: string,
+    userAddresses: string[],
+    epoch: bigint,
+    provider: IAttestationProvider,
+    engine: IReputationEngine
+  ): Promise<{ scores: bigint[]; signatures: string[] }> {
+    // For global scaling, the provider should ideally fetch the entire context graph once.
+    // If IAttestationProvider only has fetchUserRecords, it will bottleneck here.
+
+    const scores: bigint[] = [];
+    const signatures: string[] = [];
+
+    // NOTE: If using EigenTrust, the engine should calculate the entire network matrix once
+    // before this loop, rather than recalculating per user.
+    for (const user of userAddresses) {
+      const records = await provider.fetchUserRecords(contextUID, user);
+
+      const score = records.length === 0 ? 0n : engine.calculateScore(records);
+      const signature = await this._signPayload(clientAddress, contextUID, role, user, score, epoch);
+
+      scores.push(score);
+      signatures.push(signature);
+    }
+
+    return { scores, signatures };
+  }
+
+  /**
    * Dynamically fetches the EIP-712 domain and signs the settlement payload.
    */
   private async _signPayload(

@@ -1,6 +1,6 @@
 import { AbiCoder } from 'ethers';
 import type { IReputationEngine } from './IReputationEngine';
-import type { AttestationRecord } from '../request';
+import type { AttestationRecord } from '../types';
 
 export type WeightResolver = (attester: string) => bigint;
 

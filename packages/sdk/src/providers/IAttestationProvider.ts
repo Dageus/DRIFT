@@ -1,4 +1,4 @@
-import type { AttestationRecord } from '../request';
+import type { AttestationRecord } from '../types';
 
 export interface IAttestationProvider {
   /**
