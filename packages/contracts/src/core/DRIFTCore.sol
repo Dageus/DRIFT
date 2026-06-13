@@ -42,6 +42,8 @@ contract DRIFTCore is Initializable, DRIFTCoreStorage, AccessControlUpgradeable,
     error NodeNotRegistered(bytes32 contextUID, address node);
     /// @notice Error thrown when a registered nodes attempts to re-register
     error NodeAlreadyRegistered(bytes32 contextUID, address node);
+    /// @notice Error thrown when a node's status is changed to unbanned in a status update.
+    error CannotUnbanViaStatusUpdate();
 
     /// @notice Error thrown when a token has already been set for the context
     error TokenAlreadySet();
@@ -84,11 +86,9 @@ contract DRIFTCore is Initializable, DRIFTCoreStorage, AccessControlUpgradeable,
 
         uid = keccak256(abi.encodePacked(name));
 
-        if (_usedNames[uid]) {
+        if (_contextExists(uid)) {
             revert ContextTaken(uid);
         }
-
-        _usedNames[uid] = true;
 
         _contexts[uid] = DRIFTTypes.Context({ uid: uid, name: name, owner: msg.sender, active: true });
 
@@ -204,7 +204,7 @@ contract DRIFTCore is Initializable, DRIFTCoreStorage, AccessControlUpgradeable,
         address node,
         NodeStatus newStatus
     ) external onlyContextAdmin(contextUID) {
-        if (nodeStatus[contextUID][node] == NodeStatus.BANNED) revert("Cannot unban node via status update");
+        if (nodeStatus[contextUID][node] == NodeStatus.BANNED) revert CannotUnbanViaStatusUpdate();
         nodeStatus[contextUID][node] = newStatus;
         // Emit custom status transition event
         emit NodeStatusUpdated(contextUID, node, newStatus);

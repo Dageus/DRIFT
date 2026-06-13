@@ -14,10 +14,6 @@ abstract contract DRIFTCoreStorage {
     // Context UID => Context
     mapping(bytes32 => DRIFTTypes.Context) internal _contexts;
 
-    // WARNING: this might be a massive gas cost for no reason
-    // Context UID => used
-    mapping(bytes32 => bool) internal _usedNames;
-
     // Context UID => schema UID => accepted
     mapping(bytes32 => mapping(bytes32 => bool)) internal _acceptedSchemas;
 
