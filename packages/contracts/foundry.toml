@@ -1,31 +1,30 @@
 [profile.default]
-src = "src"
-out = "out"
-libs = ["lib"]
-script = "scripts"
-evm_version = "cancun"
+solc_version = '0.8.28'
+evm_version = 'cancun'
+optimizer = true
+optimizer_runs = 200
+src = 'src'
+out = 'out'
+libs = ['lib']
+script = 'scripts'
 fs_permissions = [
   { access = "read-write", path = "./deployments" }
 ]
 
-[profile.dev]
-optimizer = true
-optimizer_runs = 200
-via_ir = true
-evm_version = "cancun"
-
-[profile.ci]
-optimizer = true
-optimizer_runs = 10_000
-via_ir = true
-evm_version = "cancun"
+[lint]
+exclude_lints = ["mixed-case-function", "asm-keccak256", "screaming-snake-case-immutable", "incorrect-shift", "mixed-case-variable"]
+ignore = ["./src/interfaces/**/*.sol"]
+lint_on_build = false
 
 [fuzz]
 runs = 1000
+max_test_rejects = 50000
 
 [rpc_endpoints]
-sepolia = "${RPC_SEPOLIA}"
-arbitrum-sepolia = "${RPC_ARBITRUM_SEPOLIA}"
-avalanche-fuji = "${RPC_AVALANCHE_FUJI}"
+mainnet = "https://ethereum.reth.rs/rpc"
+sepolia = "https://ethereum-sepolia-rpc.publicnode.com"
+arbitrum_sepolia = "https://arbitrum-sepolia-rpc.publicnode.com"
+arbitrum_one_sepolia = "https://sepolia-rollup.arbitrum.io/rpc/"
+optimism_sepolia = "https://sepolia.optimism.io/"
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
