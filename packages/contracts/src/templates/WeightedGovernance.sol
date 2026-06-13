@@ -36,8 +36,8 @@ contract WeightedGovernanceClient is
 
     address public trustedSettler;
 
-    // Context UID => Node => Role => expected next epoch
-    mapping(bytes32 => mapping(address => mapping(bytes32 => uint256))) public expectedEpoch;
+    // Node => Role => expected next epoch
+    mapping(address => mapping(bytes32 => uint256)) public expectedEpoch;
 
     // keccak256(Settle(bytes32 contextUID,address node,bytes32 role,uint256 score,uint256 epoch))
     bytes32 public constant SETTLE_TYPEHASH =
@@ -140,12 +140,12 @@ contract WeightedGovernanceClient is
             revert NodeNotRegistered(contextUID, node);
         }
 
-        if (epoch != expectedEpoch[contextUID][node][role]) {
-            revert InvalidEpoch(epoch, expectedEpoch[contextUID][node][role]);
+        if (epoch != expectedEpoch[node][role]) {
+            revert InvalidEpoch(epoch, expectedEpoch[node][role]);
         }
 
         // Increment the epoch BEFORE execution (Checks-Effects-Interactions pattern)
-        expectedEpoch[contextUID][node][role]++;
+        expectedEpoch[node][role]++;
 
         bytes32 structHash = keccak256(abi.encode(SETTLE_TYPEHASH, contextUID, node, role, score, epoch));
         bytes32 digest = _hashTypedDataV4(structHash);
