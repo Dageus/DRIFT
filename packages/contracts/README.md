@@ -112,6 +112,14 @@ cd DRIFT
 forge install
 ```
 
+**Foundry submodules**:
+
+```bash
+forge install foundry-rs/forge-std
+forge install OpenZeppelin/openzeppelin-contracts
+forge install OpenZeppelin/openzeppelin-contracts-upgradeable
+```
+
 ### Execution Commands
 
 **Compile Contracts**:
