@@ -7,6 +7,13 @@ import { IDRIFTCore } from "../core/IDRIFTCore.sol";
 contract DRIFTClientFactory {
     IDRIFTCore public immutable core;
 
+    // Errors ==================================================================
+
+    /// @notice Error thrown when a user that is not context admin makes a call.
+    error NotContextAdmin(address caller);
+    /// @notice Error thrown when an empty implementation is provided.
+    error InvalidImplementation();
+
     constructor(address _core) {
         core = IDRIFTCore(_core);
     }
@@ -23,8 +30,8 @@ contract DRIFTClientFactory {
         bytes32 salt
     ) external returns (address clone) {
         bytes32 adminRole = core.contextAdminRole(contextUID);
-        require(core.hasRole(adminRole, msg.sender), "Not context admin");
-        require(implementation != address(0), "Invalid implementation");
+        if (!core.hasRole(adminRole, msg.sender)) revert NotContextAdmin(msg.sender);
+        if (implementation == address(0)) revert InvalidImplementation();
 
         clone = Clones.cloneDeterministic(implementation, keccak256(abi.encodePacked(contextUID, salt)));
 
