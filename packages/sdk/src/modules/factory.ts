@@ -21,10 +21,6 @@ export class DriftFactory {
     return this._extractClientAddress(receipt);
   }
 
-  public async getClientAddress(contextUID: string): Promise<string> {
-    return await this.contract.contextClient(contextUID);
-  }
-
   private _extractClientAddress(receipt: any): string {
     const log = receipt.logs
       .map((l: any) => {

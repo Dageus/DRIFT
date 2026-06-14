@@ -130,7 +130,7 @@ export class Drift {
   // Local =====================================================================
 
   private async _getLocalReputation(subject: string, options: LocalReputationOptions): Promise<LocalReputationResult> {
-    const engine = options.engine ?? (await this._resolveDefaultEngine(options.viewer, options.schemaDef));
+    const engine = options.engine ?? (await this._resolveDefaultEngine(options.context, options.viewer, options.schemaDef));
 
     const records = await this._attestationProvider.fetchUserRecords(options.context, subject);
 

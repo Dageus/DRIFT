@@ -47,7 +47,7 @@ export class ReputationModule {
     nodes: string[],
     roles: string[],
     scores: bigint[],
-    epoch: bigint,
+    epoch: bigint[],
     signatures: string[]
   ): Promise<void> {
     try {
