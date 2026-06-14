@@ -22,23 +22,23 @@ contract DRIFTToken is ERC1155, Ownable, IDRIFTToken {
     // Soulbound Enforcement ===================================================
 
     function safeTransferFrom(
-        address from,
-        address to,
-        uint256 id,
-        uint256 amount,
-        bytes memory data
+        address,
+        address,
+        uint256,
+        uint256,
+        bytes memory
     ) public virtual override(ERC1155, IERC1155) {
-        revert("Non-transmissible token: Transfers are disabled.");
+        revert NonTransmissibleToken();
     }
 
     function safeBatchTransferFrom(
-        address from,
-        address to,
-        uint256[] memory ids,
-        uint256[] memory amounts,
-        bytes memory data
+        address,
+        address,
+        uint256[] memory,
+        uint256[] memory,
+        bytes memory
     ) public virtual override(ERC1155, IERC1155) {
-        revert("Non-transmissible token: Transfers are disabled.");
+        revert NonTransmissibleToken();
     }
 
     // Reputation Management ===================================================
