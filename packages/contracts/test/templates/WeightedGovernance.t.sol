@@ -3,6 +3,7 @@ pragma solidity 0.8.28;
 
 import "forge-std/Test.sol";
 import { ERC1967Proxy } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import { MessageHashUtils } from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import { DRIFTCore } from "../../src/core/DRIFTCore.sol";
 import { DRIFTToken } from "../../src/token/DRIFTToken.sol";
 import { DRIFTClientFactory } from "../../src/client/DRIFTClientFactory.sol";
@@ -16,8 +17,9 @@ contract WeightedGovernanceClientTest is Test {
 
     address public admin = makeAddr("admin");
     address public node = makeAddr("node");
-    address public settler = makeAddr("settler");
     bytes32 public contextUID;
+    uint256 public settlerPk = 0x1234;
+    address public settler = vm.addr(settlerPk);
 
     bytes32 constant ROLE_STUDENT = keccak256("STUDENT");
     bytes32 constant ROLE_PROFESSOR = keccak256("PROFESSOR");
@@ -35,7 +37,8 @@ contract WeightedGovernanceClientTest is Test {
         factory = new DRIFTClientFactory(address(core));
 
         vm.startPrank(admin);
-        contextUID = core.registerContext("test.university", ""); // reputation algorithms aren't important here
+        contextUID = core.registerContext("test.university");
+        core.grantRole(core.FACTORY_ROLE(), address(factory));
         vm.stopPrank();
 
         bytes32[] memory roles = new bytes32[](2);
@@ -51,6 +54,8 @@ contract WeightedGovernanceClientTest is Test {
             address(driftToken),
             contextUID,
             settler,
+            0,
+            "EigenTrust",
             roles,
             weights
         );
@@ -85,10 +90,28 @@ contract WeightedGovernanceClientTest is Test {
         core.registerNode(contextUID, "0x");
 
         uint256 rewardAmount = 50;
-        uint256 tokenId = uint256(keccak256(abi.encode(contextUID, ROLE_PROFESSOR)));
+        bytes32 domainSeparator = keccak256(
+            abi.encode(
+                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+                keccak256(bytes("DRIFT_WeightedGovernance")),
+                keccak256(bytes("1")),
+                block.chainid,
+                address(client)
+            )
+        );
 
-        vm.prank(admin);
-        core.reward(contextUID, ROLE_PROFESSOR, node, rewardAmount);
+        // Hash the Settlement Payload and Sign it
+        bytes32 structHash = keccak256(
+            abi.encode(client.SETTLE_TYPEHASH(), contextUID, node, ROLE_PROFESSOR, rewardAmount, 0)
+        );
+        bytes32 digest = MessageHashUtils.toTypedDataHash(domainSeparator, structHash);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(settlerPk, digest);
+        bytes memory sig = abi.encodePacked(r, s, v);
+
+        // Submit the cryptographically valid proof to the client
+        client.settleReputation(node, ROLE_PROFESSOR, rewardAmount, 0, sig);
+
+        uint256 tokenId = uint256(keccak256(abi.encode(contextUID, ROLE_PROFESSOR)));
         assertEq(driftToken.balanceOf(node, tokenId), rewardAmount);
     }
 }

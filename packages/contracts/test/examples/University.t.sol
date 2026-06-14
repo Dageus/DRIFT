@@ -42,7 +42,8 @@ contract UniversityScenarioTest is Test {
         mockAdapter = new MockAdapter();
 
         vm.startPrank(president);
-        contextUID = core.registerContext("Harvard.v1", ""); // reputation algorithms aren't important here
+        contextUID = core.registerContext("Harvard.v1");
+        core.grantRole(core.FACTORY_ROLE(), address(factory));
         vm.stopPrank();
 
         bytes32[] memory roles = new bytes32[](2);
@@ -59,6 +60,8 @@ contract UniversityScenarioTest is Test {
             address(driftToken),
             contextUID,
             president,
+            0,
+            "EigenTrust",
             roles,
             weights
         );
@@ -78,8 +81,14 @@ contract UniversityScenarioTest is Test {
         vm.prank(bobProfessor);
         core.registerNode(contextUID, "0x");
 
-        vm.prank(president);
+        vm.startPrank(president);
+        core.grantRole(core.FACTORY_ROLE(), president);
+        core.setContextClient(contextUID, president);
+
         core.reward(contextUID, ROLE_PROFESSOR, bobProfessor, 100);
+
+        core.setContextClient(contextUID, address(client));
+        vm.stopPrank();
 
         bytes32 gradingSchemaUID = keccak256("schema.grading");
         bytes memory addSchemaPayload = abi.encodeWithSelector(

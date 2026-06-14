@@ -37,7 +37,7 @@ contract DRIFTCoreTest is Test {
 
     function _registerContext() internal returns (bytes32 uid) {
         vm.prank(creator);
-        uid = core.registerContext("test.context", ""); // reputation algorithms aren't important here
+        uid = core.registerContext("test.context");
     }
 
     function test_AdminHasDefaultAdminRole() public view {
@@ -61,7 +61,7 @@ contract DRIFTCoreTest is Test {
     function test_RegisterContextRevertsIfEmptyName() public {
         vm.prank(creator);
         vm.expectRevert(DRIFTCore.EmptyContextName.selector);
-        core.registerContext("", ""); // reputation algorithms aren't important here
+        core.registerContext("");
     }
 
     function test_AddSchemaSucceeds() public {
@@ -136,6 +136,11 @@ contract DRIFTCoreTest is Test {
         vm.prank(node);
         core.registerNode(uid, "0x");
 
+        vm.startPrank(admin);
+        core.grantRole(core.FACTORY_ROLE(), admin);
+        core.setContextClient(uid, creator);
+        vm.stopPrank();
+
         vm.prank(creator);
         core.reward(uid, bytes32(0), node, 50);
 
@@ -147,6 +152,11 @@ contract DRIFTCoreTest is Test {
         bytes32 uid = _registerContext();
         vm.prank(node);
         core.registerNode(uid, "0x");
+
+        vm.startPrank(admin);
+        core.grantRole(core.FACTORY_ROLE(), admin);
+        core.setContextClient(uid, creator);
+        vm.stopPrank();
 
         vm.prank(creator);
         core.reward(uid, bytes32(0), node, 100);
@@ -162,10 +172,15 @@ contract DRIFTCoreTest is Test {
         assertTrue(core.isRegistered(uid, node));
     }
 
-    function test_SlashKicksNodeIfBalanceHitsZero() public {
+    function test_SlashCanReduceBalanceToZero() public {
         bytes32 uid = _registerContext();
         vm.prank(node);
         core.registerNode(uid, "0x");
+
+        vm.startPrank(admin);
+        core.grantRole(core.FACTORY_ROLE(), admin);
+        core.setContextClient(uid, creator);
+        vm.stopPrank();
 
         vm.prank(creator);
         core.reward(uid, bytes32(0), node, 100);
@@ -173,8 +188,10 @@ contract DRIFTCoreTest is Test {
         vm.prank(creator);
         core.slash(uid, bytes32(0), node, 100);
 
-        // Node should be automatically wiped to Status.NONE
-        assertFalse(core.isRegistered(uid, node));
+        uint256 expectedTokenId = uint256(keccak256(abi.encode(uid, bytes32(0))));
+
+        assertEq(driftToken.balanceOf(node, expectedTokenId), 0);
+        assertTrue(core.isRegistered(uid, node));
     }
 
     function test_GetContextReturnsCorrectData() public {
