@@ -4,10 +4,11 @@ pragma solidity 0.8.28;
 import { IDRIFTClient } from "./IDRIFTClient.sol";
 
 /// @title IDRIFTGovernance
-/// @notice Minimal proposal lifecycle. Voting mechanism is implementation-defined.
-/// @dev    A flat DAO implements this directly. A reputation DAO extends it.
+/// @notice Minimal proposal lifecycle interface. Voting mechanisms are implementation-defined.
+/// @dev A flat DAO implements this directly. A reputation DAO extends it.
 interface IDRIFTGovernance is IDRIFTClient {
-    // Errors ==================================================================
+    // ERRORS ==================================================================
+
     error ProposalNotFound(uint256 proposalId);
     error VotingStillActive(uint256 deadline);
     error VotingClosed(uint256 deadline);
@@ -18,12 +19,25 @@ interface IDRIFTGovernance is IDRIFTClient {
     error ExecutionFailed();
     error UnauthorizedSender(address actual);
 
-    // Events ==================================================================
+    // EVENTS ==================================================================
+
+    /// @notice Emitted when a new proposal is created
     event ProposalCreated(uint256 indexed proposalId, string description, uint256 deadline);
+
+    /// @notice Emitted when a user casts a vote
     event VoteCast(address indexed voter, uint256 indexed proposalId, bool support, uint256 weight);
+
+    /// @notice Emitted when a passed proposal is successfully executed
     event ProposalExecuted(uint256 indexed proposalId);
 
-    // Core lifecycle ==========================================================
+    // CORE LIFECYCLE ==========================================================
+
+    /// @notice Creates a new governance proposal
+    /// @param description Text description of the proposal
+    /// @param target Address to call upon execution
+    /// @param payload Calldata to execute on the target
+    /// @param durationInDays Length of the voting period
+    /// @return The newly created proposal ID
     function createProposal(
         string calldata description,
         address target,
@@ -31,15 +45,28 @@ interface IDRIFTGovernance is IDRIFTClient {
         uint256 durationInDays
     ) external returns (uint256);
 
+    /// @notice Executes a passed governance proposal
+    /// @param proposalId The ID of the proposal to execute
     function executeProposal(uint256 proposalId) external;
 
-    /// @notice Cast a vote. The implementation decides how weight is determined.
-    /// @dev    For a flat DAO, this might be 1 vote per registered node.
-    ///         For a token-weighted DAO, this reads live balances.
-    ///         For Proof-of-State, the client exposes a separate function.
+    /// @notice Casts a vote on an active proposal
+    /// @dev The implementation decides how weight is determined (e.g., flat, token-weighted, or proof-of-state).
+    /// @param proposalId The ID of the proposal
+    /// @param support True to vote in favor, false to vote against
     function castVote(uint256 proposalId, bool support) external;
 
-    // Views ===================================================================
+    // VIEWS ===================================================================
+
+    /// @notice Retrieves the current state and details of a proposal
+    /// @param proposalId The ID of the proposal
+    /// @return description Proposal description
+    /// @return target Target execution address
+    /// @return payload Calldata to execute
+    /// @return votesFor Total power voting in support
+    /// @return votesAgainst Total power voting against
+    /// @return deadline Timestamp when voting closes
+    /// @return executed Whether the proposal has been executed
+    /// @return exists Whether the proposal ID is valid
     function getProposal(
         uint256 proposalId
     )
@@ -56,5 +83,9 @@ interface IDRIFTGovernance is IDRIFTClient {
             bool exists
         );
 
+    /// @notice Checks if an account has voted on a specific proposal
+    /// @param proposalId The ID of the proposal
+    /// @param account The address to check
+    /// @return True if the account has cast a vote, false otherwise
     function hasVoted(uint256 proposalId, address account) external view returns (bool);
 }

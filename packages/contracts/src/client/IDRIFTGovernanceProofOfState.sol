@@ -5,10 +5,10 @@ import { IDRIFTGovernance } from "./IDRIFTGovernance.sol";
 
 /// @title IDRIFTGovernanceProofOfState
 /// @notice Extension for epoch-locked, Merkle-proven voting.
-/// @dev    Eliminates JIT claim attacks by verifying historical reputation
-///         against the epoch root snapshotted at proposal creation.
+/// @dev Eliminates JIT claim attacks by verifying historical reputation against the epoch root snapshotted at proposal creation.
 interface IDRIFTGovernanceProofOfState is IDRIFTGovernance {
-    // Errors ==================================================================
+    // ERRORS ==================================================================
+
     error InvalidProofCount(uint256 roles, uint256 scores, uint256 proofs);
     error RoleHasNoWeight(bytes32 role);
     error NoSettledEpochs();
@@ -17,10 +17,23 @@ interface IDRIFTGovernanceProofOfState is IDRIFTGovernance {
     error MustUseCreateProposalWithProofs();
     error MustUseCastVoteWithProofs();
 
-    // Events ==================================================================
+    // EVENTS ==================================================================
+
+    /// @notice Emitted when a proposal requiring state proofs is created
     event ProposalCreated(uint256 indexed proposalId, string description, uint256 deadline, uint256 snapshotEpoch);
 
-    // Replace createProposal with this:
+    // PROOF-OF-STATE LIFECYCLE ================================================
+
+    /// @notice Creates a proposal using Merkle state proofs for voter power validation
+    /// @dev Replaces standard createProposal in Proof-of-State environments
+    /// @param description Text description of the proposal
+    /// @param target Address to call upon execution
+    /// @param payload Calldata to execute on the target
+    /// @param durationInDays Length of the voting period
+    /// @param roles Array of roles the caller is claiming power for
+    /// @param scores Array of scores corresponding to those roles
+    /// @param proofs Array of merkle proofs for those claims
+    /// @return The newly created proposal ID
     function createProposalWithProofs(
         string calldata description,
         address target,
@@ -31,7 +44,13 @@ interface IDRIFTGovernanceProofOfState is IDRIFTGovernance {
         bytes32[][] calldata proofs
     ) external returns (uint256);
 
-    // Proof-of-State voting ===================================================
+    /// @notice Casts a vote on an active proposal using Merkle state proofs
+    /// @dev Replaces standard castVote in Proof-of-State environments
+    /// @param proposalId The ID of the proposal
+    /// @param support True to vote in favor, false to vote against
+    /// @param roles Array of roles the caller is claiming power for
+    /// @param scores Array of scores corresponding to those roles
+    /// @param proofs Array of merkle proofs for those claims
     function castVoteWithProofs(
         uint256 proposalId,
         bool support,
@@ -40,7 +59,15 @@ interface IDRIFTGovernanceProofOfState is IDRIFTGovernance {
         bytes32[][] calldata proofs
     ) external;
 
-    /// @notice Simulates voting power at a specific epoch by verifying state proofs.
+    // VIEWS ===================================================================
+
+    /// @notice Simulates voting power at a specific epoch by verifying state proofs
+    /// @param account The address to check
+    /// @param epoch The epoch ID to simulate against
+    /// @param roles Array of claimed roles
+    /// @param scores Array of claimed scores
+    /// @param proofs Array of Merkle proofs for the claims
+    /// @return The total verified voting power for the account at that epoch
     function getVotingPowerAtEpoch(
         address account,
         uint256 epoch,
