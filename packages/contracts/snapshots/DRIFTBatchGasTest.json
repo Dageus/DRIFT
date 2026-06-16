@@ -1,0 +1,15 @@
+{
+  "BatchSize_10": "746038",
+  "BatchSize_100": "7207217",
+  "BatchSize_1000": "74217051",
+  "BatchSize_1500": "113328722",
+  "BatchSize_200": "14437442",
+  "BatchSize_2000": "153786095",
+  "BatchSize_2500": "195589170",
+  "BatchSize_3000": "238737949",
+  "BatchSize_50": "3612290",
+  "BatchSize_500": "36451085",
+  "BatchSize_700": "51395988",
+  "BatchSize_800": "58949180",
+  "BatchSize_900": "66556201"
+}

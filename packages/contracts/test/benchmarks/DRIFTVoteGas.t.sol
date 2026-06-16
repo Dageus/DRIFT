@@ -1,0 +1,153 @@
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.28;
+
+import "forge-std/Test.sol";
+import { ERC1967Proxy } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import { MessageHashUtils } from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
+import { DRIFTCore } from "../../src/core/DRIFTCore.sol";
+import { DRIFTToken } from "../../src/token/DRIFTToken.sol";
+import { DRIFTClientFactory } from "../../src/client/DRIFTClientFactory.sol";
+import { WeightedGovernanceClient } from "../../src/templates/WeightedGovernance.sol";
+
+contract DRIFTVoteGasTest is Test {
+    DRIFTCore public core;
+    DRIFTToken public driftToken;
+    DRIFTClientFactory public factory;
+    WeightedGovernanceClient public client;
+
+    address public admin = makeAddr("admin");
+    uint256 public settlerPk = 0x1234;
+    address public settler = vm.addr(settlerPk);
+    address public node = makeAddr("node");
+
+    bytes32 public contextUID;
+    bytes32 constant ROLE = keccak256("ROLE");
+
+    function setUp() public {
+        DRIFTCore coreImpl = new DRIFTCore();
+        core = DRIFTCore(
+            address(new ERC1967Proxy(address(coreImpl), abi.encodeWithSelector(DRIFTCore.initialize.selector, admin)))
+        );
+
+        driftToken = new DRIFTToken(address(core));
+        vm.prank(admin);
+        core.setDriftToken(address(driftToken));
+
+        factory = new DRIFTClientFactory(address(core));
+        WeightedGovernanceClient template = new WeightedGovernanceClient();
+
+        vm.startPrank(admin);
+        core.grantRole(core.FACTORY_ROLE(), address(factory));
+        contextUID = core.registerContext("merkle.gas.test");
+
+        bytes32[] memory roles = new bytes32[](1);
+        roles[0] = ROLE;
+        uint256[] memory weights = new uint256[](1);
+        weights[0] = 1;
+
+        bytes memory initData = abi.encodeWithSelector(
+            WeightedGovernanceClient.initialize.selector,
+            address(core),
+            address(driftToken),
+            contextUID,
+            settler,
+            0,
+            "EigenTrust",
+            roles,
+            weights
+        );
+
+        address cloneAddr = factory.deployClient(contextUID, address(template), initData, bytes32("salt"));
+        client = WeightedGovernanceClient(cloneAddr);
+        core.grantRole(core.contextAdminRole(contextUID), address(client));
+        vm.stopPrank();
+
+        vm.prank(node);
+        core.registerNode(contextUID, "0x");
+    }
+
+    function _simulateAndMeasureVote(uint256 depth, string memory snapshotName) internal {
+        uint256 score = 100;
+        uint256 epoch = 1;
+        bytes32 calculatedRoot;
+        bytes32[] memory proof = new bytes32[](depth);
+
+        {
+            bytes32 currentHash = keccak256(bytes.concat(keccak256(abi.encode(contextUID, node, ROLE, score, epoch))));
+
+            for (uint256 i = 0; i < depth; i++) {
+                bytes32 sibling = keccak256(abi.encode("dummy_sibling", epoch, i));
+                proof[i] = sibling;
+
+                // OpenZeppelin sorts pairs before hashing
+                if (currentHash < sibling) {
+                    currentHash = keccak256(abi.encodePacked(currentHash, sibling));
+                } else {
+                    currentHash = keccak256(abi.encodePacked(sibling, currentHash));
+                }
+            }
+            calculatedRoot = currentHash;
+        }
+
+        {
+            bytes32 domainSeparator = keccak256(
+                abi.encode(
+                    keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+                    keccak256(bytes("DRIFT_WeightedGovernance")),
+                    keccak256(bytes("1")),
+                    block.chainid,
+                    address(client)
+                )
+            );
+
+            bytes32 structHash = keccak256(
+                abi.encode(client.SETTLE_ROOT_TYPEHASH(), contextUID, epoch, calculatedRoot)
+            );
+            bytes32 digest = MessageHashUtils.toTypedDataHash(domainSeparator, structHash);
+
+            (uint8 v, bytes32 r, bytes32 s) = vm.sign(settlerPk, digest);
+
+            // Post the root while the signature components are still in scope
+            client.postEpochRoot(epoch, calculatedRoot, abi.encodePacked(r, s, v));
+        }
+
+        // Create Proposal (Admin bypass for test setup speed)
+        vm.prank(admin);
+        uint256 pId = client.createProposalWithProofs(
+            "Test",
+            address(0),
+            "",
+            3,
+            new bytes32[](0),
+            new uint256[](0),
+            new bytes32[][](0)
+        );
+
+        // Format Calldata Arrays
+        bytes32[] memory roles = new bytes32[](1);
+        roles[0] = ROLE;
+        uint256[] memory scores = new uint256[](1);
+        scores[0] = score;
+        bytes32[][] memory proofs = new bytes32[][](1);
+        proofs[0] = proof;
+
+        // Measure Execution
+        vm.startSnapshotGas(snapshotName);
+        vm.prank(node);
+        client.castVoteWithProofs(pId, true, roles, scores, proofs);
+        vm.stopSnapshotGas();
+    }
+
+    // Benchmark realistic network sizes
+    function test_Gas_Vote_Depth10_1024Users() public {
+        _simulateAndMeasureVote(10, "Vote_Depth_10_Users_1024");
+    }
+
+    function test_Gas_Vote_Depth15_32kUsers() public {
+        _simulateAndMeasureVote(15, "Vote_Depth_15_Users_32768");
+    }
+
+    function test_Gas_Vote_Depth20_1MUsers() public {
+        _simulateAndMeasureVote(20, "Vote_Depth_20_Users_1M");
+    }
+}
