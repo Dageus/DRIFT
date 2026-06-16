@@ -44,6 +44,41 @@ interface IDRIFTCore is IAccessControl {
     /// @notice Emitted when a context's client gets updated.
     event ClientUpdated(bytes32 indexed contextUID, address indexed client);
 
+    // Errors ==================================================================
+
+    /// @notice Error thrown when a context name is taken
+    error ContextTaken(bytes32 contextUID);
+    /// @notice Error thrown when a context is inactive
+    error ContextNotActive(bytes32 contextUID);
+    /// @notice Error thrown when performing operations on an unknown context
+    error ContextNotFound(bytes32 contextUID);
+    /// @notice Error thrown when registering an empty context name
+    error EmptyContextName();
+
+    /// @notice Error thrown when attempting to register an invalid adapter address
+    error InvalidAdapterAddress(bytes32 contextUID);
+    /// @notice Error thrown when attempting to register an invalid schema UID
+    error InvalidSchemaUID(bytes32 contextUID);
+
+    /// @notice Error thrown when a caller doesn't have the required permissions
+    error UnauthorizedCaller(address caller);
+
+    /// @notice Error thrown when a schema does not exist for a given context
+    error SchemaNotFound(bytes32 contextUID, bytes32 schemaUID);
+
+    /// @notice Error thrown when referencing an unregistered node
+    error NodeNotRegistered(bytes32 contextUID, address node);
+    /// @notice Error thrown when a registered nodes attempts to re-register
+    error NodeAlreadyRegistered(bytes32 contextUID, address node);
+    /// @notice Error thrown when a node's status is changed to unbanned in a status update.
+    error CannotUnbanViaStatusUpdate();
+
+    error BannedNodeCannotDeregister();
+    error PolicyRejectedEntry();
+
+    /// @notice Error thrown when a token has already been set for the context
+    error TokenAlreadySet();
+
     // Context management ======================================================
 
     /// @notice Register a new reputation context.
@@ -66,7 +101,6 @@ interface IDRIFTCore is IAccessControl {
 
     /// @notice updates a context's policy, emitting an event.
     function setContextClient(bytes32 contextUID, address clientContract) external;
-
 
     // Schema management =======================================================
 

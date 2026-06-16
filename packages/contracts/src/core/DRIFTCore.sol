@@ -16,38 +16,6 @@ import { IPolicy, NodeStatus } from "../policies/IPolicy.sol";
 /// @notice Central DRIFT registry.
 /// @dev    UUPS upgradeable. All storage declared in DRIFTCoreStorage.
 contract DRIFTCore is Initializable, DRIFTCoreStorage, AccessControlUpgradeable, UUPSUpgradeable, IDRIFTCore {
-    // Errors ==================================================================
-
-    /// @notice Error thrown when a context name is taken
-    error ContextTaken(bytes32 contextUID);
-    /// @notice Error thrown when a context is inactive
-    error ContextNotActive(bytes32 contextUID);
-    /// @notice Error thrown when performing operations on an unknown context
-    error ContextNotFound(bytes32 contextUID);
-    /// @notice Error thrown when registering an empty context name
-    error EmptyContextName();
-
-    /// @notice Error thrown when attempting to register an invalid adapter address
-    error InvalidAdapterAddress(bytes32 contextUID);
-    /// @notice Error thrown when attempting to register an invalid schema UID
-    error InvalidSchemaUID(bytes32 contextUID);
-
-    /// @notice Error thrown when a caller doesn't have the required permissions
-    error UnauthorizedCaller(address caller);
-
-    /// @notice Error thrown when a schema does not exist for a given context
-    error SchemaNotFound(bytes32 contextUID, bytes32 schemaUID);
-
-    /// @notice Error thrown when referencing an unregistered node
-    error NodeNotRegistered(bytes32 contextUID, address node);
-    /// @notice Error thrown when a registered nodes attempts to re-register
-    error NodeAlreadyRegistered(bytes32 contextUID, address node);
-    /// @notice Error thrown when a node's status is changed to unbanned in a status update.
-    error CannotUnbanViaStatusUpdate();
-
-    /// @notice Error thrown when a token has already been set for the context
-    error TokenAlreadySet();
-
     // Token Management ========================================================
 
     address public constant BURN_ADDRESS = 0x000000000000000000000000000000000000dEaD;
@@ -172,7 +140,7 @@ contract DRIFTCore is Initializable, DRIFTCoreStorage, AccessControlUpgradeable,
 
         if (policyAddress != address(0)) {
             status = IPolicy(policyAddress).evaluate(msg.sender, contextUID, entryProof);
-            require(status != NodeStatus.NONE, "Policy rejected entry");
+            if (status == NodeStatus.NONE) revert PolicyRejectedEntry();
         } else {
             // If there's no entry policy, fallback checking if there's any required native token stake
             // configured for open registration
@@ -188,9 +156,7 @@ contract DRIFTCore is Initializable, DRIFTCoreStorage, AccessControlUpgradeable,
         if (nodeStatus[contextUID][msg.sender] == NodeStatus.NONE) {
             revert NodeNotRegistered(contextUID, msg.sender);
         }
-        if (nodeStatus[contextUID][msg.sender] == NodeStatus.BANNED) {
-            revert("Banned nodes cannot deregister");
-        }
+        if (nodeStatus[contextUID][msg.sender] == NodeStatus.BANNED) revert BannedNodeCannotDeregister();
 
         delete nodeStatus[contextUID][msg.sender];
 
