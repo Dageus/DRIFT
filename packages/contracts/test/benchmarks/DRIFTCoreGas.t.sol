@@ -15,16 +15,20 @@ contract DRIFTCoreGasBenchmarkTest is Test {
     DRIFTToken public driftToken;
     DRIFTClientFactory public factory;
     WeightedGovernanceClient public template;
+
     address public admin = makeAddr("admin");
     address public node = makeAddr("node");
 
     bytes32 public contextUID;
+
+    // SETUP ===================================================================
 
     function setUp() public {
         DRIFTCore coreImpl = new DRIFTCore();
         core = DRIFTCore(
             address(new ERC1967Proxy(address(coreImpl), abi.encodeWithSelector(DRIFTCore.initialize.selector, admin)))
         );
+
         driftToken = new DRIFTToken(address(core));
         vm.prank(admin);
         core.setDriftToken(address(driftToken));
@@ -38,6 +42,9 @@ contract DRIFTCoreGasBenchmarkTest is Test {
         vm.stopPrank();
     }
 
+    // CORE BENCHMARKS =========================================================
+
+    /// @notice Measures the gas cost of registering a new context namespace
     function test_Benchmark_RegisterContext() public {
         vm.startPrank(admin);
         vm.startSnapshotGas("RegisterContext");
@@ -46,6 +53,7 @@ contract DRIFTCoreGasBenchmarkTest is Test {
         vm.stopPrank();
     }
 
+    /// @notice Measures the gas cost of binding a schema to an adapter
     function test_Benchmark_AddSchema() public {
         vm.startPrank(admin);
         vm.startSnapshotGas("AddSchema");
@@ -54,15 +62,18 @@ contract DRIFTCoreGasBenchmarkTest is Test {
         vm.stopPrank();
     }
 
+    /// @notice Measures the gas cost for a node to self-register
     function test_Benchmark_RegisterNode() public {
         vm.startPrank(node);
         vm.startSnapshotGas("RegisterNode");
         core.registerNode(contextUID, "0x");
         vm.stopSnapshotGas();
-
         vm.stopPrank();
     }
 
+    // CLIENT BENCHMARKS =======================================================
+
+    /// @notice Measures the gas cost of deploying a minimal proxy clone via the factory
     function test_Benchmark_DeployClientClone() public {
         bytes32[] memory roles = new bytes32[](1);
         uint256[] memory weights = new uint256[](1);
@@ -77,6 +88,7 @@ contract DRIFTCoreGasBenchmarkTest is Test {
             roles,
             weights
         );
+
         vm.startPrank(admin);
         vm.startSnapshotGas("DeployClientClone");
         factory.deployClient(contextUID, address(template), initData, bytes32("salt"));
@@ -84,12 +96,16 @@ contract DRIFTCoreGasBenchmarkTest is Test {
         vm.stopPrank();
     }
 
+    /// @notice Measures the gas cost of deploying the full underlying client logic contract
     function test_Benchmark_DeployClientFull() public {
         vm.startSnapshotGas("DeployClientFull");
         new WeightedGovernanceClient();
         vm.stopSnapshotGas();
     }
 
+    // ATTESTATION BENCHMARKS ==================================================
+
+    /// @notice Measures the gas cost of verifying an external attestation through the adapter
     function test_Benchmark_VerifyAttestation() public {
         address subject = makeAddr("subject");
         address attester = makeAddr("attester");
@@ -101,6 +117,7 @@ contract DRIFTCoreGasBenchmarkTest is Test {
 
         vm.prank(subject);
         core.registerNode(contextUID, "0x");
+
         vm.prank(attester);
         core.registerNode(contextUID, "0x");
 

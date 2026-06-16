@@ -23,6 +23,8 @@ contract DRIFTVoteGasTest is Test {
     bytes32 public contextUID;
     bytes32 constant ROLE = keccak256("ROLE");
 
+    // SETUP ===================================================================
+
     function setUp() public {
         DRIFTCore coreImpl = new DRIFTCore();
         core = DRIFTCore(
@@ -66,6 +68,27 @@ contract DRIFTVoteGasTest is Test {
         core.registerNode(contextUID, "0x");
     }
 
+    // BENCHMARKS ==============================================================
+
+    /// @notice Benchmarks a vote cast requiring a proof depth of 10 (1,024 users)
+    function test_Gas_Vote_Depth10_1024Users() public {
+        _simulateAndMeasureVote(10, "Vote_Depth_10_Users_1024");
+    }
+
+    /// @notice Benchmarks a vote cast requiring a proof depth of 15 (32,768 users)
+    function test_Gas_Vote_Depth15_32kUsers() public {
+        _simulateAndMeasureVote(15, "Vote_Depth_15_Users_32768");
+    }
+
+    /// @notice Benchmarks a vote cast requiring a proof depth of 20 (1,000,000+ users)
+    function test_Gas_Vote_Depth20_1MUsers() public {
+        _simulateAndMeasureVote(20, "Vote_Depth_20_Users_1M");
+    }
+
+    // INTERNAL HELPERS ========================================================
+
+    /// @dev Helper to construct a synthetic Merkle proof, settle the root, and execute the gas snapshot
+    /// @dev Note: The proposal creation logic currently bypasses power checks by passing empty arrays.
     function _simulateAndMeasureVote(uint256 depth, string memory snapshotName) internal {
         uint256 score = 100;
         uint256 epoch = 1;
@@ -74,7 +97,6 @@ contract DRIFTVoteGasTest is Test {
 
         {
             bytes32 currentHash = keccak256(bytes.concat(keccak256(abi.encode(contextUID, node, ROLE, score, epoch))));
-
             for (uint256 i = 0; i < depth; i++) {
                 bytes32 sibling = keccak256(abi.encode("dummy_sibling", epoch, i));
                 proof[i] = sibling;
@@ -99,19 +121,16 @@ contract DRIFTVoteGasTest is Test {
                     address(client)
                 )
             );
-
             bytes32 structHash = keccak256(
                 abi.encode(client.SETTLE_ROOT_TYPEHASH(), contextUID, epoch, calculatedRoot)
             );
             bytes32 digest = MessageHashUtils.toTypedDataHash(domainSeparator, structHash);
 
             (uint8 v, bytes32 r, bytes32 s) = vm.sign(settlerPk, digest);
-
-            // Post the root while the signature components are still in scope
             client.postEpochRoot(epoch, calculatedRoot, abi.encodePacked(r, s, v));
         }
 
-        // Create Proposal (Admin bypass for test setup speed)
+        // Create Proposal
         vm.prank(admin);
         uint256 pId = client.createProposalWithProofs(
             "Test",
@@ -136,18 +155,5 @@ contract DRIFTVoteGasTest is Test {
         vm.prank(node);
         client.castVoteWithProofs(pId, true, roles, scores, proofs);
         vm.stopSnapshotGas();
-    }
-
-    // Benchmark realistic network sizes
-    function test_Gas_Vote_Depth10_1024Users() public {
-        _simulateAndMeasureVote(10, "Vote_Depth_10_Users_1024");
-    }
-
-    function test_Gas_Vote_Depth15_32kUsers() public {
-        _simulateAndMeasureVote(15, "Vote_Depth_15_Users_32768");
-    }
-
-    function test_Gas_Vote_Depth20_1MUsers() public {
-        _simulateAndMeasureVote(20, "Vote_Depth_20_Users_1M");
     }
 }

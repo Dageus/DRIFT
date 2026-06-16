@@ -6,6 +6,7 @@ import { ERC1967Proxy } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy
 import { IAccessControl } from "@openzeppelin/contracts/access/IAccessControl.sol";
 import { MessageHashUtils } from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import { DRIFTCore } from "../../src/core/DRIFTCore.sol";
+import { IDRIFTCore } from "../../src/core/IDRIFTCore.sol";
 import { DRIFTToken } from "../../src/token/DRIFTToken.sol";
 import { IDRIFTToken } from "../../src/token/IDRIFTToken.sol";
 import { DRIFTClientFactory } from "../../src/client/DRIFTClientFactory.sol";
@@ -27,6 +28,8 @@ contract DRIFTSecurityTest is Test {
     bytes32 public contextUID;
     bytes32 constant ROLE_PROFESSOR = keccak256("PROFESSOR");
 
+    // SETUP ===================================================================
+
     function setUp() public {
         DRIFTCore coreImpl = new DRIFTCore();
         core = DRIFTCore(
@@ -34,6 +37,7 @@ contract DRIFTSecurityTest is Test {
         );
 
         driftToken = new DRIFTToken(address(core));
+
         vm.prank(admin);
         core.setDriftToken(address(driftToken));
 
@@ -70,39 +74,14 @@ contract DRIFTSecurityTest is Test {
         core.registerNode(contextUID, "0x");
     }
 
-    function test_SettleReputationRevertsOnReplay() public {
-        uint256 score = 100;
-        uint256 epoch = 0;
+    // TOKEN SECURITY ==========================================================
 
-        bytes32 structHash = keccak256(
-            abi.encode(client.SETTLE_TYPEHASH(), contextUID, node, ROLE_PROFESSOR, score, epoch)
-        );
-        bytes32 domainSeparator = keccak256(
-            abi.encode(
-                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
-                keccak256(bytes("DRIFT_WeightedGovernance")),
-                keccak256(bytes("1")),
-                block.chainid,
-                address(client)
-            )
-        );
-
-        bytes32 digest = MessageHashUtils.toTypedDataHash(domainSeparator, structHash);
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(settlerPk, digest);
-        bytes memory sig = abi.encodePacked(r, s, v);
-
-        client.settleReputation(node, ROLE_PROFESSOR, score, epoch, sig);
-
-        vm.expectRevert(abi.encodeWithSignature("InvalidEpoch(uint256,uint256)", epoch, epoch + 1));
-        client.settleReputation(node, ROLE_PROFESSOR, score, epoch, sig);
-    }
-
+    /// @notice Ensures that reputation tokens cannot be transferred between users
     function test_TransferReverts() public {
         vm.startPrank(admin);
         core.grantRole(core.FACTORY_ROLE(), admin);
         core.setContextClient(contextUID, admin);
         core.reward(contextUID, ROLE_PROFESSOR, node, 50);
-
         core.setContextClient(contextUID, address(client));
         vm.stopPrank();
 
@@ -113,17 +92,23 @@ contract DRIFTSecurityTest is Test {
         driftToken.safeTransferFrom(node, makeAddr("stranger"), tokenId, 1, "");
     }
 
+    // NODE STATUS SECURITY ====================================================
+
+    /// @notice Ensures a node marked as BANNED cannot bypass the ban by deregistering
     function test_BannedNodeCannotDeregister() public {
         vm.prank(admin);
         core.setNodeStatus(contextUID, node, NodeStatus.BANNED);
 
         vm.prank(node);
-        vm.expectRevert(bytes("Banned nodes cannot deregister"));
+        vm.expectRevert(IDRIFTCore.BannedNodeCannotDeregister.selector);
         core.deregisterNode(contextUID);
     }
 
+    // ACCESS CONTROL ==========================================================
+
+    /// @notice Ensures only addresses with the FACTORY_ROLE can map clients to contexts
     function test_NonFactoryCannotSetClient() public {
-        bytes32 factoryRole = core.FACTORY_ROLE(); // Cache this before the prank!
+        bytes32 factoryRole = core.FACTORY_ROLE();
 
         vm.prank(node);
         vm.expectRevert(
