@@ -11,10 +11,16 @@ import { IEAS } from "../interfaces/IEAS.sol";
 ///         deploy a new adapter and update the source's provider reference in
 ///         DriftCore. Scoring logic is unaffected.
 contract EASAttestationAdapter is IAttestationProvider {
+    /// @notice Error thrown when the EAS address is zero.
+    error ZeroEASAddress();
+
+    /// @notice The underlying EAS contract interface.
     IEAS public immutable eas;
 
+    /// @notice Initializes the adapter with the EAS contract.
+    /// @param easAddress The address of the deployed EAS contract.
     constructor(address easAddress) {
-        require(easAddress != address(0), "DRIFT: zero EAS address");
+        if (easAddress == address(0)) revert ZeroEASAddress();
         eas = IEAS(easAddress);
     }
 
