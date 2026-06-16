@@ -4,7 +4,8 @@ pragma solidity 0.8.28;
 import { IDRIFTClient } from "./IDRIFTClient.sol";
 
 /// @title IDRIFTGovernance
-/// @notice Pluggable governance module for DRIFT contexts
+/// @notice Minimal proposal lifecycle. Voting mechanism is implementation-defined.
+/// @dev    A flat DAO implements this directly. A reputation DAO extends it.
 interface IDRIFTGovernance is IDRIFTClient {
     // Errors ==================================================================
     error ProposalNotFound(uint256 proposalId);
@@ -22,8 +23,7 @@ interface IDRIFTGovernance is IDRIFTClient {
     event VoteCast(address indexed voter, uint256 indexed proposalId, bool support, uint256 weight);
     event ProposalExecuted(uint256 indexed proposalId);
 
-    // Methods =================================================================
-    /// @notice Create a new proposal with an executable payload
+    // Core lifecycle ==========================================================
     function createProposal(
         string calldata description,
         address target,
@@ -31,7 +31,15 @@ interface IDRIFTGovernance is IDRIFTClient {
         uint256 durationInDays
     ) external returns (uint256);
 
-    /// @notice Get proposal details
+    function executeProposal(uint256 proposalId) external;
+
+    /// @notice Cast a vote. The implementation decides how weight is determined.
+    /// @dev    For a flat DAO, this might be 1 vote per registered node.
+    ///         For a token-weighted DAO, this reads live balances.
+    ///         For Proof-of-State, the client exposes a separate function.
+    function castVote(uint256 proposalId, bool support) external;
+
+    // Views ===================================================================
     function getProposal(
         uint256 proposalId
     )
@@ -48,15 +56,5 @@ interface IDRIFTGovernance is IDRIFTClient {
             bool exists
         );
 
-    /// @notice Execute a passed proposal's payload
-    function executeProposal(uint256 proposalId) external;
-
-    /// @notice Cast a vote on an active proposal.
-    function castVote(uint256 proposalId, bool support) external;
-
-    /// @notice Check if an account has voted on a proposal.
     function hasVoted(uint256 proposalId, address account) external view returns (bool);
-
-    /// @notice Returns the voting power of an address.
-    function getVotingPower(address account) external view returns (uint256);
 }
