@@ -4,6 +4,7 @@ import { CoreModule } from './modules/core';
 import { ReputationModule } from './modules/reputation';
 import { GovernanceModule } from './modules/governance';
 import { DriftSettler } from './settler';
+import type { ProofOfStatePayload } from './settler';
 import { LocalTrustStore } from './trust/LocalTrustStore';
 import type { ITrustStore } from './trust/ITrustStore';
 import type { IReputationEngine } from './engines/IReputationEngine';
@@ -27,22 +28,7 @@ export interface DriftConfig {
   storageProvider?: ITrustStore;
 }
 
-/**
- * Unified DRIFT SDK entry point.
- *
- * Usage:
- *   const drift = new Drift(signer, {
- *     coreAddress: '0x...',
- *     factoryAddress: '0x...',
- *     attestationProvider: myAttestationProvider
- *   });
- *
- *   await drift.core.registerContext('my-context');
- *   await drift.governance.castVote(clientAddress, proposalId, true);
- *   await drift.reputation.settleReputation(...);
- */
 export class Drift {
-  // Modules — direct access, no .client. indirection
   public readonly core: CoreModule;
   public readonly reputation: ReputationModule;
   public readonly governance: GovernanceModule;
@@ -63,7 +49,6 @@ export class Drift {
     this._attestationProvider = config.attestationProvider;
     this._trustStore = config.storageProvider ?? new LocalTrustStore();
 
-    // Direct module instantiation — one hop, not two
     this.core = new CoreModule(config.coreAddress, signerOrProvider);
     this.reputation = new ReputationModule(signerOrProvider);
     this.governance = new GovernanceModule(signerOrProvider);
@@ -85,34 +70,31 @@ export class Drift {
       case 'voting':
         return (await this._getVotingPower(subject, options)) as ReputationResult<T>;
       default:
-        throw new Error(`Drift: Unknown reputation mode: ${(options as any).mode}`);
+        throw new Error(`DRIFT SDK: Unknown reputation mode: ${(options as any).mode}`);
     }
   }
 
-  // Global ===================================================================
+  // Global Reputation =========================================================
 
   private async _getGlobalReputation(
     subject: string,
     options: GlobalReputationOptions
   ): Promise<GlobalReputationResult> {
     const tokenAddress = await this._resolveTokenAddress();
+    const clientAddress = await this.core.getContextClient(options.context);
 
+    // If a specific role is requested, return just that balance.
     if (options.role) {
-      const balance = await this.reputation.getReputationBalance(
-        tokenAddress,
-        subject,
-        options.context,
-        options.role
-      );
+      const balance = await this.reputation.getReputationBalance(tokenAddress, subject, options.context, options.role);
       return { balance };
     }
 
-    const defaultRoles = ['0x' + '00'.repeat(32)];
-
+    // Otherwise, query all active roles and sum.
+    const roles = await this.governance.getActiveRoles(clientAddress);
     const breakdown: Record<string, bigint> = {};
     let total = 0n;
 
-    for (const role of defaultRoles) {
+    for (const role of roles) {
       try {
         const bal = await this.reputation.getReputationBalance(tokenAddress, subject, options.context, role);
         if (bal > 0n) {
@@ -120,17 +102,17 @@ export class Drift {
           total += bal;
         }
       } catch {
-        // Role may not exist — skip
       }
     }
 
     return { balance: total, breakdown };
   }
 
-  // Local =====================================================================
+  // Local Reputation ==========================================================
 
   private async _getLocalReputation(subject: string, options: LocalReputationOptions): Promise<LocalReputationResult> {
-    const engine = options.engine ?? (await this._resolveDefaultEngine(options.context, options.viewer, options.schemaDef));
+    const engine =
+      options.engine ?? (await this._resolveDefaultEngine(options.context, options.viewer, options.schemaDef));
 
     const records = await this._attestationProvider.fetchUserRecords(options.context, subject);
 
@@ -148,10 +130,22 @@ export class Drift {
     };
   }
 
-  // Voting ====================================================================
+  // Voting Power ==============================================================
 
   private async _getVotingPower(subject: string, options: VotingPowerOptions): Promise<bigint> {
-    return this.governance.getVotingPower(options.governanceClient, subject);
+    const opts = options as VotingPowerOptions & {
+      epoch?: bigint;
+      payload?: ProofOfStatePayload;
+    };
+
+    if (!opts.epoch || !opts.payload) {
+      throw new Error(
+        'DRIFT SDK: Voting power query requires Proof-of-State parameters. ' +
+          'Provide `epoch` (the snapshot epoch) and `payload` (the Merkle proof arrays).'
+      );
+    }
+
+    return this.governance.simulateVotingPower(options.governanceClient, subject, opts.epoch, opts.payload);
   }
 
   // Resolvers =================================================================

@@ -1,126 +1,100 @@
-import { Signer, Contract, isHexString, TypedDataDomain, TypedDataField } from 'ethers';
-import { IAttestationProvider } from './providers/IAttestationProvider';
-import { IReputationEngine } from './engines/IReputationEngine';
+import { Signer, Contract, TypedDataDomain } from 'ethers';
+import { StandardMerkleTree } from '@openzeppelin/merkle-tree';
 
 const EIP712_ABI = [
   'function eip712Domain() external view returns (bytes1 fields, string name, string version, uint256 chainId, address verifyingContract, bytes32 salt, uint256[] extensions)'
 ];
 
-const SETTLE_TYPES: Record<string, TypedDataField[]> = {
-  Settle: [
+const SETTLE_ROOT_TYPES = {
+  SettleRoot: [
     { name: 'contextUID', type: 'bytes32' },
-    { name: 'node', type: 'address' },
-    { name: 'role', type: 'bytes32' },
-    { name: 'score', type: 'uint256' },
-    { name: 'epoch', type: 'uint256' }
+    { name: 'epoch', type: 'uint256' },
+    { name: 'merkleRoot', type: 'bytes32' }
   ]
 };
 
+export interface ScoreEntry {
+  node: string;
+  role: string;
+  score: bigint;
+}
+
+export interface ProofOfStatePayload {
+  roles: string[];
+  scores: bigint[];
+  proofs: string[][];
+}
+
 export class DriftSettler {
-  public readonly signer: Signer;
+    public readonly signer: Signer;
 
   constructor(signer: Signer) {
     this.signer = signer;
   }
 
   /**
-   * Orchestrates the off-chain pipeline: Fetch -> Compute -> Sign.
+   * Build a Merkle tree from off-chain scores and sign the root.
+   * Directly matches EVM double-hashing: keccak256(bytes.concat(keccak256(abi.encode(...))))
    */
-  public async generateSettlementSignature(
+  public async buildAndSignEpochRoot(
     clientAddress: string,
     contextUID: string,
-    role: string,
-    userAddress: string,
     epoch: bigint,
-    provider: IAttestationProvider,
-    engine: IReputationEngine
-  ): Promise<{ score: bigint; signature: string }> {
-    const records = await provider.fetchUserRecords(contextUID, userAddress);
-
-    const score = records.length === 0 ? 0n : engine.calculateScore(records);
-
-    const signature = await this._signPayload(clientAddress, contextUID, role, userAddress, score, epoch);
-
-    return { score, signature };
-  }
-
-  /**
-   * Orchestrates the off-chain pipeline for a batch of users.
-   * Required for mass-settlement and global algorithms.
-   */
-  public async generateBatchSettlementSignatures(
-    clientAddress: string,
-    contextUID: string,
-    role: string,
-    userAddresses: string[],
-    epoch: bigint,
-    provider: IAttestationProvider,
-    engine: IReputationEngine
-  ): Promise<{ scores: bigint[]; signatures: string[] }> {
-    // For global scaling, the provider should ideally fetch the entire context graph once.
-    // If IAttestationProvider only has fetchUserRecords, it will bottleneck here.
-
-    const scores: bigint[] = [];
-    const signatures: string[] = [];
-
-    // NOTE: If using EigenTrust, the engine should calculate the entire network matrix once
-    // before this loop, rather than recalculating per user.
-    for (const user of userAddresses) {
-      const records = await provider.fetchUserRecords(contextUID, user);
-
-      const score = records.length === 0 ? 0n : engine.calculateScore(records);
-      const signature = await this._signPayload(clientAddress, contextUID, role, user, score, epoch);
-
-      scores.push(score);
-      signatures.push(signature);
-    }
-
-    return { scores, signatures };
-  }
-
-  /**
-   * Dynamically fetches the EIP-712 domain and signs the settlement payload.
-   */
-  private async _signPayload(
-    clientAddress: string,
-    contextUID: string,
-    role: string,
-    node: string,
-    score: bigint,
-    epoch: bigint
-  ): Promise<string> {
-    this._validateBytes32(contextUID, 'contextUID');
-    this._validateBytes32(role, 'role');
+    scores: ScoreEntry[]
+  ): Promise<{ root: string; signature: string; tree: StandardMerkleTree<string[]> }> {
+    const values = scores.map((s) => [contextUID, s.node, s.role, s.score.toString(), epoch.toString()]);
+    const tree = StandardMerkleTree.of(values, ['bytes32', 'address', 'bytes32', 'uint256', 'uint256']);
 
     const domain = await this._fetchDomain(clientAddress);
-
-    return await this.signer.signTypedData(domain, SETTLE_TYPES, {
+    const signature = await this.signer.signTypedData(domain, SETTLE_ROOT_TYPES, {
       contextUID,
-      node,
-      role,
-      score,
-      epoch
+      epoch,
+      merkleRoot: tree.root
     });
+
+    return { root: tree.root, signature, tree };
   }
 
-  // Private helpers ===========================================================
+  /**
+   * Scans the Merkle Tree to construct the parallel arrays required for Stateless Governance execution.
+   */
+  public generateProofOfStatePayload(
+    tree: StandardMerkleTree<string[]>,
+    contextUID: string,
+    node: string,
+    epoch: bigint
+  ): ProofOfStatePayload {
+    const roles: string[] = [];
+    const scores: bigint[] = [];
+    const proofs: string[][] = [];
 
-  private _validateBytes32(value: string, name: string): void {
-    if (!isHexString(value, 32)) {
-      throw new Error(
-        `DRIFT SDK: '${name}' must be a 32-byte hex string (0x + 64 hex chars). Received: ${value}.\n` +
-          `Hint: use ethers.id("ROLE_NAME") or ethers.keccak256(ethers.toUtf8Bytes("name")) to derive it.`
-      );
+    for (const [i, v] of tree.entries()) {
+      // v[0] = contextUID, v[1] = node, v[2] = role, v[3] = score, v[4] = epoch
+      if (
+        v[0] === contextUID &&
+        v[1].toLowerCase() === node.toLowerCase() &&
+        BigInt(v[4]) === epoch
+      ) {
+        roles.push(v[2]);
+        scores.push(BigInt(v[3]));
+        proofs.push(tree.getProof(i));
+      }
     }
+
+    if (roles.length === 0) {
+      throw new Error(`DRIFT SDK: No reputation claims found for node ${node} at epoch ${epoch}`);
+    }
+
+    return { roles, scores, proofs };
   }
 
   private async _fetchDomain(contractAddress: string): Promise<TypedDataDomain> {
     const provider = this.signer.provider;
-    if (!provider) {
-      throw new Error('DriftSettler: Signer must have a provider to fetch EIP-712 domain.');
-    }
-    const contract = new Contract(contractAddress, EIP712_ABI, this.signer.provider);
+    if (!provider) throw new Error('DRIFT SDK: Signer must have a provider to fetch EIP-712 domain.');
+
+    const contract = new Contract(contractAddress, EIP712_ABI, provider);
     const d = await contract.eip712Domain();
+
     return {
       name: d.name,
       version: d.version,
