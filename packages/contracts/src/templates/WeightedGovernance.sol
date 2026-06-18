@@ -218,9 +218,7 @@ contract WeightedGovernanceClient is
         uint256 epoch,
         bytes32[] calldata merkleProof
     ) external view override returns (bool) {
-        if (!core.isRegistered(contextUID, node)) revert NodeNotRegistered(contextUID, node);
-        if (epochRoots[epoch] == bytes32(0)) revert EpochNotFound(epoch);
-        if (epoch <= lastClaimedEpoch[node][role]) revert AlreadyClaimed(node, role, epoch);
+        if (epochRoots[epoch] == bytes32(0)) return false;
 
         bytes32 leaf = _canonicalLeaf(node, role, score, epoch);
         return MerkleProof.verify(merkleProof, epochRoots[epoch], leaf);
@@ -378,15 +376,9 @@ contract WeightedGovernanceClient is
         if (root == bytes32(0)) revert EpochNotFound(epoch);
 
         for (uint256 i = 0; i < roles.length; i++) {
-            bytes32 role = roles[i];
-            uint256 score = scores[i];
-
-            bytes32 leaf = _canonicalLeaf(account, role, score, epoch);
-
-            // Only add power if the proof is valid.
-            if (MerkleProof.verify(proofs[i], root, leaf)) {
-                totalPower += (score * roleWeights[role]);
-            }
+            bytes32 leaf = _canonicalLeaf(account, roles[i], scores[i], epoch);
+            if (!MerkleProof.verify(proofs[i], root, leaf)) revert InvalidMerkleProof();
+            totalPower += (scores[i] * roleWeights[roles[i]]);
         }
     }
 

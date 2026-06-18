@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
+import { IDRIFTClient } from "./IDRIFTClient.sol";
+
 /// @title IDRIFTSettler
 /// @notice Capability to accept signed reputation scores and forward them to the Core.
-interface IDRIFTSettler {
+interface IDRIFTSettler is IDRIFTClient {
     // EVENTS ==================================================================
 
     /// @notice Emitted when the trusted settler address is changed
