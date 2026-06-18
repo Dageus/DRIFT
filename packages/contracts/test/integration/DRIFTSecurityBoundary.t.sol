@@ -9,6 +9,7 @@ import { DRIFTToken } from "../../src/token/DRIFTToken.sol";
 import { DRIFTClientFactory } from "../../src/client/DRIFTClientFactory.sol";
 import { IDRIFTSettler } from "../../src/client/IDRIFTSettler.sol";
 import { IDRIFTGovernanceProofOfState } from "../../src/client/IDRIFTGovernanceProofOfState.sol";
+import { IDRIFTGovernance } from "../../src/client/IDRIFTGovernance.sol";
 import { WeightedGovernanceClient } from "../../src/templates/WeightedGovernance.sol";
 
 contract DRIFTSecurityBoundaryTest is Test {
@@ -224,6 +225,66 @@ contract DRIFTSecurityBoundaryTest is Test {
 
         (, , , uint256 votesFor, , , , ) = client.getProposal(newProposalId);
         assertEq(votesFor, 1000);
+    }
+
+    /// @notice Ensures a user cannot double-spend their reputation on the same proposal
+    function test_RevertIf_DoubleVote() public {
+        bytes32[] memory roles = new bytes32[](1);
+        roles[0] = ROLE;
+        uint256[] memory scores = new uint256[](1);
+        scores[0] = 1000;
+
+        bytes32[][] memory proofs = new bytes32[][](1);
+        proofs[0] = new bytes32[](0);
+
+        vm.startPrank(admin);
+
+        client.castVoteWithProofs(proposalId, true, roles, scores, proofs);
+
+        vm.expectRevert(abi.encodeWithSelector(IDRIFTGovernance.AlreadyVoted.selector, admin, proposalId));
+        client.castVoteWithProofs(proposalId, true, roles, scores, proofs);
+
+        vm.stopPrank();
+    }
+
+    /// @notice Ensures voting power is strictly locked to the proposal's snapshot epoch.
+    /// @dev Prevents an attacker from farming reputation in Epoch 2 and using it on an Epoch 1 proposal.
+    function test_RevertIf_StaleEpochReplay() public {
+        uint256 epoch2 = 2;
+        uint256 aliceHugeScore = 999999;
+
+        bytes32 aliceLeaf = keccak256(
+            bytes.concat(keccak256(abi.encode(contextUID, alice, ROLE, aliceHugeScore, epoch2)))
+        );
+
+        bytes32 domainSeparator = keccak256(
+            abi.encode(
+                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+                keccak256("DRIFT_WeightedGovernance"),
+                keccak256("1"),
+                block.chainid,
+                address(client)
+            )
+        );
+        bytes32 structHash = keccak256(abi.encode(client.SETTLE_ROOT_TYPEHASH(), contextUID, epoch2, aliceLeaf));
+        bytes32 digest = MessageHashUtils.toTypedDataHash(domainSeparator, structHash);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(settlerPk, digest);
+
+        client.postEpochRoot(epoch2, aliceLeaf, abi.encodePacked(r, s, v));
+
+        bytes32[] memory roles = new bytes32[](1);
+        roles[0] = ROLE;
+        uint256[] memory scores = new uint256[](1);
+        scores[0] = aliceHugeScore;
+        bytes32[][] memory proofs = new bytes32[][](1);
+        proofs[0] = new bytes32[](0);
+
+        vm.startPrank(alice);
+
+        vm.expectRevert(IDRIFTSettler.InvalidMerkleProof.selector);
+        client.castVoteWithProofs(proposalId, true, roles, scores, proofs);
+
+        vm.stopPrank();
     }
 
     // INTERNAL HELPERS ========================================================
