@@ -1,6 +1,7 @@
 import { Signer, Provider, Contract, Interface } from 'ethers';
-import IGovArtifact from '../../../contracts/out/IDRIFTGovernance.sol/IDRIFTGovernance.json';
+import IGovArtifact from '../../../contracts/out/IDRIFTGovernanceProofOfState.sol/IDRIFTGovernanceProofOfState.json';
 import { handleContractError } from '../utils';
+import type { ProofOfStatePayload } from '../settler';
 
 export class GovernanceModule {
   private readonly _signer?: Signer;
@@ -22,18 +23,54 @@ export class GovernanceModule {
     return new Contract(clientAddress, IGovArtifact.abi, this._runner);
   }
 
-  // Write Operations ==========================================================
+  // Pre-flight Simulation =====================================================
 
-  public async createProposal(
+  /**
+   * Simulates voting power using a static call. Throws if proofs are cryptographically invalid.
+   */
+  public async simulateVotingPower(
+    clientAddress: string,
+    account: string,
+    epoch: bigint,
+    payload: ProofOfStatePayload
+  ): Promise<bigint> {
+    this._validatePayload(payload);
+    try {
+      const power = await this._governanceClient(clientAddress).getVotingPowerAtEpoch(
+        account,
+        epoch,
+        payload.roles,
+        payload.scores,
+        payload.proofs
+      );
+      return BigInt(power);
+    } catch (err) {
+      handleContractError(err, this._interface);
+    }
+  }
+
+  // Proof-of-State Execution ==================================================
+
+  public async createProposalWithProofs(
     clientAddress: string,
     description: string,
     target: string,
-    payload: string,
-    durationDays: number
+    callData: string,
+    durationDays: number,
+    payload: ProofOfStatePayload
   ): Promise<bigint> {
+    this._validatePayload(payload);
     try {
       const gc = this._governanceClient(clientAddress).connect(this._requireSigner());
-      const tx = await gc.createProposal(description, target, payload, durationDays);
+      const tx = await gc.createProposalWithProofs(
+        description,
+        target,
+        callData,
+        durationDays,
+        payload.roles,
+        payload.scores,
+        payload.proofs
+      );
       const receipt = await tx.wait();
 
       const log = receipt.logs
@@ -53,11 +90,17 @@ export class GovernanceModule {
     }
   }
 
-  public async castVote(clientAddress: string, proposalId: bigint, support: boolean): Promise<void> {
+  public async castVoteWithProofs(
+    clientAddress: string,
+    proposalId: bigint,
+    support: boolean,
+    payload: ProofOfStatePayload
+  ): Promise<void> {
+    this._validatePayload(payload);
     try {
       const tx = await this._governanceClient(clientAddress)
         .connect(this._requireSigner())
-        .castVote(proposalId, support);
+        .castVoteWithProofs(proposalId, support, payload.roles, payload.scores, payload.proofs);
       await tx.wait();
     } catch (err) {
       handleContractError(err, this._interface);
@@ -73,21 +116,47 @@ export class GovernanceModule {
     }
   }
 
-  // Read Operations ===========================================================
-
-  public async getVotingPower(clientAddress: string, account: string): Promise<bigint> {
-    try {
-      return BigInt(await this._governanceClient(clientAddress).getVotingPower(account));
-    } catch (err) {
-      handleContractError(err, this._interface);
-    }
-  }
+  // Views =====================================================================
 
   public async hasVoted(clientAddress: string, proposalId: bigint | number, account: string): Promise<boolean> {
     try {
       return await this._governanceClient(clientAddress).hasVoted(proposalId, account);
     } catch (err) {
       handleContractError(err, this._interface);
+    }
+  }
+
+  public async getActiveRoles(clientAddress: string): Promise<string[]> {
+    try {
+      return await this._governanceClient(clientAddress).getActiveRoles();
+    } catch (err) {
+      handleContractError(err, this._interface);
+    }
+  }
+
+  public async getProposal(clientAddress: string, proposalId: bigint) {
+    try {
+      const proposal = await this._governanceClient(clientAddress).getProposal(proposalId);
+      return {
+        description: proposal.description,
+        target: proposal.target,
+        payload: proposal.payload,
+        votesFor: BigInt(proposal.votesFor),
+        votesAgainst: BigInt(proposal.votesAgainst),
+        deadline: BigInt(proposal.deadline),
+        executed: proposal.executed,
+        exists: proposal.exists
+      };
+    } catch (err) {
+      handleContractError(err, this._interface);
+    }
+  }
+
+  // Internal ==================================================================
+
+  private _validatePayload(payload: ProofOfStatePayload): void {
+    if (payload.roles.length !== payload.scores.length || payload.roles.length !== payload.proofs.length) {
+      throw new Error('DRIFT SDK: ProofOfStatePayload arrays must be perfectly parallel.');
     }
   }
 }

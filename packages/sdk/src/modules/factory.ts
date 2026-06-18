@@ -1,13 +1,18 @@
-import { Signer, Contract, Interface, Provider } from 'ethers';
+import { Signer, Contract, Provider } from 'ethers';
 import FactoryArtifact from '../../../contracts/out/DRIFTClientFactory.sol/DRIFTClientFactory.json';
 
 export class DriftFactory {
   private readonly contract: Contract;
-  private readonly _factoryInterface: Interface;
+  private readonly _signer?: Signer;
 
   constructor(factoryAddress: string, signerOrProvider: Signer | Provider) {
-    this._factoryInterface = new Interface(FactoryArtifact.abi);
+    this._signer = 'signMessage' in signerOrProvider ? (signerOrProvider as Signer) : undefined;
     this.contract = new Contract(factoryAddress, FactoryArtifact.abi, signerOrProvider);
+  }
+
+  private _requireSigner(): Signer {
+    if (!this._signer) throw new Error('DRIFT SDK: Write operations require a connected signer.');
+    return this._signer;
   }
 
   public async deployClient(
@@ -16,23 +21,17 @@ export class DriftFactory {
     initData: string,
     salt: string
   ): Promise<string> {
-    const tx = await this.contract.deployClient(contextUID, implementation, initData, salt);
-    const receipt = await tx.wait();
-    return this._extractClientAddress(receipt);
-  }
+    const connectedContract = this.contract.connect(this._requireSigner()) as Contract;
 
-  private _extractClientAddress(receipt: any): string {
-    const log = receipt.logs
-      .map((l: any) => {
-        try {
-          return this._factoryInterface.parseLog(l);
-        } catch {
-          return null;
-        }
-      })
-      .find((l: any) => l?.name === 'ClientDeployed');
+    // 1. Simulate the transaction to capture the returned clone address
+    const cloneAddress = await connectedContract.deployClient.staticCall(contextUID, implementation, initData, salt);
 
-    if (!log) throw new Error('DriftFactory: ClientDeployed event not found in receipt.');
-    return log.args.client;
+    // 2. Execute the actual deployment transaction
+    const tx = await connectedContract.deployClient(contextUID, implementation, initData, salt);
+    await tx.wait();
+
+    console.log(tx.receipt)
+
+    return cloneAddress;
   }
 }

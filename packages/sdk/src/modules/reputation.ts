@@ -22,64 +22,40 @@ export class ReputationModule {
     return new Contract(clientAddress, SettlerArtifact.abi, this._runner);
   }
 
-  // Settlements & Configuration ===============================================
+  // Merkle Operations =========================================================
 
-  public async settleReputation(
+  public async postEpochRoot(
     clientAddress: string,
-    node: string,
-    role: string,
-    score: bigint,
     epoch: bigint,
+    merkleRoot: string,
     signature: string
   ): Promise<void> {
     try {
       const tx = await this._reputationClient(clientAddress)
         .connect(this._requireSigner())
-        .settleReputation(node, role, score, epoch, signature);
+        .postEpochRoot(epoch, merkleRoot, signature);
       await tx.wait();
     } catch (err) {
       handleContractError(err, this._interface);
     }
   }
 
-  public async settleReputationBatch(
+  public async claimReputation(
     clientAddress: string,
-    nodes: string[],
-    roles: string[],
-    scores: bigint[],
-    epoch: bigint[],
-    signatures: string[]
+    node: string,
+    role: string,
+    score: bigint,
+    epoch: bigint,
+    merkleProof: string[]
   ): Promise<void> {
     try {
       const tx = await this._reputationClient(clientAddress)
         .connect(this._requireSigner())
-        .settleReputationBatch(nodes, roles, scores, epoch, signatures);
+        .claimReputation(node, role, score, epoch, merkleProof);
       await tx.wait();
     } catch (err) {
       handleContractError(err, this._interface);
     }
-  }
-
-  public async fetchAndSettle(
-    clientAddress: string,
-    contextUID: string,
-    userAddress: string,
-    role: string,
-    endpointUrl: string
-  ): Promise<void> {
-    const response = await fetch(endpointUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contextUID, userAddress, role })
-    });
-
-    if (!response.ok) {
-      throw new Error(`DRIFT SDK: Settlement fetch failed with status ${response.status}`);
-    }
-
-    const { score, epoch, signature } = await response.json();
-
-    await this.settleReputation(clientAddress, userAddress, role, BigInt(score), BigInt(epoch), signature);
   }
 
   public async setTrustedSettler(clientAddress: string, newSettler: string): Promise<void> {
@@ -110,6 +86,47 @@ export class ReputationModule {
 
       const tokenId = keccak256(AbiCoder.defaultAbiCoder().encode(['bytes32', 'bytes32'], [contextUID, role]));
       return BigInt(await token.balanceOf(account, tokenId));
+    } catch (err) {
+      handleContractError(err, this._interface);
+    }
+  }
+
+
+  // Settlements & Configuration ===============================================
+
+  /** @deprecated */
+  public async settleReputation(
+    clientAddress: string,
+    node: string,
+    role: string,
+    score: bigint,
+    epoch: bigint,
+    signature: string
+  ): Promise<void> {
+    try {
+      const tx = await this._reputationClient(clientAddress)
+        .connect(this._requireSigner())
+        .settleReputation(node, role, score, epoch, signature);
+      await tx.wait();
+    } catch (err) {
+      handleContractError(err, this._interface);
+    }
+  }
+
+  /** @deprecated */
+  public async settleReputationBatch(
+    clientAddress: string,
+    nodes: string[],
+    roles: string[],
+    scores: bigint[],
+    epoch: bigint[],
+    signatures: string[]
+  ): Promise<void> {
+    try {
+      const tx = await this._reputationClient(clientAddress)
+        .connect(this._requireSigner())
+        .settleReputationBatch(nodes, roles, scores, epoch, signatures);
+      await tx.wait();
     } catch (err) {
       handleContractError(err, this._interface);
     }
