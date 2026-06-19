@@ -1,5 +1,6 @@
-import { Signer, Contract, Provider } from 'ethers';
+import { Signer, Contract, Provider, Interface } from 'ethers';
 import FactoryArtifact from '../../../contracts/out/DRIFTClientFactory.sol/DRIFTClientFactory.json';
+import CoreArtifact from '../../../contracts/out/IDRIFTCore.sol/IDRIFTCore.json';
 
 export class DriftFactory {
   private readonly contract: Contract;
@@ -19,18 +20,36 @@ export class DriftFactory {
     contextUID: string,
     implementation: string,
     initData: string,
-    salt: string
+    salt: string,
+    overrides: { nonce?: number } = {}
   ): Promise<string> {
-    const connectedContract = this.contract.connect(this._requireSigner()) as Contract;
+    const signer = this._requireSigner();
+    const provider = signer.provider;
+    if (!provider) throw new Error('DRIFT SDK: Signer is not connected to a provider.');
 
-    // 1. Simulate the transaction to capture the returned clone address
-    const cloneAddress = await connectedContract.deployClient.staticCall(contextUID, implementation, initData, salt);
+    const connectedContract = this.contract.connect(signer) as Contract;
 
-    // 2. Execute the actual deployment transaction
-    const tx = await connectedContract.deployClient(contextUID, implementation, initData, salt);
-    await tx.wait();
+    const tx = await connectedContract.deployClient(contextUID, implementation, initData, salt, overrides);
 
-    console.log(tx.receipt)
+    const receipt = await tx.wait();
+
+    const coreInterface = new Interface(CoreArtifact.abi);
+
+    const deployedEvent = receipt.logs
+      .map((log: any) => {
+        try {
+          return coreInterface.parseLog(log);
+        } catch {
+          return null;
+        }
+      })
+      .find((e: any) => e?.name === 'ClientUpdated');
+
+    if (!deployedEvent) throw new Error('DRIFT SDK: ClientUpdated event not found in receipt.');
+
+    const cloneAddress = deployedEvent.args[1];
+
+    console.log('Client deployed at:', cloneAddress);
 
     return cloneAddress;
   }
