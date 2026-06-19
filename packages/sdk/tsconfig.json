@@ -1,15 +1,17 @@
 {
   "compilerOptions": {
-    "lib": ["es2023"],
-    "module": "node16",
-    "target": "es2022",
+    "target": "ES2022",
+    "module": "ES2022",
+    "moduleResolution": "bundler",
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
     "strict": true,
-    "resolveJsonModule": true,
     "esModuleInterop": true,
-    "skipLibCheck": true,
-    "moduleResolution": "node16",
-    "outDir": "dist",
-    "declaration": true
+    "skipLibCheck": true
   },
-  "include": ["src/**/*", "test/**/*", "scripts/**/*"]
+  "include": ["src"],
+  "exclude": ["node_modules", "dist", "test"]
 }
