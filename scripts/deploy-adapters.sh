@@ -67,4 +67,4 @@ else
 fi
 
 mkdir -p ../deployments
-cp "deployments/$CHAIN_ID.json" "../deployments/$CHAIN_ID.json" 2>/dev/null || echo "No generic deployment JSON found to copy."
+cp "deployments/$CHAIN_ID.json" "../../deployments/$CHAIN_ID.json" 2>/dev/null || echo "No generic deployment JSON found to copy."
