@@ -31,7 +31,7 @@ contract DeployScript is Script {
         if (existingProxy == address(0)) {
             _bootstrap(admin);
         } else {
-            _upgrade(existingProxy, admin);
+            _upgrade(existingProxy);
         }
 
         vm.stopBroadcast();
@@ -73,7 +73,7 @@ contract DeployScript is Script {
 
     // Upgrade ===============================================================
 
-    function _upgrade(address proxyAddr, address admin) internal {
+    function _upgrade(address proxyAddr) internal {
         console2.log("Existing system proxy detected at:", proxyAddr);
         console2.log("Initializing UUPS implementation upgrade sequence...");
 
