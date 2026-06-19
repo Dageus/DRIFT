@@ -1,23 +1,43 @@
 {
-  "name": "sdk",
-  "version": "1.0.0",
-  "description": "The DRIFT SDK is a unified TypeScript library designed to orchestrate decentralized identity pipelines, modular trust metrics, and flexible governance models. It cleanly abstracts EIP-712 cryptographic assertions, dynamic EIP-1167 proxy client creation, and off-chain reputation network graphs.",
-  "main": "index.ts",
-  "directories": {
-    "test": "test"
-  },
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "keywords": [],
+  "name": "@drift-network/sdk",
+  "version": "0.1.0",
+  "description": "SDK for the DRIFT decentralized reputation protocol",
   "author": "Dageus",
   "license": "MIT",
-  "type": "commonjs",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./engines": {
+      "import": "./dist/engines/index.js",
+      "types": "./dist/engines/index.d.ts"
+    },
+    "./providers": {
+      "import": "./dist/providers/index.js",
+      "types": "./dist/providers/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc --project tsconfig.json",
+    "build:watch": "tsc --project tsconfig.json --watch",
+    "typecheck": "tsc --noEmit"
+  },
   "dependencies": {
+    "@openzeppelin/merkle-tree": "^1.0.8",
     "dotenv": "^17.4.2",
     "ethers": "^6.16.0"
   },
   "devDependencies": {
+    "@types/node": "^25.9.1",
+    "typescript": "^5.8.3",
     "vitest": "^4.1.8"
   }
 }
