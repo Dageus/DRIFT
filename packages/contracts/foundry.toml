@@ -12,6 +12,19 @@ fs_permissions = [
   { access = "read-write", path = "./deployments" }
 ]
 
+gas_reports = ["*"]
+gas_reports_ignore = []
+
+show_progress = true
+
+[profile.ci]
+fuzz = { runs = 5000 }
+verbosity = 3
+
+[profile.intense]
+fuzz = { runs = 10000 }
+optimizer_runs = 1000000
+
 [lint]
 exclude_lints = ["mixed-case-function", "asm-keccak256", "screaming-snake-case-immutable", "incorrect-shift", "mixed-case-variable"]
 ignore = ["./src/interfaces/**/*.sol"]
@@ -20,6 +33,20 @@ lint_on_build = false
 [fuzz]
 runs = 1000
 max_test_rejects = 50000
+seed = '0x1'
+
+[invariant]
+runs = 256
+depth = 15
+call_override = false
+
+[fmt]
+line_length = 100
+tab_width = 4
+bracket_spacing = true
+int_types = "long"       # uint256 not uint
+multiline_func_header = "params_first"
+sort_imports = true
 
 [rpc_endpoints]
 mainnet = "https://ethereum.reth.rs/rpc"
@@ -27,5 +54,4 @@ sepolia = "https://ethereum-sepolia-rpc.publicnode.com"
 arbitrum_sepolia = "https://arbitrum-sepolia-rpc.publicnode.com"
 arbitrum_one_sepolia = "https://sepolia-rollup.arbitrum.io/rpc/"
 optimism_sepolia = "https://sepolia.optimism.io/"
-
-# See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
+anvil = "http://127.0.0.1:8545"
