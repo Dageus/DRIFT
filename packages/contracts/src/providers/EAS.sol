@@ -4,13 +4,13 @@ pragma solidity 0.8.28;
 import { IAttestationProvider } from "./IAttestationProvider.sol";
 import { IEAS } from "../interfaces/IEAS.sol";
 
-/// @title  EASAttestationAdapter
+/// @title  EASAdapter
 /// @notice Implements IAttestationProvider by wrapping the EAS contract.
 ///         Translates EAS's native struct into DRIFT's AttestationData.
 /// @dev    Immutable — no upgradeability needed. If the EAS address changes,
 ///         deploy a new adapter and update the source's provider reference in
 ///         DriftCore. Scoring logic is unaffected.
-contract EASAttestationAdapter is IAttestationProvider {
+contract EASAdapter is IAttestationProvider {
     /// @notice Error thrown when the EAS address is zero.
     error ZeroEASAddress();
 
