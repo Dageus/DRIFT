@@ -90,45 +90,4 @@ export class ReputationModule {
       handleContractError(err, this._interface);
     }
   }
-
-
-  // Settlements & Configuration ===============================================
-
-  /** @deprecated */
-  public async settleReputation(
-    clientAddress: string,
-    node: string,
-    role: string,
-    score: bigint,
-    epoch: bigint,
-    signature: string
-  ): Promise<void> {
-    try {
-      const tx = await this._reputationClient(clientAddress)
-        .connect(this._requireSigner())
-        .settleReputation(node, role, score, epoch, signature);
-      await tx.wait();
-    } catch (err) {
-      handleContractError(err, this._interface);
-    }
-  }
-
-  /** @deprecated */
-  public async settleReputationBatch(
-    clientAddress: string,
-    nodes: string[],
-    roles: string[],
-    scores: bigint[],
-    epoch: bigint[],
-    signatures: string[]
-  ): Promise<void> {
-    try {
-      const tx = await this._reputationClient(clientAddress)
-        .connect(this._requireSigner())
-        .settleReputationBatch(nodes, roles, scores, epoch, signatures);
-      await tx.wait();
-    } catch (err) {
-      handleContractError(err, this._interface);
-    }
-  }
 }
