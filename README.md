@@ -74,9 +74,9 @@ Contract addresses are stored in `packages/contracts/deployments/{chainId}.json`
 
 ## Repository Navigation
 
-- [`/contracts`](./contracts/README.md) — Foundry project containing core protocol registries, soulbound token factories, context gatekeepers, and governance templates.
+- [`/contracts`](./packages/contracts/README.md) — Foundry project containing core protocol registries, soulbound token factories, context gatekeepers, and governance templates.
 
-- [`/sdk`](./sdk/README.md) — Node.js/TypeScript SDK with data providers, error decoders, off-chain computation engines (EigenTrust), and EIP-712 settlement oracles.
+- [`/sdk`](./packages/sdk/README.md) — Node.js/TypeScript SDK with data providers, error decoders, off-chain computation engines (EigenTrust), and EIP-712 settlement oracles.
 
 ## License
 
