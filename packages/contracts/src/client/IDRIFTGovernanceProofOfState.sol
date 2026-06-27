@@ -20,7 +20,9 @@ interface IDRIFTGovernanceProofOfState is IDRIFTGovernance {
     // EVENTS ==================================================================
 
     /// @notice Emitted when a proposal requiring state proofs is created
-    event ProposalCreated(uint256 indexed proposalId, string description, uint256 deadline, uint256 snapshotEpoch);
+    event ProposalCreated(
+        uint256 indexed proposalId, string description, uint256 deadline, uint256 snapshotEpoch
+    );
 
     // PROOF-OF-STATE LIFECYCLE ================================================
 

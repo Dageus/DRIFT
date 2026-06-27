@@ -13,11 +13,19 @@ interface IDRIFTToken is IERC1155 {
     /// @param to The address receiving the reputation.
     /// @param tokenId The hashed contextUID and role.
     /// @param amount The amount of reputation to mint.
-    function rewardReputation(address to, uint256 tokenId, uint256 amount) external;
+    function rewardReputation(
+        address to,
+        uint256 tokenId,
+        uint256 amount
+    ) external;
 
     /// @notice Burns soulbound reputation.
     /// @param from The address losing the reputation.
     /// @param tokenId The hashed contextUID and role.
     /// @param amount The amount to burn.
-    function slashReputation(address from, uint256 tokenId, uint256 amount) external;
+    function slashReputation(
+        address from,
+        uint256 tokenId,
+        uint256 amount
+    ) external;
 }

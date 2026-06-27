@@ -4,8 +4,8 @@ pragma solidity 0.8.28;
 import { ERC1155 } from "@openzeppelin/contracts/token/ERC1155/ERC1155.sol";
 import { IERC1155 } from "@openzeppelin/contracts/token/ERC1155/IERC1155.sol";
 
-import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { IDRIFTToken } from "./IDRIFTToken.sol";
+import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 
 /// @title  DRIFTToken
 /// @notice Non-transferable (Soulbound) ERC-1155 multi-token for reputation.
@@ -17,7 +17,7 @@ contract DRIFTToken is ERC1155, Ownable, IDRIFTToken {
     )
         ERC1155("") // URI is empty for MVP; rely on tokenNames mapping instead
         Ownable(coreRegistry)
-    {}
+    { }
 
     // Soulbound Enforcement ===================================================
 
@@ -44,12 +44,20 @@ contract DRIFTToken is ERC1155, Ownable, IDRIFTToken {
     // Reputation Management ===================================================
 
     /// @inheritdoc IDRIFTToken
-    function rewardReputation(address to, uint256 tokenId, uint256 amount) external onlyOwner {
+    function rewardReputation(
+        address to,
+        uint256 tokenId,
+        uint256 amount
+    ) external onlyOwner {
         _mint(to, tokenId, amount, "");
     }
 
     /// @inheritdoc IDRIFTToken
-    function slashReputation(address from, uint256 tokenId, uint256 amount) external onlyOwner {
+    function slashReputation(
+        address from,
+        uint256 tokenId,
+        uint256 amount
+    ) external onlyOwner {
         _burn(from, tokenId, amount);
     }
 }

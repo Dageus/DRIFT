@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
 import { IDRIFTCore } from "../core/IDRIFTCore.sol";
+import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
 
 contract DRIFTClientFactory {
     IDRIFTCore public immutable core;
@@ -14,7 +14,9 @@ contract DRIFTClientFactory {
     /// @notice Error thrown when an empty implementation is provided.
     error InvalidImplementation();
 
-    constructor(address _core) {
+    constructor(
+        address _core
+    ) {
         core = IDRIFTCore(_core);
     }
 
@@ -33,7 +35,9 @@ contract DRIFTClientFactory {
         if (!core.hasRole(adminRole, msg.sender)) revert NotContextAdmin(msg.sender);
         if (implementation == address(0)) revert InvalidImplementation();
 
-        clone = Clones.cloneDeterministic(implementation, keccak256(abi.encodePacked(contextUID, salt)));
+        clone = Clones.cloneDeterministic(
+            implementation, keccak256(abi.encodePacked(contextUID, salt))
+        );
 
         if (initData.length > 0) {
             (bool success, bytes memory returnData) = clone.call(initData);

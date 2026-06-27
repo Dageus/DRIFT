@@ -13,5 +13,9 @@ interface IPolicy {
     /// @param node The address of the user applying.
     /// @param contextUID The context they want to join.
     /// @param entryProof Arbitrary bytes (could be a signature, EAS UID, ZK proof).
-    function evaluate(address node, bytes32 contextUID, bytes calldata entryProof) external returns (NodeStatus);
+    function evaluate(
+        address node,
+        bytes32 contextUID,
+        bytes calldata entryProof
+    ) external returns (NodeStatus);
 }

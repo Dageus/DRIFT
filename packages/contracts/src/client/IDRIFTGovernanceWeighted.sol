@@ -13,7 +13,9 @@ interface IDRIFTGovernanceTokenWeighted is IDRIFTGovernance {
     /// @notice Returns the current live voting power of an address
     /// @param account The address to query
     /// @return The calculated voting power based on live balances
-    function getVotingPower(address account) external view returns (uint256);
+    function getVotingPower(
+        address account
+    ) external view returns (uint256);
 
     /// @notice Returns the active roles recognized in this context
     /// @return Array of active role identifiers

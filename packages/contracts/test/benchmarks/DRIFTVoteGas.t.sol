@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
+import { DRIFTClientFactory } from "../../src/client/DRIFTClientFactory.sol";
+import { DRIFTCore } from "../../src/core/DRIFTCore.sol";
+import { WeightedGovernanceClient } from "../../src/templates/WeightedGovernance.sol";
+import { DRIFTToken } from "../../src/token/DRIFTToken.sol";
+import { ERC1967Proxy } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import { MessageHashUtils } from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import "forge-std/Test.sol";
-import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
-import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
-import {DRIFTCore} from "../../src/core/DRIFTCore.sol";
-import {DRIFTToken} from "../../src/token/DRIFTToken.sol";
-import {DRIFTClientFactory} from "../../src/client/DRIFTClientFactory.sol";
-import {WeightedGovernanceClient} from "../../src/templates/WeightedGovernance.sol";
 
 contract DRIFTVoteGasTest is Test {
     DRIFTCore public core;
@@ -30,8 +30,7 @@ contract DRIFTVoteGasTest is Test {
         core = DRIFTCore(
             address(
                 new ERC1967Proxy(
-                    address(coreImpl),
-                    abi.encodeWithSelector(DRIFTCore.initialize.selector, admin)
+                    address(coreImpl), abi.encodeWithSelector(DRIFTCore.initialize.selector, admin)
                 )
             )
         );
@@ -64,12 +63,8 @@ contract DRIFTVoteGasTest is Test {
             weights
         );
 
-        address cloneAddr = factory.deployClient(
-            contextUID,
-            address(template),
-            initData,
-            bytes32("salt")
-        );
+        address cloneAddr =
+            factory.deployClient(contextUID, address(template), initData, bytes32("salt"));
         client = WeightedGovernanceClient(cloneAddr);
         core.grantRole(core.contextAdminRole(contextUID), address(client));
         vm.stopPrank();
@@ -110,25 +105,17 @@ contract DRIFTVoteGasTest is Test {
 
         {
             bytes32 currentHash = keccak256(
-                bytes.concat(
-                    keccak256(abi.encode(contextUID, node, ROLE, score, epoch))
-                )
+                bytes.concat(keccak256(abi.encode(contextUID, node, ROLE, score, epoch)))
             );
             for (uint256 i = 0; i < depth; i++) {
-                bytes32 sibling = keccak256(
-                    abi.encode("dummy_sibling", epoch, i)
-                );
+                bytes32 sibling = keccak256(abi.encode("dummy_sibling", epoch, i));
                 proof[i] = sibling;
 
                 // OpenZeppelin sorts pairs before hashing
                 if (currentHash < sibling) {
-                    currentHash = keccak256(
-                        abi.encodePacked(currentHash, sibling)
-                    );
+                    currentHash = keccak256(abi.encodePacked(currentHash, sibling));
                 } else {
-                    currentHash = keccak256(
-                        abi.encodePacked(sibling, currentHash)
-                    );
+                    currentHash = keccak256(abi.encodePacked(sibling, currentHash));
                 }
             }
             calculatedRoot = currentHash;
@@ -147,37 +134,18 @@ contract DRIFTVoteGasTest is Test {
                 )
             );
             bytes32 structHash = keccak256(
-                abi.encode(
-                    client.SETTLE_ROOT_TYPEHASH(),
-                    contextUID,
-                    epoch,
-                    calculatedRoot
-                )
+                abi.encode(client.SETTLE_ROOT_TYPEHASH(), contextUID, epoch, calculatedRoot)
             );
-            bytes32 digest = MessageHashUtils.toTypedDataHash(
-                domainSeparator,
-                structHash
-            );
+            bytes32 digest = MessageHashUtils.toTypedDataHash(domainSeparator, structHash);
 
             (uint8 v, bytes32 r, bytes32 s) = vm.sign(settlerPk, digest);
-            client.postEpochRoot(
-                epoch,
-                calculatedRoot,
-                "",
-                abi.encodePacked(r, s, v)
-            );
+            client.postEpochRoot(epoch, calculatedRoot, "", abi.encodePacked(r, s, v));
         }
 
         // Create Proposal
         vm.prank(admin);
         uint256 pId = client.createProposalWithProofs(
-            "Test",
-            address(0),
-            "",
-            3,
-            new bytes32[](0),
-            new uint256[](0),
-            new bytes32[][](0)
+            "Test", address(0), "", 3, new bytes32[](0), new uint256[](0), new bytes32[][](0)
         );
 
         // Format Calldata Arrays

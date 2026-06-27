@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import "forge-std/Test.sol";
 import { MessageHashUtils } from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
+import "forge-std/Test.sol";
 
 /// @title DRIFTTestHelper
 /// @notice Centralized cryptographic and utility functions for the DRIFT test suite
@@ -15,11 +15,14 @@ abstract contract DRIFTTestHelper is Test {
         bytes32 root,
         address verifyingContract
     ) internal view returns (bytes memory) {
-        bytes32 settleRootTypehash = keccak256("SettleRoot(bytes32 contextUID,uint256 epoch,bytes32 merkleRoot)");
+        bytes32 settleRootTypehash =
+            keccak256("SettleRoot(bytes32 contextUID,uint256 epoch,bytes32 merkleRoot)");
 
         bytes32 domainSeparator = keccak256(
             abi.encode(
-                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+                keccak256(
+                    "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
+                ),
                 keccak256(bytes("DRIFT_WeightedGovernance")),
                 keccak256(bytes("1")),
                 block.chainid,
@@ -35,7 +38,10 @@ abstract contract DRIFTTestHelper is Test {
     }
 
     /// @notice Safely pairs and hashes two Merkle leaves per OpenZeppelin specifications
-    function _hashPair(bytes32 a, bytes32 b) internal pure returns (bytes32) {
+    function _hashPair(
+        bytes32 a,
+        bytes32 b
+    ) internal pure returns (bytes32) {
         return a < b ? keccak256(abi.encodePacked(a, b)) : keccak256(abi.encodePacked(b, a));
     }
 }

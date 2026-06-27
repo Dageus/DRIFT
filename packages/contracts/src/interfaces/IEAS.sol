@@ -16,5 +16,7 @@ interface IEAS {
         bytes data;
     }
 
-    function getAttestation(bytes32 uid) external view returns (Attestation memory);
+    function getAttestation(
+        bytes32 uid
+    ) external view returns (Attestation memory);
 }

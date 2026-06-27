@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import "forge-std/Test.sol";
-import { ERC1967Proxy } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
-import { IAccessControl } from "@openzeppelin/contracts/access/IAccessControl.sol";
-import { MessageHashUtils } from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
+import { DRIFTClientFactory } from "../../src/client/DRIFTClientFactory.sol";
 import { DRIFTCore } from "../../src/core/DRIFTCore.sol";
 import { IDRIFTCore } from "../../src/core/IDRIFTCore.sol";
+import { NodeStatus } from "../../src/policies/IPolicy.sol";
+import { WeightedGovernanceClient } from "../../src/templates/WeightedGovernance.sol";
 import { DRIFTToken } from "../../src/token/DRIFTToken.sol";
 import { IDRIFTToken } from "../../src/token/IDRIFTToken.sol";
-import { DRIFTClientFactory } from "../../src/client/DRIFTClientFactory.sol";
-import { WeightedGovernanceClient } from "../../src/templates/WeightedGovernance.sol";
-import { NodeStatus } from "../../src/policies/IPolicy.sol";
+import { IAccessControl } from "@openzeppelin/contracts/access/IAccessControl.sol";
+import { ERC1967Proxy } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import { MessageHashUtils } from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
+import "forge-std/Test.sol";
 
 contract DRIFTSecurityTest is Test {
     DRIFTCore public core;
@@ -33,7 +33,11 @@ contract DRIFTSecurityTest is Test {
     function setUp() public {
         DRIFTCore coreImpl = new DRIFTCore();
         core = DRIFTCore(
-            address(new ERC1967Proxy(address(coreImpl), abi.encodeWithSelector(DRIFTCore.initialize.selector, admin)))
+            address(
+                new ERC1967Proxy(
+                    address(coreImpl), abi.encodeWithSelector(DRIFTCore.initialize.selector, admin)
+                )
+            )
         );
 
         driftToken = new DRIFTToken(address(core));
@@ -65,7 +69,8 @@ contract DRIFTSecurityTest is Test {
             weights
         );
 
-        address cloneAddr = factory.deployClient(contextUID, address(template), initData, bytes32("salt"));
+        address cloneAddr =
+            factory.deployClient(contextUID, address(template), initData, bytes32("salt"));
         client = WeightedGovernanceClient(cloneAddr);
         core.grantRole(core.contextAdminRole(contextUID), address(client));
         vm.stopPrank();
@@ -112,7 +117,9 @@ contract DRIFTSecurityTest is Test {
 
         vm.prank(node);
         vm.expectRevert(
-            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, node, factoryRole)
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector, node, factoryRole
+            )
         );
         core.setContextClient(contextUID, address(this));
     }

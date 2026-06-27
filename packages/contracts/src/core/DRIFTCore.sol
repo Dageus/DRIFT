@@ -1,21 +1,31 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import { AccessControlUpgradeable } from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
-import { UUPSUpgradeable } from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import {
+    AccessControlUpgradeable
+} from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {
+    UUPSUpgradeable
+} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
-import { IDRIFTCore } from "./IDRIFTCore.sol";
-import { IAttestationProvider } from "../providers/IAttestationProvider.sol";
-import { DRIFTCoreStorage } from "./DRIFTCoreStorage.sol";
 import { DRIFTTypes } from "../Common.sol";
-import { IDRIFTToken } from "../token/IDRIFTToken.sol";
 import { IPolicy, NodeStatus } from "../policies/IPolicy.sol";
+import { IAttestationProvider } from "../providers/IAttestationProvider.sol";
+import { IDRIFTToken } from "../token/IDRIFTToken.sol";
+import { DRIFTCoreStorage } from "./DRIFTCoreStorage.sol";
+import { IDRIFTCore } from "./IDRIFTCore.sol";
 
 /// @title  DRIFTCore
 /// @notice Central DRIFT registry.
 /// @dev    UUPS upgradeable. All storage declared in DRIFTCoreStorage.
-contract DRIFTCore is Initializable, DRIFTCoreStorage, AccessControlUpgradeable, UUPSUpgradeable, IDRIFTCore {
+contract DRIFTCore is
+    Initializable,
+    DRIFTCoreStorage,
+    AccessControlUpgradeable,
+    UUPSUpgradeable,
+    IDRIFTCore
+{
     // Token Management ========================================================
 
     address public constant BURN_ADDRESS = 0x000000000000000000000000000000000000dEaD;
@@ -30,7 +40,9 @@ contract DRIFTCore is Initializable, DRIFTCoreStorage, AccessControlUpgradeable,
 
     /// @notice Initializer — replaces constructor for upgradeable contracts.
     /// @param  admin  Receives DEFAULT_ADMIN_ROLE. Can upgrade and grant roles.
-    function initialize(address admin) external initializer {
+    function initialize(
+        address admin
+    ) external initializer {
         __AccessControl_init();
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
     }
@@ -38,7 +50,9 @@ contract DRIFTCore is Initializable, DRIFTCoreStorage, AccessControlUpgradeable,
     // DRIFT Token =============================================================
 
     /// @notice Links the ERC-1155 token to the core registry.
-    function setDriftToken(address _tokenAddress) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function setDriftToken(
+        address _tokenAddress
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (address(driftToken) != address(0)) revert TokenAlreadySet();
 
         driftToken = IDRIFTToken(_tokenAddress);
@@ -47,7 +61,9 @@ contract DRIFTCore is Initializable, DRIFTCoreStorage, AccessControlUpgradeable,
     // Context management ======================================================
 
     /// @inheritdoc IDRIFTCore
-    function registerContext(string calldata name) external returns (bytes32 uid) {
+    function registerContext(
+        string calldata name
+    ) external returns (bytes32 uid) {
         if (bytes(name).length == 0) {
             revert EmptyContextName();
         }
@@ -58,7 +74,8 @@ contract DRIFTCore is Initializable, DRIFTCoreStorage, AccessControlUpgradeable,
             revert ContextTaken(uid);
         }
 
-        _contexts[uid] = DRIFTTypes.Context({ uid: uid, name: name, owner: msg.sender, active: true });
+        _contexts[uid] =
+            DRIFTTypes.Context({ uid: uid, name: name, owner: msg.sender, active: true });
 
         _grantRole(contextAdminRole(uid), msg.sender);
 
@@ -66,20 +83,27 @@ contract DRIFTCore is Initializable, DRIFTCoreStorage, AccessControlUpgradeable,
     }
 
     /// @inheritdoc IDRIFTCore
-    function deactivateContext(bytes32 contextUID) external onlyContextAdmin(contextUID) {
+    function deactivateContext(
+        bytes32 contextUID
+    ) external onlyContextAdmin(contextUID) {
         _contexts[contextUID].active = false;
         emit ContextDeactivated(contextUID);
     }
 
     /// @inheritdoc IDRIFTCore
-    function contextAdminRole(bytes32 contextUID) public pure returns (bytes32) {
+    function contextAdminRole(
+        bytes32 contextUID
+    ) public pure returns (bytes32) {
         return keccak256(abi.encodePacked("CONTEXT_ADMIN", contextUID));
     }
 
     // Policy management =======================================================
 
     /// @inheritdoc IDRIFTCore
-    function setContextPolicy(bytes32 contextUID, address policyContract) external onlyContextAdmin(contextUID) {
+    function setContextPolicy(
+        bytes32 contextUID,
+        address policyContract
+    ) external onlyContextAdmin(contextUID) {
         _contextPolicies[contextUID] = policyContract;
 
         emit PolicyUpdated(contextUID, policyContract);
@@ -89,7 +113,10 @@ contract DRIFTCore is Initializable, DRIFTCoreStorage, AccessControlUpgradeable,
 
     /// @inheritdoc IDRIFTCore
     // WARNING: shouldn't the factory be the only one allowed to do this?
-    function setContextClient(bytes32 contextUID, address clientContract) external onlyRole(FACTORY_ROLE) {
+    function setContextClient(
+        bytes32 contextUID,
+        address clientContract
+    ) external onlyRole(FACTORY_ROLE) {
         _contextClients[contextUID] = clientContract;
 
         emit ClientUpdated(contextUID, clientContract);
@@ -98,7 +125,11 @@ contract DRIFTCore is Initializable, DRIFTCoreStorage, AccessControlUpgradeable,
     // Schema management =======================================================
 
     /// @inheritdoc IDRIFTCore
-    function addSchema(bytes32 contextUID, bytes32 schemaUID, address adapter) external onlyContextAdmin(contextUID) {
+    function addSchema(
+        bytes32 contextUID,
+        bytes32 schemaUID,
+        address adapter
+    ) external onlyContextAdmin(contextUID) {
         if (adapter == address(0)) {
             revert InvalidAdapterAddress(contextUID);
         }
@@ -113,7 +144,10 @@ contract DRIFTCore is Initializable, DRIFTCoreStorage, AccessControlUpgradeable,
     }
 
     /// @inheritdoc IDRIFTCore
-    function removeSchema(bytes32 contextUID, bytes32 schemaUID) external onlyContextAdmin(contextUID) {
+    function removeSchema(
+        bytes32 contextUID,
+        bytes32 schemaUID
+    ) external onlyContextAdmin(contextUID) {
         if (!_acceptedSchemas[contextUID][schemaUID]) {
             revert SchemaNotFound(contextUID, schemaUID);
         }
@@ -127,7 +161,10 @@ contract DRIFTCore is Initializable, DRIFTCoreStorage, AccessControlUpgradeable,
     // Node management =========================================================
 
     /// @inheritdoc IDRIFTCore
-    function registerNode(bytes32 contextUID, bytes calldata entryProof) external {
+    function registerNode(
+        bytes32 contextUID,
+        bytes calldata entryProof
+    ) external {
         if (!_contexts[contextUID].active) {
             revert ContextNotActive(contextUID);
         }
@@ -152,11 +189,15 @@ contract DRIFTCore is Initializable, DRIFTCoreStorage, AccessControlUpgradeable,
     }
 
     /// @inheritdoc IDRIFTCore
-    function deregisterNode(bytes32 contextUID) external {
+    function deregisterNode(
+        bytes32 contextUID
+    ) external {
         if (nodeStatus[contextUID][msg.sender] == NodeStatus.NONE) {
             revert NodeNotRegistered(contextUID, msg.sender);
         }
-        if (nodeStatus[contextUID][msg.sender] == NodeStatus.BANNED) revert BannedNodeCannotDeregister();
+        if (nodeStatus[contextUID][msg.sender] == NodeStatus.BANNED) {
+            revert BannedNodeCannotDeregister();
+        }
 
         delete nodeStatus[contextUID][msg.sender];
 
@@ -231,7 +272,9 @@ contract DRIFTCore is Initializable, DRIFTCoreStorage, AccessControlUpgradeable,
         uint256 reputationAmount
     ) external onlyContextClient(contextUID) {
         NodeStatus status = nodeStatus[contextUID][node];
-        if (status == NodeStatus.NONE || status == NodeStatus.BANNED) revert NodeNotRegistered(contextUID, node);
+        if (status == NodeStatus.NONE || status == NodeStatus.BANNED) {
+            revert NodeNotRegistered(contextUID, node);
+        }
 
         // Cast Context UID to Token ID
         uint256 tokenId = uint256(keccak256(abi.encode(contextUID, role)));
@@ -245,7 +288,9 @@ contract DRIFTCore is Initializable, DRIFTCoreStorage, AccessControlUpgradeable,
     // Views ===================================================================
 
     /// @inheritdoc IDRIFTCore
-    function getContext(bytes32 uid) external view returns (DRIFTTypes.Context memory) {
+    function getContext(
+        bytes32 uid
+    ) external view returns (DRIFTTypes.Context memory) {
         if (!_contextExists(uid)) {
             revert ContextNotFound(uid);
         }
@@ -253,29 +298,41 @@ contract DRIFTCore is Initializable, DRIFTCoreStorage, AccessControlUpgradeable,
     }
 
     /// @inheritdoc IDRIFTCore
-    function getAdapter(bytes32 contextUID, bytes32 schemaUID) external view returns (address) {
+    function getAdapter(
+        bytes32 contextUID,
+        bytes32 schemaUID
+    ) external view returns (address) {
         return _schemaAdapters[contextUID][schemaUID];
     }
 
     /// @inheritdoc IDRIFTCore
-    function getContextClient(bytes32 contextUID) external view returns (address) {
+    function getContextClient(
+        bytes32 contextUID
+    ) external view returns (address) {
         return _contextClients[contextUID];
     }
 
     /// @inheritdoc IDRIFTCore
-    function isRegistered(bytes32 contextUID, address node) external view returns (bool) {
+    function isRegistered(
+        bytes32 contextUID,
+        address node
+    ) external view returns (bool) {
         NodeStatus status = nodeStatus[contextUID][node];
         return (status != NodeStatus.NONE && status != NodeStatus.BANNED);
     }
 
     /// @inheritdoc IDRIFTCore
-    function contextExists(bytes32 uid) external view returns (bool) {
+    function contextExists(
+        bytes32 uid
+    ) external view returns (bool) {
         return _contextExists(uid);
     }
 
     // Modifiers ===============================================================
 
-    modifier onlyContextAdmin(bytes32 contextUID) {
+    modifier onlyContextAdmin(
+        bytes32 contextUID
+    ) {
         if (!_contextExists(contextUID)) {
             revert ContextNotFound(contextUID);
         }
@@ -283,7 +340,9 @@ contract DRIFTCore is Initializable, DRIFTCoreStorage, AccessControlUpgradeable,
         _;
     }
 
-    modifier onlyContextClient(bytes32 contextUID) {
+    modifier onlyContextClient(
+        bytes32 contextUID
+    ) {
         if (msg.sender != _contextClients[contextUID]) {
             revert UnauthorizedCaller(msg.sender);
         }
@@ -292,11 +351,15 @@ contract DRIFTCore is Initializable, DRIFTCoreStorage, AccessControlUpgradeable,
 
     // Helpers =================================================================
 
-    function _contextExists(bytes32 contextUID) internal view returns (bool) {
+    function _contextExists(
+        bytes32 contextUID
+    ) internal view returns (bool) {
         return _contexts[contextUID].uid == contextUID;
     }
 
     // UUPS ====================================================================
 
-    function _authorizeUpgrade(address) internal override onlyRole(DEFAULT_ADMIN_ROLE) {}
+    function _authorizeUpgrade(
+        address
+    ) internal override onlyRole(DEFAULT_ADMIN_ROLE) { }
 }

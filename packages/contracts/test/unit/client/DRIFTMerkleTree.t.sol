@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import "forge-std/Test.sol";
 import { MerkleProof } from "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
+import "forge-std/Test.sol";
 
 contract DRIFTMerkleTreeTest is Test {
     // Hardcoded constants for deterministic cross-language hashing

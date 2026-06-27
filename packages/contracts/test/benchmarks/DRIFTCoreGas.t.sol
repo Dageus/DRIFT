@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import "forge-std/Test.sol";
+import { DRIFTClientFactory } from "../../src/client/DRIFTClientFactory.sol";
+import { DRIFTCore } from "../../src/core/DRIFTCore.sol";
+import { WeightedGovernanceClient } from "../../src/templates/WeightedGovernance.sol";
+import { DRIFTToken } from "../../src/token/DRIFTToken.sol";
+import { MockAdapter } from "../mocks/MockAdapter.sol";
 import { ERC1967Proxy } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import { MessageHashUtils } from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
-import { DRIFTCore } from "../../src/core/DRIFTCore.sol";
-import { DRIFTToken } from "../../src/token/DRIFTToken.sol";
-import { DRIFTClientFactory } from "../../src/client/DRIFTClientFactory.sol";
-import { WeightedGovernanceClient } from "../../src/templates/WeightedGovernance.sol";
-import { MockAdapter } from "../mocks/MockAdapter.sol";
+import "forge-std/Test.sol";
 
 contract DRIFTCoreGasBenchmarkTest is Test {
     DRIFTCore public core;
@@ -26,7 +26,11 @@ contract DRIFTCoreGasBenchmarkTest is Test {
     function setUp() public {
         DRIFTCore coreImpl = new DRIFTCore();
         core = DRIFTCore(
-            address(new ERC1967Proxy(address(coreImpl), abi.encodeWithSelector(DRIFTCore.initialize.selector, admin)))
+            address(
+                new ERC1967Proxy(
+                    address(coreImpl), abi.encodeWithSelector(DRIFTCore.initialize.selector, admin)
+                )
+            )
         );
 
         driftToken = new DRIFTToken(address(core));

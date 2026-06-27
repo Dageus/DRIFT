@@ -23,5 +23,9 @@ interface IAttestationProvider {
     /// @param  schemaUID Expected schema UID.
     /// @param  subject   Expected recipient/subject address.
     /// @return           True if all conditions are met.
-    function isValid(bytes32 uid, bytes32 schemaUID, address subject) external view returns (bool);
+    function isValid(
+        bytes32 uid,
+        bytes32 schemaUID,
+        address subject
+    ) external view returns (bool);
 }

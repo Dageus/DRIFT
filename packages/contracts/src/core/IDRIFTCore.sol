@@ -18,7 +18,9 @@ interface IDRIFTCore is IAccessControl {
     event ContextDeactivated(bytes32 indexed uid);
 
     /// @notice Emitted when a schema is added to a context.
-    event SchemaAdded(bytes32 indexed contextUID, bytes32 indexed schemaUID, address indexed adapter);
+    event SchemaAdded(
+        bytes32 indexed contextUID, bytes32 indexed schemaUID, address indexed adapter
+    );
 
     /// @notice Emitted when a schema is removed from a context.
     event SchemaRemoved(bytes32 indexed contextUID, bytes32 indexed schemaUID);
@@ -84,23 +86,35 @@ interface IDRIFTCore is IAccessControl {
     /// @notice Register a new reputation context.
     /// @param  name          Human-readable name, unique per owner.
     /// @return uid           The context's unique identifier.
-    function registerContext(string calldata name) external returns (bytes32 uid);
+    function registerContext(
+        string calldata name
+    ) external returns (bytes32 uid);
 
     /// @notice Deactivate a context. Existing node stakes are preserved.
-    function deactivateContext(bytes32 contextUID) external;
+    function deactivateContext(
+        bytes32 contextUID
+    ) external;
 
     /// @notice Return a unique Admin role for the given contextUID
-    function contextAdminRole(bytes32 contextUID) external pure returns (bytes32);
+    function contextAdminRole(
+        bytes32 contextUID
+    ) external pure returns (bytes32);
 
     // Policy management =======================================================
 
     /// @notice updates a context's policy, emitting an event.
-    function setContextPolicy(bytes32 contextUID, address policyContract) external;
+    function setContextPolicy(
+        bytes32 contextUID,
+        address policyContract
+    ) external;
 
     // Client management =======================================================
 
     /// @notice updates a context's policy, emitting an event.
-    function setContextClient(bytes32 contextUID, address clientContract) external;
+    function setContextClient(
+        bytes32 contextUID,
+        address clientContract
+    ) external;
 
     // Schema management =======================================================
 
@@ -108,12 +122,19 @@ interface IDRIFTCore is IAccessControl {
     /// @param  contextUID  The context to configure.
     /// @param  schemaUID   Schema UID as registered in the attestation provider.
     /// @param  adapter     IAttestationProvider that can verify this schema.
-    function addSchema(bytes32 contextUID, bytes32 schemaUID, address adapter) external;
+    function addSchema(
+        bytes32 contextUID,
+        bytes32 schemaUID,
+        address adapter
+    ) external;
 
     /// @notice Remove a schema from a context.
     ///         Existing attestations are unaffected — only future
     ///         verifications will reject this schema.
-    function removeSchema(bytes32 contextUID, bytes32 schemaUID) external;
+    function removeSchema(
+        bytes32 contextUID,
+        bytes32 schemaUID
+    ) external;
 
     // Node registration =======================================================
 
@@ -124,12 +145,17 @@ interface IDRIFTCore is IAccessControl {
     ///         Emits NodeRegistered.
     /// @param  contextUID  The context to join.
     /// @param  entryProof  Proof of node's entry
-    function registerNode(bytes32 contextUID, bytes calldata entryProof) external;
+    function registerNode(
+        bytes32 contextUID,
+        bytes calldata entryProof
+    ) external;
 
     /// @notice Deregister from a context.
     ///         Node's past attestations remain in EAS but will be
     ///         ignored by the off-chain indexer going forward.
-    function deregisterNode(bytes32 contextUID) external;
+    function deregisterNode(
+        bytes32 contextUID
+    ) external;
 
     // Trust verification ======================================================
 
@@ -152,26 +178,48 @@ interface IDRIFTCore is IAccessControl {
 
     /// @notice Slashes a registered node's stake.
     ///         Only callable by the context administrator.
-    function slash(bytes32 contextUID, bytes32 role, address node, uint256 penaltyAmount) external;
+    function slash(
+        bytes32 contextUID,
+        bytes32 role,
+        address node,
+        uint256 penaltyAmount
+    ) external;
 
     /// @notice Rewards a node (placeholder for MVP).
     ///         Only callable by the context administrator.
-    function reward(bytes32 contextUID, bytes32 role, address node, uint256 reputationAmount) external;
+    function reward(
+        bytes32 contextUID,
+        bytes32 role,
+        address node,
+        uint256 reputationAmount
+    ) external;
 
     // Views ===================================================================
 
     /// @notice Returns the full context record.
-    function getContext(bytes32 uid) external view returns (DRIFTTypes.Context memory);
+    function getContext(
+        bytes32 uid
+    ) external view returns (DRIFTTypes.Context memory);
 
     /// @notice Returns the adapter for the given schema.
-    function getAdapter(bytes32 contextUID, bytes32 schemaUID) external view returns (address);
+    function getAdapter(
+        bytes32 contextUID,
+        bytes32 schemaUID
+    ) external view returns (address);
 
     /// @notice Returns the client address for the given context.
-    function getContextClient(bytes32 contextUID) external view returns (address);
+    function getContextClient(
+        bytes32 contextUID
+    ) external view returns (address);
 
     /// @notice Returns true if a node is registered in a context.
-    function isRegistered(bytes32 contextUID, address node) external view returns (bool);
+    function isRegistered(
+        bytes32 contextUID,
+        address node
+    ) external view returns (bool);
 
     /// @notice Returns true if a context exists and is active.
-    function contextExists(bytes32 uid) external view returns (bool);
+    function contextExists(
+        bytes32 uid
+    ) external view returns (bool);
 }

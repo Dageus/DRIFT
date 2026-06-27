@@ -1,18 +1,20 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
-import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
-import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
-import {MerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
+import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {
+    EIP712Upgradeable
+} from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
+import { ECDSA } from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import { MerkleProof } from "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
+import { MessageHashUtils } from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 
-import {IDRIFTCore} from "../core/IDRIFTCore.sol";
-import {IDRIFTToken} from "../token/IDRIFTToken.sol";
-import {IDRIFTSettler} from "../client/IDRIFTSettler.sol";
-import {IDRIFTClientMetadata} from "../client/IDRIFTClientMetadata.sol";
-import {IDRIFTGovernanceProofOfState} from "../client/IDRIFTGovernanceProofOfState.sol";
-import {DRIFTTypes} from "../Common.sol";
+import { DRIFTTypes } from "../Common.sol";
+import { IDRIFTClientMetadata } from "../client/IDRIFTClientMetadata.sol";
+import { IDRIFTGovernanceProofOfState } from "../client/IDRIFTGovernanceProofOfState.sol";
+import { IDRIFTSettler } from "../client/IDRIFTSettler.sol";
+import { IDRIFTCore } from "../core/IDRIFTCore.sol";
+import { IDRIFTToken } from "../token/IDRIFTToken.sol";
 
 /// @title Weighted Governance Client
 /// @notice Implements proof-of-state governance using configurable role-based weights.
@@ -43,10 +45,9 @@ contract WeightedGovernanceClient is
     address public trustedSettler;
     uint256 public currentEpoch;
 
-    bytes32 public constant SETTLE_ROOT_TYPEHASH =
-        keccak256(
-            "SettleRoot(bytes32 contextUID,uint256 epoch,bytes32 merkleRoot,string treeURI)"
-        );
+    bytes32 public constant SETTLE_ROOT_TYPEHASH = keccak256(
+        "SettleRoot(bytes32 contextUID,uint256 epoch,bytes32 merkleRoot,string treeURI)"
+    );
 
     // Mappings
     mapping(uint256 => bytes32) public epochRoots;
@@ -134,10 +135,13 @@ contract WeightedGovernanceClient is
     /// @notice Updates the voting weight associated with a specific role
     /// @param role The identifier of the role
     /// @param weight The new weight to apply
-    function setRoleWeight(bytes32 role, uint256 weight) external {
+    function setRoleWeight(
+        bytes32 role,
+        uint256 weight
+    ) external {
         if (
-            msg.sender != address(this) &&
-            !core.hasRole(core.contextAdminRole(contextUID), msg.sender)
+            msg.sender != address(this)
+                && !core.hasRole(core.contextAdminRole(contextUID), msg.sender)
         ) {
             revert UnauthorizedSender(msg.sender);
         }
@@ -147,7 +151,9 @@ contract WeightedGovernanceClient is
 
     /// @notice Updates the trusted settler address
     /// @param newSettler The new address authorized to sign epoch roots
-    function setTrustedSettler(address newSettler) external onlyContextAdmin {
+    function setTrustedSettler(
+        address newSettler
+    ) external onlyContextAdmin {
         if (newSettler == address(0)) revert ZeroAddressSettler();
         address oldSettler = trustedSettler;
         trustedSettler = newSettler;
@@ -174,23 +180,19 @@ contract WeightedGovernanceClient is
         string calldata treeURI,
         bytes calldata sig
     ) external {
-        if (epoch != currentEpoch + 1)
+        if (epoch != currentEpoch + 1) {
             revert InvalidEpoch(epoch, currentEpoch + 1);
-        if (epochRoots[epoch] != bytes32(0))
+        }
+        if (epochRoots[epoch] != bytes32(0)) {
             revert EpochAlreadyPosted(epoch);
+        }
 
-        bytes32 structHash = keccak256(
-            abi.encode(
-                SETTLE_ROOT_TYPEHASH,
-                contextUID,
-                epoch,
-                merkleRoot,
-                treeURI
-            )
-        );
+        bytes32 structHash =
+            keccak256(abi.encode(SETTLE_ROOT_TYPEHASH, contextUID, epoch, merkleRoot, treeURI));
         bytes32 digest = _hashTypedDataV4(structHash);
-        if (ECDSA.recover(digest, sig) != trustedSettler)
+        if (ECDSA.recover(digest, sig) != trustedSettler) {
             revert InvalidSettlerSignature();
+        }
 
         currentEpoch = epoch;
         epochRoots[epoch] = merkleRoot;
@@ -211,15 +213,18 @@ contract WeightedGovernanceClient is
         uint256 epoch,
         bytes32[] calldata merkleProof
     ) external {
-        if (!core.isRegistered(contextUID, node))
+        if (!core.isRegistered(contextUID, node)) {
             revert NodeNotRegistered(contextUID, node);
+        }
         if (epochRoots[epoch] == bytes32(0)) revert EpochNotFound(epoch);
-        if (epoch <= lastClaimedEpoch[node][role])
+        if (epoch <= lastClaimedEpoch[node][role]) {
             revert AlreadyClaimed(node, role, epoch);
+        }
 
         bytes32 leaf = _canonicalLeaf(node, role, score, epoch);
-        if (!MerkleProof.verify(merkleProof, epochRoots[epoch], leaf))
+        if (!MerkleProof.verify(merkleProof, epochRoots[epoch], leaf)) {
             revert InvalidMerkleProof();
+        }
 
         lastClaimedEpoch[node][role] = epoch;
 
@@ -282,8 +287,9 @@ contract WeightedGovernanceClient is
         bytes32[][] calldata proofs
     ) external returns (uint256) {
         if (currentEpoch == 0) revert NoSettledEpochs();
-        if (roles.length != scores.length || roles.length != proofs.length)
+        if (roles.length != scores.length || roles.length != proofs.length) {
             revert ArrayLengthMismatch();
+        }
 
         uint256 proposerPower = 0;
         bytes32 root = epochRoots[currentEpoch];
@@ -292,14 +298,10 @@ contract WeightedGovernanceClient is
             bytes32 role = roles[i];
             uint256 score = scores[i];
 
-            bytes32 leaf = _canonicalLeaf(
-                msg.sender,
-                role,
-                score,
-                currentEpoch
-            );
-            if (!MerkleProof.verify(proofs[i], root, leaf))
+            bytes32 leaf = _canonicalLeaf(msg.sender, role, score, currentEpoch);
+            if (!MerkleProof.verify(proofs[i], root, leaf)) {
                 revert InvalidMerkleProof();
+            }
 
             proposerPower += (score * roleWeights[role]);
         }
@@ -322,25 +324,31 @@ contract WeightedGovernanceClient is
 
     /// @notice Executes a passed proposal
     /// @param proposalId The ID of the proposal to execute
-    function executeProposal(uint256 proposalId) external {
+    function executeProposal(
+        uint256 proposalId
+    ) external {
         Proposal storage p = proposals[proposalId];
 
         if (!p.exists) revert ProposalNotFound(proposalId);
         if (block.timestamp < p.deadline) revert VotingStillActive(p.deadline);
-        if (p.votesFor <= p.votesAgainst)
+        if (p.votesFor <= p.votesAgainst) {
             revert ProposalDefeated(p.votesFor, p.votesAgainst);
+        }
         if (p.executed) revert ProposalAlreadyExecuted(proposalId);
 
         p.executed = true;
 
-        (bool success, ) = p.target.call(p.payload);
+        (bool success,) = p.target.call(p.payload);
         if (!success) revert ExecutionFailed();
     }
 
     // GOVERNANCE: VOTING ======================================================
 
     /// @dev Disabled. All voting in this client requires Merkle state proofs.
-    function castVote(uint256, bool) external pure override {
+    function castVote(
+        uint256,
+        bool
+    ) external pure override {
         revert MustUseCastVoteWithProofs();
     }
 
@@ -363,11 +371,7 @@ contract WeightedGovernanceClient is
         if (block.timestamp >= p.deadline) revert VotingClosed(p.deadline);
         if (p.hasVoted[msg.sender]) revert AlreadyVoted(msg.sender, proposalId);
         if (roles.length != scores.length || roles.length != proofs.length) {
-            revert InvalidProofCount(
-                roles.length,
-                scores.length,
-                proofs.length
-            );
+            revert InvalidProofCount(roles.length, scores.length, proofs.length);
         }
 
         bytes32 root = epochRoots[p.snapshotEpoch];
@@ -380,14 +384,10 @@ contract WeightedGovernanceClient is
             uint256 weight = roleWeights[role];
             if (weight == 0) revert RoleHasNoWeight(role);
 
-            bytes32 leaf = _canonicalLeaf(
-                msg.sender,
-                role,
-                scores[i],
-                p.snapshotEpoch
-            );
-            if (!MerkleProof.verify(proofs[i], root, leaf))
+            bytes32 leaf = _canonicalLeaf(msg.sender, role, scores[i], p.snapshotEpoch);
+            if (!MerkleProof.verify(proofs[i], root, leaf)) {
                 revert InvalidMerkleProof();
+            }
 
             totalPower += scores[i] * weight;
         }
@@ -415,16 +415,18 @@ contract WeightedGovernanceClient is
         bytes32[][] calldata proofs
     ) public view override returns (uint256 totalPower) {
         if (!core.isRegistered(contextUID, account)) return 0;
-        if (roles.length != scores.length || roles.length != proofs.length)
+        if (roles.length != scores.length || roles.length != proofs.length) {
             revert ArrayLengthMismatch();
+        }
 
         bytes32 root = epochRoots[epoch];
         if (root == bytes32(0)) revert EpochNotFound(epoch);
 
         for (uint256 i = 0; i < roles.length; i++) {
             bytes32 leaf = _canonicalLeaf(account, roles[i], scores[i], epoch);
-            if (!MerkleProof.verify(proofs[i], root, leaf))
+            if (!MerkleProof.verify(proofs[i], root, leaf)) {
                 revert InvalidMerkleProof();
+            }
             totalPower += (scores[i] * roleWeights[roles[i]]);
         }
     }
@@ -505,10 +507,7 @@ contract WeightedGovernanceClient is
         override
         returns (string memory name, string memory description)
     {
-        return (
-            "Weighted Governance",
-            "Multiplies ERC-1155 balances by configurable role weights."
-        );
+        return ("Weighted Governance", "Multiplies ERC-1155 balances by configurable role weights.");
     }
 
     // INTERNAL ================================================================
@@ -525,11 +524,6 @@ contract WeightedGovernanceClient is
         uint256 score,
         uint256 epoch
     ) internal view returns (bytes32) {
-        return
-            keccak256(
-                bytes.concat(
-                    keccak256(abi.encode(contextUID, node, role, score, epoch))
-                )
-            );
+        return keccak256(bytes.concat(keccak256(abi.encode(contextUID, node, role, score, epoch))));
     }
 }

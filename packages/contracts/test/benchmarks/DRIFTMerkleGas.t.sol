@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
+import { DRIFTClientFactory } from "../../src/client/DRIFTClientFactory.sol";
+import { DRIFTCore } from "../../src/core/DRIFTCore.sol";
+import { WeightedGovernanceClient } from "../../src/templates/WeightedGovernance.sol";
+import { DRIFTToken } from "../../src/token/DRIFTToken.sol";
+import { ERC1967Proxy } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import { MessageHashUtils } from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import "forge-std/Test.sol";
-import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
-import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
-import {DRIFTCore} from "../../src/core/DRIFTCore.sol";
-import {DRIFTToken} from "../../src/token/DRIFTToken.sol";
-import {DRIFTClientFactory} from "../../src/client/DRIFTClientFactory.sol";
-import {WeightedGovernanceClient} from "../../src/templates/WeightedGovernance.sol";
 
 contract DRIFTMerkleGasTest is Test {
     DRIFTCore public core;
@@ -30,8 +30,7 @@ contract DRIFTMerkleGasTest is Test {
         core = DRIFTCore(
             address(
                 new ERC1967Proxy(
-                    address(coreImpl),
-                    abi.encodeWithSelector(DRIFTCore.initialize.selector, admin)
+                    address(coreImpl), abi.encodeWithSelector(DRIFTCore.initialize.selector, admin)
                 )
             )
         );
@@ -64,12 +63,8 @@ contract DRIFTMerkleGasTest is Test {
             weights
         );
 
-        address cloneAddr = factory.deployClient(
-            contextUID,
-            address(template),
-            initData,
-            bytes32("salt")
-        );
+        address cloneAddr =
+            factory.deployClient(contextUID, address(template), initData, bytes32("salt"));
         client = WeightedGovernanceClient(cloneAddr);
         core.grantRole(core.contextAdminRole(contextUID), address(client));
         vm.stopPrank();
@@ -103,9 +98,8 @@ contract DRIFTMerkleGasTest is Test {
     /// @notice Benchmarks the O(1) fixed cost of posting the epoch root
     function test_Gas_New_PostRoot_O1() public {
         bytes32 root = keccak256("dummy_root");
-        bytes32 structHash = keccak256(
-            abi.encode(client.SETTLE_ROOT_TYPEHASH(), contextUID, 1, root)
-        );
+        bytes32 structHash =
+            keccak256(abi.encode(client.SETTLE_ROOT_TYPEHASH(), contextUID, 1, root));
         bytes32 domainSeparator = keccak256(
             abi.encode(
                 keccak256(
@@ -118,10 +112,7 @@ contract DRIFTMerkleGasTest is Test {
             )
         );
 
-        bytes32 digest = MessageHashUtils.toTypedDataHash(
-            domainSeparator,
-            structHash
-        );
+        bytes32 digest = MessageHashUtils.toTypedDataHash(domainSeparator, structHash);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(settlerPk, digest);
 
         vm.startSnapshotGas("PostRoot_O1_Cost");
@@ -143,25 +134,17 @@ contract DRIFTMerkleGasTest is Test {
 
         {
             bytes32 currentHash = keccak256(
-                bytes.concat(
-                    keccak256(abi.encode(contextUID, node, ROLE, score, epoch))
-                )
+                bytes.concat(keccak256(abi.encode(contextUID, node, ROLE, score, epoch)))
             );
             for (uint256 i = 0; i < depth; i++) {
-                bytes32 sibling = keccak256(
-                    abi.encode("dummy_sibling", epoch, i)
-                );
+                bytes32 sibling = keccak256(abi.encode("dummy_sibling", epoch, i));
                 proof[i] = sibling;
 
                 // OpenZeppelin sorts pairs before hashing
                 if (currentHash < sibling) {
-                    currentHash = keccak256(
-                        abi.encodePacked(currentHash, sibling)
-                    );
+                    currentHash = keccak256(abi.encodePacked(currentHash, sibling));
                 } else {
-                    currentHash = keccak256(
-                        abi.encodePacked(sibling, currentHash)
-                    );
+                    currentHash = keccak256(abi.encodePacked(sibling, currentHash));
                 }
             }
             calculatedRoot = currentHash;
@@ -180,25 +163,12 @@ contract DRIFTMerkleGasTest is Test {
                 )
             );
             bytes32 structHash = keccak256(
-                abi.encode(
-                    client.SETTLE_ROOT_TYPEHASH(),
-                    contextUID,
-                    epoch,
-                    calculatedRoot
-                )
+                abi.encode(client.SETTLE_ROOT_TYPEHASH(), contextUID, epoch, calculatedRoot)
             );
-            bytes32 digest = MessageHashUtils.toTypedDataHash(
-                domainSeparator,
-                structHash
-            );
+            bytes32 digest = MessageHashUtils.toTypedDataHash(domainSeparator, structHash);
 
             (uint8 v, bytes32 r, bytes32 s) = vm.sign(settlerPk, digest);
-            client.postEpochRoot(
-                epoch,
-                calculatedRoot,
-                "",
-                abi.encodePacked(r, s, v)
-            );
+            client.postEpochRoot(epoch, calculatedRoot, "", abi.encodePacked(r, s, v));
         }
 
         vm.startSnapshotGas(snapshotName);

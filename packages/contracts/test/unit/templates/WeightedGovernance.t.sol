@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
-import {DRIFTCore} from "../../../src/core/DRIFTCore.sol";
-import {DRIFTToken} from "../../../src/token/DRIFTToken.sol";
-import {DRIFTClientFactory} from "../../../src/client/DRIFTClientFactory.sol";
-import {WeightedGovernanceClient} from "../../../src/templates/WeightedGovernance.sol";
-import {DRIFTTestHelper} from "../../utils/DRIFTTestHelper.sol";
+import { DRIFTClientFactory } from "../../../src/client/DRIFTClientFactory.sol";
+import { DRIFTCore } from "../../../src/core/DRIFTCore.sol";
+import { WeightedGovernanceClient } from "../../../src/templates/WeightedGovernance.sol";
+import { DRIFTToken } from "../../../src/token/DRIFTToken.sol";
+import { DRIFTTestHelper } from "../../utils/DRIFTTestHelper.sol";
+import { ERC1967Proxy } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 contract WeightedGovernanceClientTest is DRIFTTestHelper {
     DRIFTCore public core;
@@ -28,13 +28,8 @@ contract WeightedGovernanceClientTest is DRIFTTestHelper {
 
     function setUp() public {
         DRIFTCore coreImpl = new DRIFTCore();
-        bytes memory coreInit = abi.encodeWithSelector(
-            DRIFTCore.initialize.selector,
-            admin
-        );
-        core = DRIFTCore(
-            address(new ERC1967Proxy(address(coreImpl), coreInit))
-        );
+        bytes memory coreInit = abi.encodeWithSelector(DRIFTCore.initialize.selector, admin);
+        core = DRIFTCore(address(new ERC1967Proxy(address(coreImpl), coreInit)));
 
         driftToken = new DRIFTToken(address(core));
 
@@ -73,12 +68,8 @@ contract WeightedGovernanceClientTest is DRIFTTestHelper {
 
         vm.startPrank(admin);
         core.grantRole(adminRole, admin);
-        address cloneAddr = factory.deployClient(
-            contextUID,
-            address(template),
-            initData,
-            bytes32("salt")
-        );
+        address cloneAddr =
+            factory.deployClient(contextUID, address(template), initData, bytes32("salt"));
         client = WeightedGovernanceClient(cloneAddr);
         core.grantRole(adminRole, address(client));
         vm.stopPrank();
@@ -104,20 +95,10 @@ contract WeightedGovernanceClientTest is DRIFTTestHelper {
         uint256 score = 50;
 
         bytes32 leaf = keccak256(
-            bytes.concat(
-                keccak256(
-                    abi.encode(contextUID, node, ROLE_PROFESSOR, score, epoch)
-                )
-            )
+            bytes.concat(keccak256(abi.encode(contextUID, node, ROLE_PROFESSOR, score, epoch)))
         );
         bytes32 root = leaf;
-        bytes memory sig = _signEpochRoot(
-            settlerPk,
-            contextUID,
-            epoch,
-            root,
-            address(client)
-        );
+        bytes memory sig = _signEpochRoot(settlerPk, contextUID, epoch, root, address(client));
 
         client.postEpochRoot(epoch, root, "", sig);
 
@@ -126,9 +107,7 @@ contract WeightedGovernanceClientTest is DRIFTTestHelper {
         vm.prank(node);
         client.claimReputation(node, ROLE_PROFESSOR, score, epoch, proof);
 
-        uint256 tokenId = uint256(
-            keccak256(abi.encode(contextUID, ROLE_PROFESSOR))
-        );
+        uint256 tokenId = uint256(keccak256(abi.encode(contextUID, ROLE_PROFESSOR)));
         assertEq(driftToken.balanceOf(node, tokenId), score);
     }
 
@@ -150,38 +129,17 @@ contract WeightedGovernanceClientTest is DRIFTTestHelper {
 
         bytes32 leaf1 = keccak256(
             bytes.concat(
-                keccak256(
-                    abi.encode(
-                        contextUID,
-                        proposer,
-                        ROLE_PROFESSOR,
-                        proposerScore,
-                        epoch
-                    )
-                )
+                keccak256(abi.encode(contextUID, proposer, ROLE_PROFESSOR, proposerScore, epoch))
             )
         );
         bytes32 leaf2 = keccak256(
-            bytes.concat(
-                keccak256(
-                    abi.encode(
-                        contextUID,
-                        voter,
-                        ROLE_STUDENT,
-                        voterScore,
-                        epoch
-                    )
-                )
-            )
+            bytes.concat(keccak256(abi.encode(contextUID, voter, ROLE_STUDENT, voterScore, epoch)))
         );
 
         bytes32 root = _hashPair(leaf1, leaf2);
 
         client.postEpochRoot(
-            epoch,
-            root,
-            "",
-            _signEpochRoot(settlerPk, contextUID, epoch, root, address(client))
+            epoch, root, "", _signEpochRoot(settlerPk, contextUID, epoch, root, address(client))
         );
 
         bytes32[] memory proposerRoles = new bytes32[](1);
@@ -194,13 +152,7 @@ contract WeightedGovernanceClientTest is DRIFTTestHelper {
 
         vm.startPrank(proposer);
         uint256 proposalId = client.createProposalWithProofs(
-            "Stateless Proposal",
-            address(0),
-            "",
-            3,
-            proposerRoles,
-            proposerScores,
-            proposerProofs
+            "Stateless Proposal", address(0), "", 3, proposerRoles, proposerScores, proposerProofs
         );
         vm.stopPrank();
 
@@ -213,15 +165,9 @@ contract WeightedGovernanceClientTest is DRIFTTestHelper {
         voterProofs[0][0] = leaf1;
 
         vm.prank(voter);
-        client.castVoteWithProofs(
-            proposalId,
-            true,
-            voterRoles,
-            voterScores,
-            voterProofs
-        );
+        client.castVoteWithProofs(proposalId, true, voterRoles, voterScores, voterProofs);
 
-        (, , , uint256 votesFor, , , , ) = client.getProposal(proposalId);
+        (,,, uint256 votesFor,,,,) = client.getProposal(proposalId);
         assertEq(votesFor, 100);
     }
 }

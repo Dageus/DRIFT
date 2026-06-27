@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import "forge-std/Test.sol";
-import { ERC1967Proxy } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
-import { IAccessControl } from "@openzeppelin/contracts/access/IAccessControl.sol";
+import { DRIFTTypes } from "../../../src/Common.sol";
 import { DRIFTCore } from "../../../src/core/DRIFTCore.sol";
 import { IDRIFTCore } from "../../../src/core/IDRIFTCore.sol";
-import { DRIFTTypes } from "../../../src/Common.sol";
 import { IPolicy, NodeStatus } from "../../../src/policies/IPolicy.sol";
-import { MockAdapter } from "../../mocks/MockAdapter.sol";
 import { DRIFTToken } from "../../../src/token/DRIFTToken.sol";
+import { MockAdapter } from "../../mocks/MockAdapter.sol";
+import { IAccessControl } from "@openzeppelin/contracts/access/IAccessControl.sol";
+import { ERC1967Proxy } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import "forge-std/Test.sol";
 
 contract DRIFTCoreTest is Test {
     DRIFTCore public core;
@@ -139,7 +139,8 @@ contract DRIFTCoreTest is Test {
         vm.prank(attester);
         core.registerNode(uid, "0x");
 
-        bool isValid = core.verifyAttestation(uid, SCHEMA_UID, keccak256("att.uid"), subject, attester);
+        bool isValid =
+            core.verifyAttestation(uid, SCHEMA_UID, keccak256("att.uid"), subject, attester);
         assertTrue(isValid);
     }
 
@@ -156,7 +157,8 @@ contract DRIFTCoreTest is Test {
         vm.prank(attester);
         core.registerNode(uid, "0x");
 
-        bool isValid = core.verifyAttestation(uid, SCHEMA_UID, keccak256("att.uid"), subject, attester);
+        bool isValid =
+            core.verifyAttestation(uid, SCHEMA_UID, keccak256("att.uid"), subject, attester);
         assertFalse(isValid);
     }
 

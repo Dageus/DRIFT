@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import { IAttestationProvider } from "./IAttestationProvider.sol";
 import { IEAS } from "../interfaces/IEAS.sol";
+import { IAttestationProvider } from "./IAttestationProvider.sol";
 
 /// @title  EASAdapter
 /// @notice Implements IAttestationProvider by wrapping the EAS contract.
@@ -19,7 +19,9 @@ contract EASAdapter is IAttestationProvider {
 
     /// @notice Initializes the adapter with the EAS contract.
     /// @param easAddress The address of the deployed EAS contract.
-    constructor(address easAddress) {
+    constructor(
+        address easAddress
+    ) {
         if (easAddress == address(0)) revert ZeroEASAddress();
         eas = IEAS(easAddress);
     }
@@ -30,15 +32,18 @@ contract EASAdapter is IAttestationProvider {
     }
 
     /// @inheritdoc IAttestationProvider
-    function isValid(bytes32 uid, bytes32 schemaUID, address subject) external view returns (bool) {
+    function isValid(
+        bytes32 uid,
+        bytes32 schemaUID,
+        address subject
+    ) external view returns (bool) {
         IEAS.Attestation memory a = eas.getAttestation(uid);
 
-        return
-            a.uid != bytes32(0) && // exists
-            a.schema == schemaUID && // correct schema
-            a.recipient == subject && // correct subject
-            a.revocationTime == 0 && // not revoked
-            (a.expirationTime == 0 || // not expired
-                a.expirationTime > block.timestamp);
+        return a.uid != bytes32(0) // exists
+            && a.schema == schemaUID // correct schema
+            && a.recipient == subject // correct subject
+            && a.revocationTime == 0 // not revoked
+            && (a.expirationTime == 0 // not expired
+                || a.expirationTime > block.timestamp);
     }
 }

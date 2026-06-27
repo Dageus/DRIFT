@@ -47,13 +47,18 @@ interface IDRIFTGovernance is IDRIFTClient {
 
     /// @notice Executes a passed governance proposal
     /// @param proposalId The ID of the proposal to execute
-    function executeProposal(uint256 proposalId) external;
+    function executeProposal(
+        uint256 proposalId
+    ) external;
 
     /// @notice Casts a vote on an active proposal
     /// @dev The implementation decides how weight is determined (e.g., flat, token-weighted, or proof-of-state).
     /// @param proposalId The ID of the proposal
     /// @param support True to vote in favor, false to vote against
-    function castVote(uint256 proposalId, bool support) external;
+    function castVote(
+        uint256 proposalId,
+        bool support
+    ) external;
 
     // VIEWS ===================================================================
 
@@ -87,5 +92,8 @@ interface IDRIFTGovernance is IDRIFTClient {
     /// @param proposalId The ID of the proposal
     /// @param account The address to check
     /// @return True if the account has cast a vote, false otherwise
-    function hasVoted(uint256 proposalId, address account) external view returns (bool);
+    function hasVoted(
+        uint256 proposalId,
+        address account
+    ) external view returns (bool);
 }
