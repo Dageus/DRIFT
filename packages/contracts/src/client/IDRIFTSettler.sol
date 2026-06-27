@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import { IDRIFTClient } from "./IDRIFTClient.sol";
+import {IDRIFTClient} from "./IDRIFTClient.sol";
 
 /// @title IDRIFTSettler
 /// @notice Capability to accept signed reputation scores and forward them to the Core.
@@ -9,10 +9,18 @@ interface IDRIFTSettler is IDRIFTClient {
     // EVENTS ==================================================================
 
     /// @notice Emitted when the trusted settler address is changed
-    event SettlerUpdated(address indexed oldSettler, address indexed newSettler);
+    event SettlerUpdated(
+        address indexed oldSettler,
+        address indexed newSettler
+    );
 
     /// @notice Emitted when a new epoch root is posted
-    event EpochRootPosted(bytes32 indexed contextUID, uint256 indexed epoch, bytes32 merkleRoot);
+    event EpochRootPosted(
+        bytes32 indexed contextUID,
+        uint256 indexed epoch,
+        bytes32 merkleRoot,
+        string treeURI
+    );
 
     /// @notice Emitted when a node successfully claims its reputation for an epoch
     event ReputationClaimed(
@@ -43,7 +51,12 @@ interface IDRIFTSettler is IDRIFTClient {
     /// @param epoch The sequential epoch ID
     /// @param merkleRoot The root of the reputation Merkle tree
     /// @param sig EIP-712 signature from the trusted settler
-    function postEpochRoot(uint256 epoch, bytes32 merkleRoot, bytes calldata sig) external;
+    function postEpochRoot(
+        uint256 epoch,
+        bytes32 merkleRoot,
+        string calldata treeURI,
+        bytes calldata sig
+    ) external;
 
     /// @notice Claims reputation tokens for a node based on a settled epoch root
     /// @param node Address of the node

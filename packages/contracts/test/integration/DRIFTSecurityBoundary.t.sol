@@ -2,15 +2,15 @@
 pragma solidity 0.8.28;
 
 import "forge-std/Test.sol";
-import { ERC1967Proxy } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
-import { MessageHashUtils } from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
-import { DRIFTCore } from "../../src/core/DRIFTCore.sol";
-import { DRIFTToken } from "../../src/token/DRIFTToken.sol";
-import { DRIFTClientFactory } from "../../src/client/DRIFTClientFactory.sol";
-import { IDRIFTSettler } from "../../src/client/IDRIFTSettler.sol";
-import { IDRIFTGovernanceProofOfState } from "../../src/client/IDRIFTGovernanceProofOfState.sol";
-import { IDRIFTGovernance } from "../../src/client/IDRIFTGovernance.sol";
-import { WeightedGovernanceClient } from "../../src/templates/WeightedGovernance.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
+import {DRIFTCore} from "../../src/core/DRIFTCore.sol";
+import {DRIFTToken} from "../../src/token/DRIFTToken.sol";
+import {DRIFTClientFactory} from "../../src/client/DRIFTClientFactory.sol";
+import {IDRIFTSettler} from "../../src/client/IDRIFTSettler.sol";
+import {IDRIFTGovernanceProofOfState} from "../../src/client/IDRIFTGovernanceProofOfState.sol";
+import {IDRIFTGovernance} from "../../src/client/IDRIFTGovernance.sol";
+import {WeightedGovernanceClient} from "../../src/templates/WeightedGovernance.sol";
 
 contract DRIFTSecurityBoundaryTest is Test {
     DRIFTCore public core;
@@ -34,7 +34,12 @@ contract DRIFTSecurityBoundaryTest is Test {
     function setUp() public {
         DRIFTCore coreImpl = new DRIFTCore();
         core = DRIFTCore(
-            address(new ERC1967Proxy(address(coreImpl), abi.encodeWithSelector(DRIFTCore.initialize.selector, admin)))
+            address(
+                new ERC1967Proxy(
+                    address(coreImpl),
+                    abi.encodeWithSelector(DRIFTCore.initialize.selector, admin)
+                )
+            )
         );
 
         driftToken = new DRIFTToken(address(core));
@@ -65,7 +70,12 @@ contract DRIFTSecurityBoundaryTest is Test {
             weights
         );
 
-        address cloneAddr = factory.deployClient(contextUID, address(template), initData, bytes32("salt"));
+        address cloneAddr = factory.deployClient(
+            contextUID,
+            address(template),
+            initData,
+            bytes32("salt")
+        );
         client = WeightedGovernanceClient(cloneAddr);
         core.grantRole(core.contextAdminRole(contextUID), address(client));
         vm.stopPrank();
@@ -78,11 +88,19 @@ contract DRIFTSecurityBoundaryTest is Test {
 
         uint256 epoch = 1;
         uint256 setupScore = 1000;
-        bytes32 setupLeaf = keccak256(bytes.concat(keccak256(abi.encode(contextUID, admin, ROLE, setupScore, epoch))));
+        bytes32 setupLeaf = keccak256(
+            bytes.concat(
+                keccak256(
+                    abi.encode(contextUID, admin, ROLE, setupScore, epoch)
+                )
+            )
+        );
 
         bytes32 domainSeparator = keccak256(
             abi.encode(
-                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+                keccak256(
+                    "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
+                ),
                 keccak256("DRIFT_WeightedGovernance"),
                 keccak256("1"),
                 block.chainid,
@@ -90,11 +108,21 @@ contract DRIFTSecurityBoundaryTest is Test {
             )
         );
 
-        bytes32 structHash = keccak256(abi.encode(client.SETTLE_ROOT_TYPEHASH(), contextUID, epoch, setupLeaf));
-        bytes32 digest = MessageHashUtils.toTypedDataHash(domainSeparator, structHash);
+        bytes32 structHash = keccak256(
+            abi.encode(
+                client.SETTLE_ROOT_TYPEHASH(),
+                contextUID,
+                epoch,
+                setupLeaf
+            )
+        );
+        bytes32 digest = MessageHashUtils.toTypedDataHash(
+            domainSeparator,
+            structHash
+        );
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(settlerPk, digest);
 
-        client.postEpochRoot(epoch, setupLeaf, abi.encodePacked(r, s, v));
+        client.postEpochRoot(epoch, setupLeaf, "", abi.encodePacked(r, s, v));
 
         bytes32[] memory setupRoles = new bytes32[](1);
         setupRoles[0] = ROLE;
@@ -146,7 +174,13 @@ contract DRIFTSecurityBoundaryTest is Test {
 
         vm.startPrank(attacker);
         vm.expectRevert(IDRIFTSettler.InvalidMerkleProof.selector);
-        client.castVoteWithProofs(proposalId, true, roles, scores, epoch2Proofs);
+        client.castVoteWithProofs(
+            proposalId,
+            true,
+            roles,
+            scores,
+            epoch2Proofs
+        );
         vm.stopPrank();
     }
 
@@ -157,7 +191,14 @@ contract DRIFTSecurityBoundaryTest is Test {
         bytes32[][] memory proofs = new bytes32[][](2);
 
         vm.startPrank(alice);
-        vm.expectRevert(abi.encodeWithSelector(IDRIFTGovernanceProofOfState.InvalidProofCount.selector, 2, 1, 2));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IDRIFTGovernanceProofOfState.InvalidProofCount.selector,
+                2,
+                1,
+                2
+            )
+        );
         client.castVoteWithProofs(proposalId, true, roles, scores, proofs);
         vm.stopPrank();
     }
@@ -175,10 +216,26 @@ contract DRIFTSecurityBoundaryTest is Test {
         vm.prank(nodeB);
         core.registerNode(contextUID, "0x");
 
-        bytes32 leafA = keccak256(bytes.concat(keccak256(abi.encode(contextUID, nodeA, ROLE, 1000, epoch))));
-        bytes32 leafB = keccak256(bytes.concat(keccak256(abi.encode(contextUID, nodeB, ROLE, 200, epoch))));
-        bytes32 leafC = keccak256(bytes.concat(keccak256(abi.encode(contextUID, nodeC, ROLE, 300, epoch))));
-        bytes32 leafD = keccak256(bytes.concat(keccak256(abi.encode(contextUID, nodeD, ROLE, 400, epoch))));
+        bytes32 leafA = keccak256(
+            bytes.concat(
+                keccak256(abi.encode(contextUID, nodeA, ROLE, 1000, epoch))
+            )
+        );
+        bytes32 leafB = keccak256(
+            bytes.concat(
+                keccak256(abi.encode(contextUID, nodeB, ROLE, 200, epoch))
+            )
+        );
+        bytes32 leafC = keccak256(
+            bytes.concat(
+                keccak256(abi.encode(contextUID, nodeC, ROLE, 300, epoch))
+            )
+        );
+        bytes32 leafD = keccak256(
+            bytes.concat(
+                keccak256(abi.encode(contextUID, nodeD, ROLE, 400, epoch))
+            )
+        );
 
         bytes32 hashAB = _hashPair(leafA, leafB);
         bytes32 hashCD = _hashPair(leafC, leafD);
@@ -186,7 +243,9 @@ contract DRIFTSecurityBoundaryTest is Test {
 
         bytes32 domainSeparator = keccak256(
             abi.encode(
-                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+                keccak256(
+                    "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
+                ),
                 keccak256("DRIFT_WeightedGovernance"),
                 keccak256("1"),
                 block.chainid,
@@ -194,11 +253,16 @@ contract DRIFTSecurityBoundaryTest is Test {
             )
         );
 
-        bytes32 structHash = keccak256(abi.encode(client.SETTLE_ROOT_TYPEHASH(), contextUID, epoch, root));
-        bytes32 digest = MessageHashUtils.toTypedDataHash(domainSeparator, structHash);
+        bytes32 structHash = keccak256(
+            abi.encode(client.SETTLE_ROOT_TYPEHASH(), contextUID, epoch, root)
+        );
+        bytes32 digest = MessageHashUtils.toTypedDataHash(
+            domainSeparator,
+            structHash
+        );
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(settlerPk, digest);
 
-        client.postEpochRoot(epoch, root, abi.encodePacked(r, s, v));
+        client.postEpochRoot(epoch, root, "", abi.encodePacked(r, s, v));
 
         bytes32[][] memory proofs = new bytes32[][](1);
         proofs[0] = new bytes32[](2);
@@ -241,7 +305,13 @@ contract DRIFTSecurityBoundaryTest is Test {
 
         client.castVoteWithProofs(proposalId, true, roles, scores, proofs);
 
-        vm.expectRevert(abi.encodeWithSelector(IDRIFTGovernance.AlreadyVoted.selector, admin, proposalId));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IDRIFTGovernance.AlreadyVoted.selector,
+                admin,
+                proposalId
+            )
+        );
         client.castVoteWithProofs(proposalId, true, roles, scores, proofs);
 
         vm.stopPrank();
@@ -254,23 +324,39 @@ contract DRIFTSecurityBoundaryTest is Test {
         uint256 aliceHugeScore = 999999;
 
         bytes32 aliceLeaf = keccak256(
-            bytes.concat(keccak256(abi.encode(contextUID, alice, ROLE, aliceHugeScore, epoch2)))
+            bytes.concat(
+                keccak256(
+                    abi.encode(contextUID, alice, ROLE, aliceHugeScore, epoch2)
+                )
+            )
         );
 
         bytes32 domainSeparator = keccak256(
             abi.encode(
-                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+                keccak256(
+                    "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
+                ),
                 keccak256("DRIFT_WeightedGovernance"),
                 keccak256("1"),
                 block.chainid,
                 address(client)
             )
         );
-        bytes32 structHash = keccak256(abi.encode(client.SETTLE_ROOT_TYPEHASH(), contextUID, epoch2, aliceLeaf));
-        bytes32 digest = MessageHashUtils.toTypedDataHash(domainSeparator, structHash);
+        bytes32 structHash = keccak256(
+            abi.encode(
+                client.SETTLE_ROOT_TYPEHASH(),
+                contextUID,
+                epoch2,
+                aliceLeaf
+            )
+        );
+        bytes32 digest = MessageHashUtils.toTypedDataHash(
+            domainSeparator,
+            structHash
+        );
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(settlerPk, digest);
 
-        client.postEpochRoot(epoch2, aliceLeaf, abi.encodePacked(r, s, v));
+        client.postEpochRoot(epoch2, aliceLeaf, "", abi.encodePacked(r, s, v));
 
         bytes32[] memory roles = new bytes32[](1);
         roles[0] = ROLE;
@@ -290,6 +376,9 @@ contract DRIFTSecurityBoundaryTest is Test {
     // INTERNAL HELPERS ========================================================
 
     function _hashPair(bytes32 a, bytes32 b) internal pure returns (bytes32) {
-        return a < b ? keccak256(abi.encodePacked(a, b)) : keccak256(abi.encodePacked(b, a));
+        return
+            a < b
+                ? keccak256(abi.encodePacked(a, b))
+                : keccak256(abi.encodePacked(b, a));
     }
 }
