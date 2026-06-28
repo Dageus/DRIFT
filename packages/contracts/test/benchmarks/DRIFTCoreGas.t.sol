@@ -88,6 +88,7 @@ contract DRIFTCoreGasBenchmarkTest is Test {
             contextUID,
             address(0),
             0,
+            0,
             "EigenTrust",
             roles,
             weights

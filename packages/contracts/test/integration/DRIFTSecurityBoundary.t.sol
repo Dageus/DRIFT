@@ -64,6 +64,7 @@ contract DRIFTSecurityBoundaryTest is Test {
             contextUID,
             settler,
             0,
+            0,
             "EigenTrust",
             roles,
             weights
@@ -99,8 +100,9 @@ contract DRIFTSecurityBoundaryTest is Test {
             )
         );
 
-        bytes32 structHash =
-            keccak256(abi.encode(client.SETTLE_ROOT_TYPEHASH(), contextUID, epoch, setupLeaf));
+        bytes32 structHash = keccak256(
+            abi.encode(client.SETTLE_ROOT_TYPEHASH(), contextUID, epoch, setupLeaf, keccak256(""))
+        );
         bytes32 digest = MessageHashUtils.toTypedDataHash(domainSeparator, structHash);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(settlerPk, digest);
 
@@ -181,9 +183,8 @@ contract DRIFTSecurityBoundaryTest is Test {
         vm.prank(nodeB);
         core.registerNode(contextUID, "0x");
 
-        bytes32 leafA = keccak256(
-            bytes.concat(keccak256(abi.encode(contextUID, nodeA, ROLE, 1000, epoch)))
-        );
+        bytes32 leafA =
+            keccak256(bytes.concat(keccak256(abi.encode(contextUID, nodeA, ROLE, 1000, epoch))));
         bytes32 leafB =
             keccak256(bytes.concat(keccak256(abi.encode(contextUID, nodeB, ROLE, 200, epoch))));
         bytes32 leafC =
@@ -207,8 +208,9 @@ contract DRIFTSecurityBoundaryTest is Test {
             )
         );
 
-        bytes32 structHash =
-            keccak256(abi.encode(client.SETTLE_ROOT_TYPEHASH(), contextUID, epoch, root));
+        bytes32 structHash = keccak256(
+            abi.encode(client.SETTLE_ROOT_TYPEHASH(), contextUID, epoch, root, keccak256(""))
+        );
         bytes32 digest = MessageHashUtils.toTypedDataHash(domainSeparator, structHash);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(settlerPk, digest);
 
@@ -278,8 +280,9 @@ contract DRIFTSecurityBoundaryTest is Test {
                 address(client)
             )
         );
-        bytes32 structHash =
-            keccak256(abi.encode(client.SETTLE_ROOT_TYPEHASH(), contextUID, epoch2, aliceLeaf));
+        bytes32 structHash = keccak256(
+            abi.encode(client.SETTLE_ROOT_TYPEHASH(), contextUID, epoch2, aliceLeaf, keccak256(""))
+        );
         bytes32 digest = MessageHashUtils.toTypedDataHash(domainSeparator, structHash);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(settlerPk, digest);
 

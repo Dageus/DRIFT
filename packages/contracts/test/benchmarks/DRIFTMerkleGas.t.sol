@@ -58,6 +58,7 @@ contract DRIFTMerkleGasTest is Test {
             contextUID,
             settler,
             0,
+            0,
             "EigenTrust",
             roles,
             weights
@@ -98,8 +99,9 @@ contract DRIFTMerkleGasTest is Test {
     /// @notice Benchmarks the O(1) fixed cost of posting the epoch root
     function test_Gas_New_PostRoot_O1() public {
         bytes32 root = keccak256("dummy_root");
-        bytes32 structHash =
-            keccak256(abi.encode(client.SETTLE_ROOT_TYPEHASH(), contextUID, 1, root));
+        bytes32 structHash = keccak256(
+            abi.encode(client.SETTLE_ROOT_TYPEHASH(), contextUID, 1, root, keccak256(""))
+        );
         bytes32 domainSeparator = keccak256(
             abi.encode(
                 keccak256(
@@ -151,20 +153,36 @@ contract DRIFTMerkleGasTest is Test {
         }
 
         {
+            (
+                ,
+                string memory name,
+                string memory version,
+                uint256 chainId,
+                address verifyingContract,,
+            ) = client.eip712Domain();
+
             bytes32 domainSeparator = keccak256(
                 abi.encode(
                     keccak256(
                         "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
                     ),
-                    keccak256(bytes("DRIFT_WeightedGovernance")),
-                    keccak256(bytes("1")),
-                    block.chainid,
-                    address(client)
+                    keccak256(bytes(name)),
+                    keccak256(bytes(version)),
+                    chainId,
+                    verifyingContract
                 )
             );
+
             bytes32 structHash = keccak256(
-                abi.encode(client.SETTLE_ROOT_TYPEHASH(), contextUID, epoch, calculatedRoot)
+                abi.encode(
+                    client.SETTLE_ROOT_TYPEHASH(),
+                    contextUID,
+                    epoch,
+                    calculatedRoot,
+                    keccak256(bytes(""))
+                )
             );
+
             bytes32 digest = MessageHashUtils.toTypedDataHash(domainSeparator, structHash);
 
             (uint8 v, bytes32 r, bytes32 s) = vm.sign(settlerPk, digest);

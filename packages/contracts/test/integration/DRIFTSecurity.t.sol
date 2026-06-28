@@ -64,6 +64,7 @@ contract DRIFTSecurityTest is Test {
             contextUID,
             settler,
             0,
+            0,
             "EigenTrust",
             roles,
             weights

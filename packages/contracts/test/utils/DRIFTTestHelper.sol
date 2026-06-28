@@ -15,8 +15,9 @@ abstract contract DRIFTTestHelper is Test {
         bytes32 root,
         address verifyingContract
     ) internal view returns (bytes memory) {
-        bytes32 settleRootTypehash =
-            keccak256("SettleRoot(bytes32 contextUID,uint256 epoch,bytes32 merkleRoot)");
+        bytes32 settleRootTypehash = keccak256(
+            "SettleRoot(bytes32 contextUID,uint256 epoch,bytes32 merkleRoot,string treeURI)"
+        );
 
         bytes32 domainSeparator = keccak256(
             abi.encode(
@@ -30,7 +31,9 @@ abstract contract DRIFTTestHelper is Test {
             )
         );
 
-        bytes32 structHash = keccak256(abi.encode(settleRootTypehash, contextUID, epoch, root));
+        bytes32 structHash = keccak256(
+            abi.encode(settleRootTypehash, contextUID, epoch, root, keccak256(bytes("")))
+        );
         bytes32 digest = MessageHashUtils.toTypedDataHash(domainSeparator, structHash);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
 

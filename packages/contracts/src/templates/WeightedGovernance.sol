@@ -35,6 +35,7 @@ contract WeightedGovernanceClient is
     error NodeNotRegistered(bytes32 contextUID, address node);
     error MaximumRoleLengthExceeded();
     error ZeroAddressSettler();
+    error QuorumNotReached(uint256 total, uint256 required);
 
     // State Variables
     string private _reputationAlgorithm;
@@ -44,6 +45,7 @@ contract WeightedGovernanceClient is
     uint256 public proposalThreshold;
     address public trustedSettler;
     uint256 public currentEpoch;
+    uint256 public quorumThreshold;
 
     bytes32 public constant SETTLE_ROOT_TYPEHASH = keccak256(
         "SettleRoot(bytes32 contextUID,uint256 epoch,bytes32 merkleRoot,string treeURI)"
@@ -99,6 +101,7 @@ contract WeightedGovernanceClient is
     /// @param _contextUID Unique identifier for the context
     /// @param _trustedSettler Address authorized to settle epochs
     /// @param _proposalThreshold Minimum voting power required to propose
+    /// @param _quorum Minimum number of votes for a proposal to pass
     /// @param initialAlgorithm String identifier of the reputation algorithm
     /// @param _roles Array of active roles for this governance client
     /// @param _weights Array of weights corresponding to the roles
@@ -108,6 +111,7 @@ contract WeightedGovernanceClient is
         bytes32 _contextUID,
         address _trustedSettler,
         uint256 _proposalThreshold,
+        uint256 _quorum,
         string calldata initialAlgorithm,
         bytes32[] calldata _roles,
         uint256[] calldata _weights
@@ -123,6 +127,7 @@ contract WeightedGovernanceClient is
         trustedSettler = _trustedSettler;
         proposalThreshold = _proposalThreshold;
         _reputationAlgorithm = initialAlgorithm;
+        quorumThreshold = _quorum;
 
         for (uint256 i = 0; i < _roles.length; i++) {
             activeRoles.push(_roles[i]);
@@ -168,6 +173,14 @@ contract WeightedGovernanceClient is
         _reputationAlgorithm = newAlgorithm;
     }
 
+    /// @notice Updates the minimum threshold for a proposal to pass
+    /// @param threshold The minimum voters for the new threshold
+    function setQuorumThreshold(
+        uint256 threshold
+    ) external onlyContextAdmin {
+        quorumThreshold = threshold;
+    }
+
     // REPUTATION SETTLEMENT ===================================================
 
     /// @notice Posts a new epoch root to the contract
@@ -187,8 +200,11 @@ contract WeightedGovernanceClient is
             revert EpochAlreadyPosted(epoch);
         }
 
-        bytes32 structHash =
-            keccak256(abi.encode(SETTLE_ROOT_TYPEHASH, contextUID, epoch, merkleRoot, treeURI));
+        bytes32 structHash = keccak256(
+            abi.encode(
+                SETTLE_ROOT_TYPEHASH, contextUID, epoch, merkleRoot, keccak256(bytes(treeURI))
+            )
+        );
         bytes32 digest = _hashTypedDataV4(structHash);
         if (ECDSA.recover(digest, sig) != trustedSettler) {
             revert InvalidSettlerSignature();
@@ -335,6 +351,9 @@ contract WeightedGovernanceClient is
             revert ProposalDefeated(p.votesFor, p.votesAgainst);
         }
         if (p.executed) revert ProposalAlreadyExecuted(proposalId);
+        if (p.votesFor + p.votesAgainst < quorumThreshold) {
+            revert QuorumNotReached(p.votesFor + p.votesAgainst, quorumThreshold);
+        }
 
         p.executed = true;
 

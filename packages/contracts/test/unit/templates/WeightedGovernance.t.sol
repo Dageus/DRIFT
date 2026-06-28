@@ -59,6 +59,7 @@ contract WeightedGovernanceClientTest is DRIFTTestHelper {
             contextUID,
             settler,
             100, // Proposal threshold is 100 voting power
+            0,
             "EigenTrust",
             roles,
             weights

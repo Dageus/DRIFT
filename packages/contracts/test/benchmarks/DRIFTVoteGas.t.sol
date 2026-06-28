@@ -58,6 +58,7 @@ contract DRIFTVoteGasTest is Test {
             contextUID,
             settler,
             0,
+            0,
             "EigenTrust",
             roles,
             weights
@@ -134,7 +135,13 @@ contract DRIFTVoteGasTest is Test {
                 )
             );
             bytes32 structHash = keccak256(
-                abi.encode(client.SETTLE_ROOT_TYPEHASH(), contextUID, epoch, calculatedRoot)
+                abi.encode(
+                    client.SETTLE_ROOT_TYPEHASH(),
+                    contextUID,
+                    epoch,
+                    calculatedRoot,
+                    keccak256(bytes(""))
+                )
             );
             bytes32 digest = MessageHashUtils.toTypedDataHash(domainSeparator, structHash);
 

@@ -69,6 +69,7 @@ contract UniversityScenarioTest is Test {
             contextUID,
             president,
             50,
+            0,
             "EigenTrust",
             roles,
             weights
@@ -168,8 +169,9 @@ contract UniversityScenarioTest is Test {
             )
         );
 
-        bytes32 structHash =
-            keccak256(abi.encode(client.SETTLE_ROOT_TYPEHASH(), contextUID, epoch, root));
+        bytes32 structHash = keccak256(
+            abi.encode(client.SETTLE_ROOT_TYPEHASH(), contextUID, epoch, root, keccak256(""))
+        );
         bytes32 digest = MessageHashUtils.toTypedDataHash(domainSeparator, structHash);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(presidentPk, digest);
         return abi.encodePacked(r, s, v);
