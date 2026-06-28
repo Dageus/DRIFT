@@ -22,7 +22,13 @@ interface IDRIFTGovernance is IDRIFTClient {
     // EVENTS ==================================================================
 
     /// @notice Emitted when a new proposal is created
-    event ProposalCreated(uint256 indexed proposalId, string description, uint256 deadline);
+    event ProposalCreated(
+        uint256 indexed proposalId,
+        string description,
+        uint256 deadline,
+        uint256 snapshotEpoch,
+        uint32 configVersion
+    );
 
     /// @notice Emitted when a user casts a vote
     event VoteCast(address indexed voter, uint256 indexed proposalId, bool support, uint256 weight);

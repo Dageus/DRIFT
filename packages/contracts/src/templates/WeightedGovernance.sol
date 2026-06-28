@@ -36,6 +36,7 @@ contract WeightedGovernanceClient is
     error MaximumRoleLengthExceeded();
     error ZeroAddressSettler();
     error QuorumNotReached(uint256 total, uint256 required);
+    error WeightConfigVersionNotFound(uint32 version);
 
     // State Variables
     string private _reputationAlgorithm;
@@ -58,11 +59,21 @@ contract WeightedGovernanceClient is
     bytes32[] public activeRoles;
     mapping(bytes32 => uint256) public roleWeights;
 
+    // Versioned Weight Configuration
+    uint32 public currentConfigVersion;
+    mapping(uint32 => WeightConfig) private _weightHistory;
+
     uint256 public proposalCount;
     mapping(uint256 => Proposal) public proposals;
 
     // Events
-    event RoleWeightUpdated(bytes32 indexed role, uint256 weight);
+    event RoleWeightUpdated(bytes32 indexed role, uint256 weight, uint32 indexed configVersion);
+
+    /// @notice Struct representing a versioned weight configuration snapshot
+    struct WeightConfig {
+        bytes32[] roles;
+        mapping(bytes32 => uint256) weights;
+    }
 
     /// @notice Struct representing a governance proposal
     /// @dev Packed tightly to optimize storage. target (20) + executed (1) + exists (1) = 22 bytes (1 slot).
@@ -76,8 +87,7 @@ contract WeightedGovernanceClient is
         uint256 votesAgainst;
         uint256 deadline;
         uint256 snapshotEpoch;
-        bytes32[] snapshotRoles;
-        uint256[] snapshotWeights;
+        uint32 configVersion;
         mapping(address => bool) hasVoted;
     }
 
@@ -135,6 +145,14 @@ contract WeightedGovernanceClient is
             activeRoles.push(_roles[i]);
             roleWeights[_roles[i]] = _weights[i];
         }
+
+        // Initialize config version 0 with the initial weights
+        currentConfigVersion = 0;
+        WeightConfig storage initialConfig = _weightHistory[0];
+        for (uint256 i = 0; i < _roles.length; i++) {
+            initialConfig.roles.push(_roles[i]);
+            initialConfig.weights[_roles[i]] = _weights[i];
+        }
     }
 
     // ROLE WEIGHTS & CONFIG ===================================================
@@ -145,15 +163,20 @@ contract WeightedGovernanceClient is
     function setRoleWeight(
         bytes32 role,
         uint256 weight
-    ) external {
-        if (
-            msg.sender != address(this)
-                && !core.hasRole(core.contextAdminRole(contextUID), msg.sender)
-        ) {
-            revert UnauthorizedSender(msg.sender);
-        }
+    ) external onlyContextAdmin {
         roleWeights[role] = weight;
-        emit RoleWeightUpdated(role, weight);
+
+        currentConfigVersion++;
+        WeightConfig storage newConfig = _weightHistory[currentConfigVersion];
+
+        // Copy all active roles to the new version
+        for (uint256 i = 0; i < activeRoles.length; i++) {
+            bytes32 r = activeRoles[i];
+            newConfig.roles.push(r);
+            newConfig.weights[r] = roleWeights[r];
+        }
+
+        emit RoleWeightUpdated(role, weight, currentConfigVersion);
     }
 
     /// @notice Updates the trusted settler address
@@ -183,11 +206,32 @@ contract WeightedGovernanceClient is
         quorumThreshold = threshold;
     }
 
+    /// @notice Retrieves a specific weight configuration version
+    /// @param version The configuration version to query
+    /// @param role The role to look up
+    /// @return The weight for the role at that configuration version
+    function getWeightAtVersion(
+        uint32 version,
+        bytes32 role
+    ) external view returns (uint256) {
+        return _weightHistory[version].weights[role];
+    }
+
+    /// @notice Retrieves the roles active at a specific configuration version
+    /// @param version The configuration version to query
+    /// @return Array of role identifiers
+    function getRolesAtVersion(
+        uint32 version
+    ) external view returns (bytes32[] memory) {
+        return _weightHistory[version].roles;
+    }
+
     // REPUTATION SETTLEMENT ===================================================
 
     /// @notice Posts a new epoch root to the contract
     /// @param epoch The sequential epoch ID being settled
     /// @param merkleRoot The merkle root containing node state data
+    /// @param treeURI URI pointing to the off-chain Merkle tree data
     /// @param sig EIP-712 signature from the trusted settler
     function postEpochRoot(
         uint256 epoch,
@@ -335,15 +379,9 @@ contract WeightedGovernanceClient is
         p.target = target;
         p.payload = payload;
         p.snapshotEpoch = currentEpoch;
+        p.configVersion = currentConfigVersion;
 
-        // Snapshot role weights at proposal creation time
-        for (uint256 i = 0; i < activeRoles.length; i++) {
-            bytes32 role = activeRoles[i];
-            p.snapshotRoles.push(role);
-            p.snapshotWeights.push(roleWeights[role]);
-        }
-
-        emit ProposalCreated(id, description, p.deadline, p.snapshotEpoch);
+        emit ProposalCreated(id, description, p.deadline, p.snapshotEpoch, p.configVersion);
         return id;
     }
 
@@ -410,8 +448,7 @@ contract WeightedGovernanceClient is
         for (uint256 i = 0; i < roles.length; i++) {
             bytes32 role = roles[i];
 
-            // Look up snapshotted weight for this role
-            uint256 weight = _getSnapshotWeight(p, role);
+            uint256 weight = _weightHistory[p.configVersion].weights[role];
             if (weight == 0) revert RoleHasNoWeight(role);
 
             bytes32 leaf = _canonicalLeaf(msg.sender, role, scores[i], p.snapshotEpoch);
@@ -518,6 +555,17 @@ contract WeightedGovernanceClient is
         );
     }
 
+    /// @notice Retrieves the snapshot configuration for a proposal
+    /// @param proposalId The ID of the proposal
+    /// @return snapshotEpoch The epoch the proposal was pinned to
+    /// @return configVersion The weight configuration version at proposal creation
+    function getProposalSnapshot(
+        uint256 proposalId
+    ) external view returns (uint256 snapshotEpoch, uint32 configVersion) {
+        Proposal storage p = proposals[proposalId];
+        return (p.snapshotEpoch, p.configVersion);
+    }
+
     // METADATA ================================================================
 
     /// @inheritdoc IDRIFTClientMetadata
@@ -541,22 +589,6 @@ contract WeightedGovernanceClient is
     }
 
     // INTERNAL ================================================================
-
-    /// @notice Looks up a role's weight from a proposal's snapshot
-    /// @param p The proposal storage pointer
-    /// @param role The role to look up
-    /// @return The snapshotted weight, or 0 if the role was not active at proposal creation
-    function _getSnapshotWeight(
-        Proposal storage p,
-        bytes32 role
-    ) internal view returns (uint256) {
-        for (uint256 i = 0; i < p.snapshotRoles.length; i++) {
-            if (p.snapshotRoles[i] == role) {
-                return p.snapshotWeights[i];
-            }
-        }
-        return 0;
-    }
 
     /// @notice Generates a standardized leaf hash for verifying Merkle proofs
     /// @param node Address of the node
