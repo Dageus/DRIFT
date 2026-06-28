@@ -76,6 +76,8 @@ contract WeightedGovernanceClient is
         uint256 votesAgainst;
         uint256 deadline;
         uint256 snapshotEpoch;
+        bytes32[] snapshotRoles;
+        uint256[] snapshotWeights;
         mapping(address => bool) hasVoted;
     }
 
@@ -332,7 +334,14 @@ contract WeightedGovernanceClient is
         p.exists = true;
         p.target = target;
         p.payload = payload;
-        p.snapshotEpoch = currentEpoch; // Lock the voting checkpoint
+        p.snapshotEpoch = currentEpoch;
+
+        // Snapshot role weights at proposal creation time
+        for (uint256 i = 0; i < activeRoles.length; i++) {
+            bytes32 role = activeRoles[i];
+            p.snapshotRoles.push(role);
+            p.snapshotWeights.push(roleWeights[role]);
+        }
 
         emit ProposalCreated(id, description, p.deadline, p.snapshotEpoch);
         return id;
@@ -400,7 +409,9 @@ contract WeightedGovernanceClient is
 
         for (uint256 i = 0; i < roles.length; i++) {
             bytes32 role = roles[i];
-            uint256 weight = roleWeights[role];
+
+            // Look up snapshotted weight for this role
+            uint256 weight = _getSnapshotWeight(p, role);
             if (weight == 0) revert RoleHasNoWeight(role);
 
             bytes32 leaf = _canonicalLeaf(msg.sender, role, scores[i], p.snapshotEpoch);
@@ -530,6 +541,22 @@ contract WeightedGovernanceClient is
     }
 
     // INTERNAL ================================================================
+
+    /// @notice Looks up a role's weight from a proposal's snapshot
+    /// @param p The proposal storage pointer
+    /// @param role The role to look up
+    /// @return The snapshotted weight, or 0 if the role was not active at proposal creation
+    function _getSnapshotWeight(
+        Proposal storage p,
+        bytes32 role
+    ) internal view returns (uint256) {
+        for (uint256 i = 0; i < p.snapshotRoles.length; i++) {
+            if (p.snapshotRoles[i] == role) {
+                return p.snapshotWeights[i];
+            }
+        }
+        return 0;
+    }
 
     /// @notice Generates a standardized leaf hash for verifying Merkle proofs
     /// @param node Address of the node
