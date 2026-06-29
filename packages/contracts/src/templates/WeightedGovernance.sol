@@ -473,6 +473,29 @@ contract WeightedGovernanceClient is
 
     // GOVERNANCE: VIEWS =======================================================
 
+    /// @notice Simulates voting power for a specific proposal using its snapshotted config version
+    function getVotingPowerForProposal(
+        uint256 proposalId,
+        address account,
+        bytes32[] calldata roles,
+        uint256[] calldata scores,
+        bytes32[][] calldata proofs
+    ) external view returns (uint256 totalPower) {
+        Proposal storage p = proposals[proposalId];
+        if (!p.exists) revert ProposalNotFound(proposalId);
+
+        bytes32 root = epochRoots[p.snapshotEpoch];
+        if (root == bytes32(0)) revert EpochNotFound(p.snapshotEpoch);
+
+        for (uint256 i = 0; i < roles.length; i++) {
+            bytes32 leaf = _canonicalLeaf(account, roles[i], scores[i], p.snapshotEpoch);
+            if (MerkleProof.verify(proofs[i], root, leaf)) {
+                uint256 weight = _weightHistory[p.configVersion].weights[roles[i]];
+                totalPower += (scores[i] * weight);
+            }
+        }
+    }
+
     /// @inheritdoc IDRIFTGovernanceProofOfState
     function getVotingPowerAtEpoch(
         address account,
