@@ -18,7 +18,7 @@ export class ReputationModule {
     return this._signer;
   }
 
-  private _reputationClient(clientAddress: string): Contract {
+  private _reputationClient(clientAddress: string): any {
     return new Contract(clientAddress, SettlerArtifact.abi, this._runner);
   }
 

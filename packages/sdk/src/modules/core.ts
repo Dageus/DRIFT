@@ -3,7 +3,7 @@ import CoreArtifact from '../../../contracts/out/DRIFTCore.sol/DRIFTCore.json';
 import { handleContractError } from '../utils';
 
 export class CoreModule {
-  public readonly contract: Contract;
+  public readonly contract: any;
   private readonly _signer?: Signer;
   private readonly _interface: Interface;
 

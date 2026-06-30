@@ -3,7 +3,7 @@ import FactoryArtifact from '../../../contracts/out/DRIFTClientFactory.sol/DRIFT
 import CoreArtifact from '../../../contracts/out/IDRIFTCore.sol/IDRIFTCore.json';
 
 export class DriftFactory {
-  private readonly contract: Contract;
+  private readonly contract: any;
   private readonly _signer?: Signer;
 
   constructor(factoryAddress: string, signerOrProvider: Signer | Provider) {

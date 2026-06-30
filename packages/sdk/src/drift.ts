@@ -101,7 +101,8 @@ export class Drift {
           breakdown[role] = bal;
           total += bal;
         }
-      } catch {
+      } catch (err: any) {
+        console.warn(`DRIFT SDK: Failed to fetch reputation balance for role ${role}: ${err?.message || err}`);
       }
     }
 

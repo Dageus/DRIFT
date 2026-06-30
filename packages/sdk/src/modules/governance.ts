@@ -19,7 +19,7 @@ export class GovernanceModule {
     return this._signer;
   }
 
-  private _governanceClient(clientAddress: string): Contract {
+  private _governanceClient(clientAddress: string): any {
     return new Contract(clientAddress, IGovArtifact.abi, this._runner);
   }
 
