@@ -9,7 +9,8 @@ const SETTLE_ROOT_TYPES = {
   SettleRoot: [
     { name: 'contextUID', type: 'bytes32' },
     { name: 'epoch', type: 'uint256' },
-    { name: 'merkleRoot', type: 'bytes32' }
+    { name: 'merkleRoot', type: 'bytes32' },
+    { name: 'treeURI', type: 'string' }
   ]
 };
 
@@ -40,19 +41,24 @@ export class DriftSettler {
     clientAddress: string,
     contextUID: string,
     epoch: bigint,
-    scores: ScoreEntry[]
-  ): Promise<{ root: string; signature: string; tree: StandardMerkleTree<string[]> }> {
+    scores: ScoreEntry[],
+    uploader: (tree: StandardMerkleTree<string[]>) => Promise<string>
+  ): Promise<{ root: string; signature: string; tree: StandardMerkleTree<string[]>; treeURI: string }> {
     const values = scores.map((s) => [contextUID, s.node, s.role, s.score.toString(), epoch.toString()]);
     const tree = StandardMerkleTree.of(values, ['bytes32', 'address', 'bytes32', 'uint256', 'uint256']);
+
+    // The tree must be uploaded to resolve the URI before computing the signature
+    const treeURI = await uploader(tree);
 
     const domain = await this._fetchDomain(clientAddress);
     const signature = await this.signer.signTypedData(domain, SETTLE_ROOT_TYPES, {
       contextUID,
       epoch,
-      merkleRoot: tree.root
+      merkleRoot: tree.root,
+      treeURI
     });
 
-    return { root: tree.root, signature, tree };
+    return { root: tree.root, signature, tree, treeURI };
   }
 
   /**
@@ -70,11 +76,7 @@ export class DriftSettler {
 
     for (const [i, v] of tree.entries()) {
       // v[0] = contextUID, v[1] = node, v[2] = role, v[3] = score, v[4] = epoch
-      if (
-        v[0] === contextUID &&
-        v[1].toLowerCase() === node.toLowerCase() &&
-        BigInt(v[4]) === epoch
-      ) {
+      if (v[0] === contextUID && v[1].toLowerCase() === node.toLowerCase() && BigInt(v[4]) === epoch) {
         roles.push(v[2]);
         scores.push(BigInt(v[3]));
         proofs.push(tree.getProof(i));

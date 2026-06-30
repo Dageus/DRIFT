@@ -28,12 +28,13 @@ export class ReputationModule {
     clientAddress: string,
     epoch: bigint,
     merkleRoot: string,
+    treeURI: string,
     signature: string
   ): Promise<void> {
     try {
       const tx = await this._reputationClient(clientAddress)
         .connect(this._requireSigner())
-        .postEpochRoot(epoch, merkleRoot, signature);
+        .postEpochRoot(epoch, merkleRoot, treeURI, signature);
       await tx.wait();
     } catch (err) {
       handleContractError(err, this._interface);
