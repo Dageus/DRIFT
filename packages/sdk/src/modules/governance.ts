@@ -152,6 +152,83 @@ export class GovernanceModule {
     }
   }
 
+/**
+ * Retrieves the snapshot configuration for a proposal.
+ * @param clientAddress The governance client contract address
+ * @param proposalId The proposal ID
+ * @returns snapshotEpoch and configVersion pinned at proposal creation
+ */
+public async getProposalSnapshot(
+  clientAddress: string,
+  proposalId: bigint
+): Promise<{ snapshotEpoch: bigint; configVersion: number }> {
+  try {
+    const gc = this._governanceClient(clientAddress);
+    const result = await gc.getProposalSnapshot(proposalId);
+    return {
+      snapshotEpoch: BigInt(result.snapshotEpoch),
+      configVersion: Number(result.configVersion)
+    };
+  } catch (err) {
+    handleContractError(err, this._interface);
+  }
+}
+
+/**
+ * Retrieves the weight for a role at a specific configuration version.
+ * @param clientAddress The governance client contract address
+ * @param configVersion The weight configuration version
+ * @param role The role identifier
+ * @returns The weight for the role at that version
+ */
+public async getWeightAtVersion(
+  clientAddress: string,
+  configVersion: number,
+  role: string
+): Promise<bigint> {
+  try {
+    const gc = this._governanceClient(clientAddress);
+    const weight = await gc.getWeightAtVersion(configVersion, role);
+    return BigInt(weight);
+  } catch (err) {
+    handleContractError(err, this._interface);
+  }
+}
+
+/**
+ * Simulates voting power for a specific proposal using snapshotted weights.
+ * This is the accurate pre-flight check for casting votes, as it uses the
+ * proposal's pinned configuration version rather than live weights.
+ * @param clientAddress The governance client contract address
+ * @param proposalId The proposal ID to simulate against
+ * @param payload The Proof-of-State payload with roles, scores, and proofs
+ * @returns The total voting power at the proposal's snapshot
+ */
+public async simulateVotingPowerAtSnapshot(
+  clientAddress: string,
+  proposalId: bigint,
+  accountAddress: string, 
+  payload: ProofOfStatePayload
+): Promise<bigint> {
+  this._validatePayload(payload);
+
+  try {
+    const readOnlyClient = this._governanceClient(clientAddress);
+
+    const totalPower = await readOnlyClient.getVotingPowerForProposal.staticCall(
+      proposalId,
+      accountAddress,
+      payload.roles,
+      payload.scores,
+      payload.proofs
+    );
+
+    return totalPower;
+  } catch (err) {
+    handleContractError(err, this._interface);
+  }
+}
+
   // Internal ==================================================================
 
   private _validatePayload(payload: ProofOfStatePayload): void {
