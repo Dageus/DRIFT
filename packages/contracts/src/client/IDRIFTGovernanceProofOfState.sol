@@ -17,13 +17,6 @@ interface IDRIFTGovernanceProofOfState is IDRIFTGovernance {
     error MustUseCreateProposalWithProofs();
     error MustUseCastVoteWithProofs();
 
-    // EVENTS ==================================================================
-
-    /// @notice Emitted when a proposal requiring state proofs is created
-    event ProposalCreated(
-        uint256 indexed proposalId, string description, uint256 deadline, uint256 snapshotEpoch
-    );
-
     // PROOF-OF-STATE LIFECYCLE ================================================
 
     /// @notice Creates a proposal using Merkle state proofs for voter power validation
@@ -76,5 +69,22 @@ interface IDRIFTGovernanceProofOfState is IDRIFTGovernance {
         bytes32[] calldata roles,
         uint256[] calldata scores,
         bytes32[][] calldata proofs
+    ) external view returns (uint256);
+
+    function getVotingPowerForProposal(
+        uint256 proposalId,
+        address account,
+        bytes32[] calldata roles,
+        uint256[] calldata scores,
+        bytes32[][] calldata proofs
+    ) external view returns (uint256 totalPower);
+
+    function getProposalSnapshot(
+        uint256 proposalId
+    ) external view returns (uint256 snapshotEpoch, uint32 configVersion);
+
+    function getWeightAtVersion(
+        uint32 version,
+        bytes32 role
     ) external view returns (uint256);
 }
