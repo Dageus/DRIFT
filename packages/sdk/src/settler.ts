@@ -27,7 +27,7 @@ export interface ProofOfStatePayload {
 }
 
 export class DriftSettler {
-    public readonly signer: Signer;
+  public readonly signer: Signer;
 
   constructor(signer: Signer) {
     this.signer = signer;

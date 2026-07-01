@@ -9,19 +9,19 @@ export class SchemaEncoder {
    * Schema definition mirrors EAS format: "uint256 score,uint256 timestamp"
    */
   decode(record: AttestationRecord, schemaDefinition: string): AttestationData {
-    const types  = schemaDefinition.split(',').map(f => f.trim().split(' ')[0]);
+    const types = schemaDefinition.split(',').map((f) => f.trim().split(' ')[0]);
     const values = this.coder.decode(types, record.data);
 
     return {
-      uid:       record.uid,
-      subject:   record.subject,
-      score:     BigInt(values[0]),   // assumes first field is score
+      uid: record.uid,
+      subject: record.subject,
+      score: BigInt(values[0]), // assumes first field is score
       timestamp: record.timestamp
     };
   }
 
   encode(schemaDefinition: string, values: unknown[]): string {
-    const types = schemaDefinition.split(',').map(f => f.trim().split(' ')[0]);
+    const types = schemaDefinition.split(',').map((f) => f.trim().split(' ')[0]);
     return this.coder.encode(types, values);
   }
 }
