@@ -10,10 +10,17 @@ import {
 export const RPC_URL = 'http://127.0.0.1:8545';
 export const provider = new JsonRpcProvider(RPC_URL);
 
-const mnemonic = process.env.MNEMONIC;
-if (!mnemonic) throw new Error('MNEMONIC environment variable is missing');
+function getMnemonic(): string {
+  const mnemonic = process.env.MNEMONIC;
+  if (!mnemonic) throw new Error('MNEMONIC environment variable is missing');
+  return mnemonic;
+}
 
-export const { deployer, tester, alice, bob } = deriveWallets(mnemonic, provider);
+export function getWallets() {
+  return deriveWallets(getMnemonic(), provider);
+}
+
+export const { deployer, tester, alice, bob } = getWallets();
 
 const deployed = loadDeployments('31337');
 

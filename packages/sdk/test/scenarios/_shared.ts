@@ -1,5 +1,4 @@
 import * as anvil from '../fixtures/anvil.config';
-import * as sepolia from '../fixtures/sepolia.config';
 
 const NETWORK = process.env.NETWORK || 'anvil';
 
@@ -7,8 +6,7 @@ const NETWORK = process.env.NETWORK || 'anvil';
 export type NetworkConfig = typeof anvil;
 
 const configs: Record<string, NetworkConfig> = {
-  anvil,
-  sepolia,
+  anvil
 };
 
 const config = configs[NETWORK];
@@ -16,9 +14,6 @@ const config = configs[NETWORK];
 if (!config) {
   throw new Error(`Unknown network: "${NETWORK}". Available: ${Object.keys(configs).join(', ')}`);
 }
-
-// Validate immediately upon loading the network
-config.validateConfig();
 
 export const {
   provider,

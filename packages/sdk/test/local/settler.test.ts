@@ -3,6 +3,8 @@ import { Wallet, id } from 'ethers';
 import { DriftSettler } from '../../src/settler';
 import type { ScoreEntry } from '../../src/settler';
 
+const mockUploader = async (tree) => `arweave://mock-hash-${Date.now()}`;
+
 describe('DriftSettler Cryptographic Boundaries', () => {
   let settler: DriftSettler;
   let signer: Wallet;
@@ -33,7 +35,13 @@ describe('DriftSettler Cryptographic Boundaries', () => {
       { node: '0x2222222222222222222222222222222222222222', role: role2, score: 500n }
     ];
 
-    const { root, signature, tree } = await settler.buildAndSignEpochRoot(clientAddress, contextUID, epoch, scores);
+    const { root, signature, tree } = await settler.buildAndSignEpochRoot(
+      clientAddress,
+      contextUID,
+      epoch,
+      scores,
+      mockUploader
+    );
 
     expect(root).toMatch(/^0x[a-fA-F0-9]{64}$/);
     expect(signature).toMatch(/^0x[a-fA-F0-9]+/);

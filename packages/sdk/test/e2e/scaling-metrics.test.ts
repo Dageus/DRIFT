@@ -7,6 +7,8 @@ import { Drift } from '../../src';
 import { EASProvider } from '../../src/providers/EAS';
 import SettlerArtifact from '../../../contracts/out/IDRIFTSettler.sol/IDRIFTSettler.json';
 
+const mockUploader = async (tree) => `arweave://mock-hash-${Date.now()}`;
+
 describe('DRIFT Scaling & Latency Benchmarks', () => {
   let drift: Drift;
   let settler: DriftSettler;
@@ -37,13 +39,14 @@ describe('DRIFT Scaling & Latency Benchmarks', () => {
 
     // 1. Deploy Client
     const initData = new Interface([
-      'function initialize(address,address,bytes32,address,uint256,string,bytes32[],uint256[])'
+      'function initialize(address,address,bytes32,address,uint256,uint256,string,bytes32[],uint256[])'
     ]).encodeFunctionData('initialize', [
       ADDRESSES.DRIFTCore,
       ADDRESSES.DRIFTToken,
       contextUID,
       aliceAddr,
       50n,
+      0n,
       'EigenTrust',
       [role],
       [1n]
@@ -63,7 +66,7 @@ describe('DRIFT Scaling & Latency Benchmarks', () => {
     const { root, signature, tree } = await measureAndLogMetric(
       'Tree Gen (Depth 10)',
       Promise.resolve({}),
-      async () => await settler.buildAndSignEpochRoot(clientAddress, contextUID, 1n, scores)
+      async () => await settler.buildAndSignEpochRoot(clientAddress, contextUID, 1n, scores, mockUploader)
     );
 
     expect(tree.dump().values.length).toBe(1024);
@@ -71,7 +74,7 @@ describe('DRIFT Scaling & Latency Benchmarks', () => {
     // 3. Post O(1) Epoch Root
     await measureAndLogMetric(
       'postEpochRoot O(1) (Depth 10)',
-      repContract.postEpochRoot(1n, root, signature).then((tx) => tx.wait())
+      repContract.postEpochRoot(1n, root, '', signature).then((tx) => tx.wait())
     );
 
     // 4. Claim O(log N) Reputation
@@ -89,13 +92,14 @@ describe('DRIFT Scaling & Latency Benchmarks', () => {
 
     // 1. Deploy Target Client
     const initData = new Interface([
-      'function initialize(address,address,bytes32,address,uint256,string,bytes32[],uint256[])'
+      'function initialize(address,address,bytes32,address,uint256,uint256,string,bytes32[],uint256[])'
     ]).encodeFunctionData('initialize', [
       ADDRESSES.DRIFTCore,
       ADDRESSES.DRIFTToken,
       contextUID,
       aliceAddr,
       50n,
+      0n,
       'EigenTrust',
       [role],
       [1n]
@@ -123,7 +127,7 @@ describe('DRIFT Scaling & Latency Benchmarks', () => {
     // 3. Post O(1) Epoch Root
     await measureAndLogMetric(
       'postEpochRoot O(1) (Depth 20)',
-      repContract.postEpochRoot(2n, root, signature).then((tx) => tx.wait())
+      repContract.postEpochRoot(2n, root, '', signature).then((tx) => tx.wait())
     );
 
     // 4. Extract Proof and Verify Mathematical Depth

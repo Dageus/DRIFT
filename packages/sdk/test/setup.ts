@@ -1,3 +1,4 @@
+console.log('Loading setup.ts...');
 import { beforeAll, afterAll } from 'vitest';
 import { provider, deployer, tester, alice, bob, validateConfig, getPendingNonce } from './fixtures/anvil.config';
 

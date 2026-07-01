@@ -1,9 +1,10 @@
 #!/bin/bash
 set -e
 
-# rm packages/contracts/deployments/31337.json
-
 pkill -f "anvil --port 8545" 2>/dev/null || true
+
+export MNEMONIC="test test test test test test test test test test test junk"
+export NETWORK="anvil"
 
 RPC_PORT=8545
 
@@ -44,7 +45,7 @@ cd ../..
 
 cd packages/sdk
 echo "Executing Vitest End-to-End Test Suite..."
-DEBUG=ethers:prover,ethers:contract npx vitest test/e2e/e2e-latency.test.ts run --reporter verbose
+NODE_OPTIONS="--max-old-space-size=8192" npx vitest run test/e2e/e2e-latency.test.ts --reporter verbose
 
 # echo "Executing Vitest Benchmark Test Suite..."
 # DEBUG=ethers:prover,ethers:contract npx vitest test/script run --reporter verbose

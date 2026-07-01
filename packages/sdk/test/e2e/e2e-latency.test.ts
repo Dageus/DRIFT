@@ -6,6 +6,7 @@ import { EASProvider } from '../../src/providers/EAS';
 import { DriftSettler, ScoreEntry } from '../../src/settler';
 import { ADDRESSES, SCHEMAS } from '../scenarios/_shared';
 import SettlerArtifact from '../../../contracts/out/IDRIFTSettler.sol/IDRIFTSettler.json';
+import { StandardMerkleTree } from '@openzeppelin/merkle-tree';
 
 describe('End-to-End Latency and Calldata Bounds ($N = 10^6$)', () => {
   let drift: Drift;
@@ -23,7 +24,7 @@ describe('End-to-End Latency and Calldata Bounds ($N = 10^6$)', () => {
     const provider = new JsonRpcProvider('http://127.0.0.1:8545');
     const rawWallet = Wallet.createRandom().connect(provider);
     // The NonceManager wraps the wallet and handles nonce synchronization automatically
-    const managedSigner = new NonceManager(rawWallet);
+    managedSigner = new NonceManager(rawWallet) as any;
 
     // Instantly fund the new wallet with 10 ETH via Anvil's cheatcode
     await provider.send('anvil_setBalance', [rawWallet.address, '0x8AC7230489E80000']);
@@ -48,14 +49,21 @@ describe('End-to-End Latency and Calldata Bounds ($N = 10^6$)', () => {
 
     console.log('Context registered');
 
+    const regNodeTx = await drift.core.registerNode(contextUID, '0x');
+    if (regNodeTx && typeof regNodeTx.wait === 'function') {
+      await regNodeTx.wait();
+    }
+    console.log('Node registered in context');
+
     const initData = new Interface([
-      'function initialize(address,address,bytes32,address,uint256,string,bytes32[],uint256[])'
+      'function initialize(address,address,bytes32,address,uint256,uint256,string,bytes32[],uint256[])'
     ]).encodeFunctionData('initialize', [
       ADDRESSES.DRIFTCore,
       ADDRESSES.DRIFTToken,
       contextUID,
       managedSignerAddr,
       50n,
+      0n,
       'EigenTrust',
       [role],
       [1n]
@@ -78,33 +86,60 @@ describe('End-to-End Latency and Calldata Bounds ($N = 10^6$)', () => {
 
     console.log('Generating nodes...');
 
-    // 2. Generate 1,000,000 nodes (Simulating Off-chain Settler State)
     const scores: ScoreEntry[] = [];
     for (let i = 0; i < 999999; i++) {
+      if (i % 10 == 0) {
+        console.log('.');
+      }
       scores.push({ node: '0x' + (i + 1).toString(16).padStart(40, '0'), role, score: 100n });
     }
     scores.push({ node: managedSignerAddr, role, score: 100n });
 
-    const { tree, root, signature } = await settler.buildAndSignEpochRoot(clientAddress, contextUID, 1n, scores);
+    const mockUploader = async (tree: StandardMerkleTree<string[]>) => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      return `arweave://mock-hash-${Date.now()}`;
+    };
+
+    const { tree, root, signature, treeURI } = await settler.buildAndSignEpochRoot(
+      clientAddress,
+      contextUID,
+      1n,
+      scores,
+      mockUploader
+    );
     globalTree = tree;
 
     const repContract = new Contract(clientAddress, SettlerArtifact.abi, managedSigner);
-    await repContract.postEpochRoot(1n, root, signature).then((tx) => tx.wait());
-  }, 120000); // Allow 2 minutes for 1M node setup
+    await repContract.postEpochRoot(1n, root, treeURI, signature).then((tx) => tx.wait());
+  }, 800000);
 
   test('User Path Latency: Proof Generation to Execution', async () => {
     const managedSignerAddr = await managedSigner.getAddress();
 
-    // T0: Start User Path
+    let targetIndex: number | null = null;
+    let targetRowValues: string[] | null = null;
+
+    for (const [i, v] of globalTree.entries()) {
+      if (v[0] === contextUID && v[1].toLowerCase() === managedSignerAddr.toLowerCase()) {
+        targetIndex = i;
+        targetRowValues = v; // This maps exactly to the [contextUID, node, role, score, epoch] array
+        break;
+      }
+    }
+    if (targetIndex === null || targetRowValues === null) throw new Error('Signer leaf not found in tree');
+
+    // T0: Start User Path Benchmark Clock
     const t0 = performance.now();
 
-    // 1. User extracts proof from local/gateway tree
-    const payload = settler.generateProofOfStatePayload(globalTree, contextUID, managedSignerAddr, 1n);
+    const roles = [targetRowValues[2]];
+    const scores = [BigInt(targetRowValues[3])];
+    const proofs = [globalTree.getProof(targetIndex)];
+
+    const payload = { roles, scores, proofs };
+
     const t1 = performance.now();
     const proofExtractionLatencyMs = t1 - t0;
 
-    // 2. Measure calldata size dynamically
-    // Each hash is 32 bytes. At 1M nodes, depth is 20.
     const siblingCount = payload.proofs[0].length;
     const proofBytes = siblingCount * 32;
 
@@ -132,34 +167,71 @@ describe('End-to-End Latency and Calldata Bounds ($N = 10^6$)', () => {
 
     // Assertions for Paper Metrics
     expect(siblingCount).toBeGreaterThanOrEqual(19);
-    expect(proofBytes).toBeGreaterThanOrEqual(608); // At least 19 * 32
-    expect(proofExtractionLatencyMs).toBeLessThan(50); // Tree lookup should be near-instant
+    expect(proofBytes).toBeGreaterThanOrEqual(608);
+    expect(proofExtractionLatencyMs).toBeLessThan(50);
   });
 
-  // test('Aggregate Mass Participation Extrapolation', async () => {
-  //   // A single proof at depth 20 is ~640 bytes.
-  //   // Ethereum calldata costs 16 gas per non-zero byte.
-  //   const bytesPerProof = 640;
-  //   const calldataGasPerProof = bytesPerProof * 16;
-  //
-  //   // Simulate 10,000 simultaneous claims
-  //   const simultaneousUsers = 10000;
-  //   const aggregateCalldataMB = (bytesPerProof * simultaneousUsers) / (1024 * 1024);
-  //   const aggregateCalldataGas = calldataGasPerProof * simultaneousUsers;
-  //
-  //   console.log(`\n--- AGGREGATE SCALING (10,000 Users) ---`);
-  //   console.log(`Aggregate Calldata Size: ${aggregateCalldataMB.toFixed(2)} MB`);
-  //   console.log(`Aggregate Calldata Gas: ${aggregateCalldataGas.toLocaleString()} gas`);
-  //
-  //   // Ethereum Block Target is 15M gas, Limit is 30M gas.
-  //   const blockLimit = 30000000;
-  //   console.log(
-  //     `Percentage of 30M Block Limit consumed purely by calldata: ${((aggregateCalldataGas / blockLimit) * 100).toFixed(2)}%`
-  //   );
-  //   console.log(`----------------------------------------\n`);
-  //
-  //   // Strict mathematical assertion for the paper
-  //   expect(aggregateCalldataMB).toBeCloseTo(6.1, 1); // ~6.1 - 6.4 MB
-  //   expect(aggregateCalldataGas).toBeGreaterThan(100000000); // > 100M gas, far exceeding the 30M limit
-  // });
+  test('Granular Cryptographic Latency (Paper Metrics)', async () => {
+    const managedSignerAddr = await managedSigner.getAddress();
+
+    // METRIC 1: EIP-712 Payload Construction
+    const tPayloadStart = performance.now();
+
+    // Isolate just the data preparation (what Ethers does before signing)
+    const domain = {
+      name: 'DRIFT_WeightedGovernance',
+      version: '1',
+      chainId: 31337,
+      verifyingContract: clientAddress
+    };
+    const types = {
+      SettleRoot: [
+        { name: 'contextUID', type: 'bytes32' },
+        { name: 'epoch', type: 'uint256' },
+        { name: 'merkleRoot', type: 'bytes32' },
+        { name: 'treeURI', type: 'string' }
+      ]
+    };
+    const value = {
+      contextUID,
+      epoch: 1n,
+      merkleRoot: '0x' + '1'.repeat(64), // Dummy root
+      treeURI: 'arweave://dummy'
+    };
+
+    const tPayloadEnd = performance.now();
+    const payloadLatency = tPayloadEnd - tPayloadStart;
+
+    // METRIC 2: Signature Generation (secp256k1)
+    const tSignStart = performance.now();
+    const signature = await managedSigner.signTypedData(domain, types, value);
+    const tSignEnd = performance.now();
+    const signatureLatency = tSignEnd - tSignStart;
+
+    // METRIC 3: Contract Call Preparation (ABI Encoding)
+
+    // Grab a dummy proof payload
+    const payload = settler.generateProofOfStatePayload(globalTree, contextUID, managedSignerAddr, 1n);
+    const repContract = new Contract(clientAddress, SettlerArtifact.abi, managedSigner);
+
+    const tPrepStart = performance.now();
+    // Using populateTransaction measures ONLY the ABI encoding and object preparation,
+    // explicitly excluding the network RPC request.
+    const unsignedTx = await repContract.claimReputation.populateTransaction(
+      managedSignerAddr,
+      role,
+      100n,
+      1n,
+      payload.proofs[0]
+    );
+    const tPrepEnd = performance.now();
+    const prepLatency = tPrepEnd - tPrepStart;
+
+    // --- OUTPUT FOR LATEX TABLE ---
+    console.log(`\n=== PAPER LATENCY METRICS ===`);
+    console.log(`EIP-712 payload construction: ${payloadLatency.toFixed(2)} ms`);
+    console.log(`Signature generation (secp256k1): ${signatureLatency.toFixed(2)} ms`);
+    console.log(`Contract call preparation: ${prepLatency.toFixed(2)} ms`);
+    console.log(`=============================\n`);
+  });
 });

@@ -3,6 +3,8 @@ import { EASProvider } from '../../src/providers/EAS';
 import { Wallet, AbiCoder, keccak256, JsonRpcProvider, Interface } from 'ethers';
 import { ADDRESSES, SCHEMAS } from './_shared';
 
+const mockUploader = async (tree) => `arweave://mock-hash-${Date.now()}`;
+
 export interface GovernanceResult {
   contextUID: string;
   clientAddress: string;
@@ -80,7 +82,7 @@ export async function runGovernanceScenario(
   const weights = [10n, 1n];
 
   const initIface = new Interface([
-    'function initialize(address,address,bytes32,address,uint256,string,bytes32[],uint256[])'
+    'function initialize(address,address,bytes32,address,uint256,uint256,string,bytes32[],uint256[])'
   ]);
 
   const initData = initIface.encodeFunctionData('initialize', [
@@ -89,6 +91,7 @@ export async function runGovernanceScenario(
     contextUID,
     testerAddr,
     50n,
+    0n,
     'EigenTrust',
     roles,
     weights
@@ -117,10 +120,11 @@ export async function runGovernanceScenario(
     clientAddress,
     contextUID,
     epoch,
-    scores
+    scores,
+    mockUploader
   );
 
-  await drifttester.reputation.postEpochRoot(clientAddress, epoch, root, signature);
+  await drifttester.reputation.postEpochRoot(clientAddress, epoch, root, '', signature);
 
   // 6. CLAIM REPUTATION =========================================================
   const testerPayload = drifttester.settler!.generateProofOfStatePayload(tree, contextUID, testerAddr, epoch);
