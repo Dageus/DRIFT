@@ -22,7 +22,7 @@ async function floodBlock() {
   const role = id('MEMBER_ROLE');
 
   const initData = new Interface([
-    'function initialize(address,address,bytes32,address,uint256,string,bytes32[],uint256[])'
+    'function initialize(address,address,bytes32,address,uint256,uint256,string,bytes32[],uint256[])'
   ]).encodeFunctionData('initialize', [
     ADDRESSES.DRIFTCore,
     ADDRESSES.DRIFTToken,
@@ -56,10 +56,9 @@ async function floodBlock() {
 
   for (let i = 0; i < 500; i++) {
     const voter = Wallet.createRandom().connect(provider);
-    // Fund voter via Anvil RPC
+
     await provider.send('anvil_setBalance', [voter.address, '0x1000000000000000000']);
 
-    // Distribute load: 10% Depth 20, 20% Depth 15, 30% Depth 10, 40% Depth 5
     const rand = Math.random();
     let targetTree = trees[0];
     if (rand < 0.1) targetTree = trees[3];

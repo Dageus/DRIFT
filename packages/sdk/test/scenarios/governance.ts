@@ -3,8 +3,6 @@ import { EASProvider } from '../../src/providers/EAS';
 import { Wallet, AbiCoder, keccak256, JsonRpcProvider, Interface } from 'ethers';
 import { ADDRESSES, SCHEMAS } from './_shared';
 
-const mockUploader = async (tree) => `arweave://mock-hash-${Date.now()}`;
-
 export interface GovernanceResult {
   contextUID: string;
   clientAddress: string;
@@ -12,7 +10,8 @@ export interface GovernanceResult {
   votesFor: bigint;
 }
 
-// STATELESS WALLET WRAPPER ====================================================
+export const mockUploader = async (tree: any): Promise<string> => `arweave://mock-hash-${Date.now()}`;
+
 function createStatelessWallet(baseWallet: Wallet): Wallet {
   const provider = baseWallet.provider as JsonRpcProvider;
 
@@ -46,7 +45,6 @@ export async function runGovernanceScenario(
   const aliceAddr = await alice.getAddress();
   const bobAddr = await bob.getAddress();
 
-  // 1. INITIALIZE SDK INSTANCES =================================================
   const drifttester = new Drift(tester, {
     coreAddress: ADDRESSES.DRIFTCore,
     factoryAddress: ADDRESSES.Factory,
@@ -65,16 +63,13 @@ export async function runGovernanceScenario(
     attestationProvider: new EASProvider('https://sepolia.easscan.org/graphql', SCHEMAS.depin)
   });
 
-  // 2. REGISTER CONTEXT =========================================================
   const contextName = `governance.e2e.${Date.now()}`;
   const contextUID = await drifttester.core.registerContext(contextName);
 
-  // 3. REGISTER NODES ===========================================================
   await drifttester.core.registerNode(contextUID, '0x');
   await driftAlice.core.registerNode(contextUID, '0x');
   await driftBob.core.registerNode(contextUID, '0x');
 
-  // 4. DEPLOY GOVERNANCE CLIENT =================================================
   const roles = [
     keccak256(new AbiCoder().encode(['string'], ['ADMIN'])),
     keccak256(new AbiCoder().encode(['string'], ['MEMBER']))
@@ -108,7 +103,6 @@ export async function runGovernanceScenario(
     uniqueSalt
   );
 
-  // 5. SETTLE EPOCH ROOT ========================================================
   const epoch = 1n;
   const scores = [
     { node: testerAddr, role: roles[0], score: 100n },
@@ -126,7 +120,6 @@ export async function runGovernanceScenario(
 
   await drifttester.reputation.postEpochRoot(clientAddress, epoch, root, '', signature);
 
-  // 6. CLAIM REPUTATION =========================================================
   const testerPayload = drifttester.settler!.generateProofOfStatePayload(tree, contextUID, testerAddr, epoch);
 
   await drifttester.reputation.claimReputation(
@@ -138,7 +131,6 @@ export async function runGovernanceScenario(
     testerPayload.proofs[0]
   );
 
-  // 7. CREATE PROPOSAL ==========================================================
   const proposalPayload = new AbiCoder().encode(
     ['bytes32', 'bytes32', 'address'],
     [contextUID, keccak256(new AbiCoder().encode(['string'], ['test-schema'])), testerAddr]
@@ -153,11 +145,9 @@ export async function runGovernanceScenario(
     testerPayload
   );
 
-  // 8. CAST VOTE ================================================================
   const alicePayload = driftAlice.settler!.generateProofOfStatePayload(tree, contextUID, aliceAddr, epoch);
   await driftAlice.governance.castVoteWithProofs(clientAddress, proposalId, true, alicePayload);
 
-  // 9. VERIFY ===================================================================
   const proposal = await drifttester.governance.getProposal(clientAddress, proposalId);
   if (!proposal) throw new Error('Proposal not found');
 

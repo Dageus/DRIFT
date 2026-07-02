@@ -2,7 +2,6 @@ import * as anvil from '../fixtures/anvil.config';
 
 const NETWORK = process.env.NETWORK || 'anvil';
 
-// We extract the type from one of the standardized configs to enforce uniformity.
 export type NetworkConfig = typeof anvil;
 
 const configs: Record<string, NetworkConfig> = {

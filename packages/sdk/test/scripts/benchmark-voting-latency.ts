@@ -6,10 +6,9 @@ import SettlerArtifact from '../../../contracts/out/IDRIFTSettler.sol/IDRIFTSett
 import { DriftSettler, ScoreEntry } from '../../src/settler';
 import { Drift } from '../../src/drift';
 import { EASProvider } from '../../src/providers/EAS';
-
 import { ADDRESSES, SCHEMAS } from '../fixtures/anvil.config';
+import { mockUploader } from '../scenarios/governance';
 
-// Standard Foundry mnemonic
 const MNEMONIC = process.env.MNEMONIC || 'test test test test test test test test test test test junk';
 
 async function generateTreeAndRunBenchmarks() {
@@ -42,7 +41,8 @@ async function generateTreeAndRunBenchmarks() {
     ADDRESSES.WeightedGovernanceTemplate,
     contextUID,
     epoch,
-    scores
+    scores,
+    mockUploader
   );
 
   if (!fs.existsSync('./drift-trees')) fs.mkdirSync('./drift-trees');
@@ -60,13 +60,14 @@ async function generateTreeAndRunBenchmarks() {
     await drift.core.registerContext(contextUID);
 
     const initData = new Interface([
-      'function initialize(address,address,bytes32,address,uint256,string,bytes32[],uint256[])'
+      'function initialize(address,address,bytes32,address,uint256,uint256,string,bytes32[],uint256[])'
     ]).encodeFunctionData('initialize', [
       ADDRESSES.DRIFTCore,
       ADDRESSES.DRIFTToken,
       contextUID,
       deployer.address,
       50n,
+      0n,
       'EigenTrust',
       [role],
       [1n]
@@ -86,16 +87,16 @@ async function generateTreeAndRunBenchmarks() {
         SettleRoot: [
           { name: 'contextUID', type: 'bytes32' },
           { name: 'epoch', type: 'uint256' },
-          { name: 'merkleRoot', type: 'bytes32' }
+          { name: 'merkleRoot', type: 'bytes32' },
+          { name: 'treeURI', type: 'string' }
         ]
       },
-      { contextUID, epoch, merkleRoot: root }
+      { contextUID, epoch, merkleRoot: root, treeURI: '' }
     );
 
     const repContract = new Contract(clientAddress, SettlerArtifact.abi, deployer);
-    await (await repContract.postEpochRoot(epoch, root, signature)).wait();
+    await (await repContract.postEpochRoot(epoch, root, '', signature)).wait();
 
-    // 3. Create Proposal
     const deployerPayload = settler.generateProofOfStatePayload(tree, contextUID, deployer.address, epoch);
     const govContractDeployer = new Contract(clientAddress, IGovArtifact.abi, deployer);
     const txProp = await govContractDeployer.createProposalWithProofs(
@@ -108,24 +109,17 @@ async function generateTreeAndRunBenchmarks() {
       deployerPayload.proofs
     );
     await txProp.wait();
-    const proposalId = 0n; // ID will be 0 for a fresh context
+    const proposalId = 0n;
 
-    // =========================================================================
-    // BENCHMARK: User Voting Path
-    // =========================================================================
-
-    // T1: Fetch Data (Simulated Client I/O)
     const tFetchStart = performance.now();
     const treeData = JSON.parse(fs.readFileSync('./drift-trees/1M_node_benchmark.json', 'utf-8'));
     const tFetchEnd = performance.now();
 
-    // T2: Extract Proof Locally
     const voterSettler = new DriftSettler(voterWallet);
     const tProofStart = performance.now();
     const payload = voterSettler.generateProofOfStatePayload(treeData, contextUID, voterWallet.address, epoch);
     const tProofEnd = performance.now();
 
-    // T3: Transmit and Confirm Vote
     const govContract = new Contract(clientAddress, IGovArtifact.abi, voterWallet);
 
     const tNetStart = performance.now();
@@ -135,7 +129,6 @@ async function generateTreeAndRunBenchmarks() {
     const receipt = await tx.wait(1);
     const tNetConfirm = performance.now();
 
-    // T4: Results
     console.log(`[Client] Tree Load (I/O): ${(tFetchEnd - tFetchStart).toFixed(2)} ms`);
     console.log(`[Client] Proof Extraction: ${(tProofEnd - tProofStart).toFixed(2)} ms`);
     console.log(`[Network] RPC Mempool Ack: ${(tNetMempool - tNetStart).toFixed(2)} ms`);

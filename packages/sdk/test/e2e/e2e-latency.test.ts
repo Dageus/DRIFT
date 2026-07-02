@@ -23,10 +23,9 @@ describe('End-to-End Latency and Calldata Bounds ($N = 10^6$)', () => {
   beforeAll(async () => {
     const provider = new JsonRpcProvider('http://127.0.0.1:8545');
     const rawWallet = Wallet.createRandom().connect(provider);
-    // The NonceManager wraps the wallet and handles nonce synchronization automatically
+    
     managedSigner = new NonceManager(rawWallet) as any;
 
-    // Instantly fund the new wallet with 10 ETH via Anvil's cheatcode
     await provider.send('anvil_setBalance', [rawWallet.address, '0x8AC7230489E80000']);
 
     console.log('Balance set');
@@ -72,18 +71,17 @@ describe('End-to-End Latency and Calldata Bounds ($N = 10^6$)', () => {
     console.log('Interface initialized');
 
     const correctNonce = await provider.getTransactionCount(rawWallet.address, 'latest');
-    console.log('Using nonce:', correctNonce); // should be 1
+    console.log('Using nonce:', correctNonce);
 
     clientAddress = await drift.factory.deployClient(
       contextUID,
       ADDRESSES.WeightedGovernanceTemplate,
       initData,
       id('saltE2E'),
-      { nonce: correctNonce } // pass it through
+      { nonce: correctNonce }
     );
 
     console.log('Client deployed');
-
     console.log('Generating nodes...');
 
     const scores: ScoreEntry[] = [];
@@ -122,13 +120,12 @@ describe('End-to-End Latency and Calldata Bounds ($N = 10^6$)', () => {
     for (const [i, v] of globalTree.entries()) {
       if (v[0] === contextUID && v[1].toLowerCase() === managedSignerAddr.toLowerCase()) {
         targetIndex = i;
-        targetRowValues = v; // This maps exactly to the [contextUID, node, role, score, epoch] array
+        targetRowValues = v;
         break;
       }
     }
     if (targetIndex === null || targetRowValues === null) throw new Error('Signer leaf not found in tree');
 
-    // T0: Start User Path Benchmark Clock
     const t0 = performance.now();
 
     const roles = [targetRowValues[2]];
@@ -148,7 +145,6 @@ describe('End-to-End Latency and Calldata Bounds ($N = 10^6$)', () => {
     console.log(`Proof Size: ${proofBytes} bytes`);
     console.log(`Proof Extraction Latency: ${proofExtractionLatencyMs.toFixed(2)} ms`);
 
-    // 3. Execute On-Chain Vote
     const repContract = new Contract(clientAddress, SettlerArtifact.abi, managedSigner);
     const tx = await repContract.claimReputation(managedSignerAddr, role, 100n, 1n, payload.proofs[0]);
 
@@ -165,7 +161,6 @@ describe('End-to-End Latency and Calldata Bounds ($N = 10^6$)', () => {
     console.log(`Gas Used: ${receipt.gasUsed}`);
     console.log(`-------------------------\n`);
 
-    // Assertions for Paper Metrics
     expect(siblingCount).toBeGreaterThanOrEqual(19);
     expect(proofBytes).toBeGreaterThanOrEqual(608);
     expect(proofExtractionLatencyMs).toBeLessThan(50);
@@ -174,10 +169,8 @@ describe('End-to-End Latency and Calldata Bounds ($N = 10^6$)', () => {
   test('Granular Cryptographic Latency (Paper Metrics)', async () => {
     const managedSignerAddr = await managedSigner.getAddress();
 
-    // METRIC 1: EIP-712 Payload Construction
     const tPayloadStart = performance.now();
 
-    // Isolate just the data preparation (what Ethers does before signing)
     const domain = {
       name: 'DRIFT_WeightedGovernance',
       version: '1',
@@ -195,29 +188,23 @@ describe('End-to-End Latency and Calldata Bounds ($N = 10^6$)', () => {
     const value = {
       contextUID,
       epoch: 1n,
-      merkleRoot: '0x' + '1'.repeat(64), // Dummy root
+      merkleRoot: '0x' + '1'.repeat(64),
       treeURI: 'arweave://dummy'
     };
 
     const tPayloadEnd = performance.now();
     const payloadLatency = tPayloadEnd - tPayloadStart;
 
-    // METRIC 2: Signature Generation (secp256k1)
     const tSignStart = performance.now();
-    const signature = await managedSigner.signTypedData(domain, types, value);
+    await managedSigner.signTypedData(domain, types, value);
     const tSignEnd = performance.now();
     const signatureLatency = tSignEnd - tSignStart;
 
-    // METRIC 3: Contract Call Preparation (ABI Encoding)
-
-    // Grab a dummy proof payload
     const payload = settler.generateProofOfStatePayload(globalTree, contextUID, managedSignerAddr, 1n);
     const repContract = new Contract(clientAddress, SettlerArtifact.abi, managedSigner);
 
     const tPrepStart = performance.now();
-    // Using populateTransaction measures ONLY the ABI encoding and object preparation,
-    // explicitly excluding the network RPC request.
-    const unsignedTx = await repContract.claimReputation.populateTransaction(
+    await repContract.claimReputation.populateTransaction(
       managedSignerAddr,
       role,
       100n,
@@ -227,7 +214,6 @@ describe('End-to-End Latency and Calldata Bounds ($N = 10^6$)', () => {
     const tPrepEnd = performance.now();
     const prepLatency = tPrepEnd - tPrepStart;
 
-    // --- OUTPUT FOR LATEX TABLE ---
     console.log(`\n=== PAPER LATENCY METRICS ===`);
     console.log(`EIP-712 payload construction: ${payloadLatency.toFixed(2)} ms`);
     console.log(`Signature generation (secp256k1): ${signatureLatency.toFixed(2)} ms`);

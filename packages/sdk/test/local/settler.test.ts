@@ -63,7 +63,6 @@ describe('DriftSettler Cryptographic Boundaries', () => {
 
     const payload = settler.generateProofOfStatePayload(tree, contextUID, targetNode, epoch);
 
-    // Assert Contextual Integrity: The arrays MUST be strictly parallel
     expect(payload.roles.length).toBe(2);
     expect(payload.scores.length).toBe(2);
     expect(payload.proofs.length).toBe(2);

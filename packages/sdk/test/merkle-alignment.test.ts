@@ -4,7 +4,6 @@ import { describe, test } from 'vitest';
 
 describe('Merkle Tree Alignment', () => {
   test('verify structure', () => {
-    // Exact parameters from your test
     const contextUID = '0x0000000000000000000000000000000000000000000000000000000000000001';
     const node1 = '0x000000000000000000000000000000000000000A';
     const node2 = '0x000000000000000000000000000000000000000B';

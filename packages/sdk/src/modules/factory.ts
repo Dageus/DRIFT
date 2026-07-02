@@ -49,8 +49,6 @@ export class DriftFactory {
 
     const cloneAddress = deployedEvent.args[1];
 
-    console.log('Client deployed at:', cloneAddress);
-
     return cloneAddress;
   }
 }

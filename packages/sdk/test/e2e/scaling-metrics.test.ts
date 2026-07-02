@@ -7,7 +7,7 @@ import { Drift } from '../../src';
 import { EASProvider } from '../../src/providers/EAS';
 import SettlerArtifact from '../../../contracts/out/IDRIFTSettler.sol/IDRIFTSettler.json';
 
-const mockUploader = async (tree) => `arweave://mock-hash-${Date.now()}`;
+const mockUploader = async (tree: any) => `arweave://mock-hash-${Date.now()}`;
 
 describe('DRIFT Scaling & Latency Benchmarks', () => {
   let drift: Drift;
@@ -37,7 +37,6 @@ describe('DRIFT Scaling & Latency Benchmarks', () => {
     const contextUID = await drift.core.registerContext('Scaling.Depth10.' + Date.now());
     const aliceAddr = await alice.getAddress();
 
-    // 1. Deploy Client
     const initData = new Interface([
       'function initialize(address,address,bytes32,address,uint256,uint256,string,bytes32[],uint256[])'
     ]).encodeFunctionData('initialize', [
@@ -60,7 +59,6 @@ describe('DRIFT Scaling & Latency Benchmarks', () => {
     );
     const repContract = new Contract(clientAddress, SettlerArtifact.abi, alice);
 
-    // 2. Generate 1,024 Node Tree Off-chain
     const scores = await generateMockScores(1023);
 
     const { root, signature, tree } = await measureAndLogMetric(
@@ -71,13 +69,11 @@ describe('DRIFT Scaling & Latency Benchmarks', () => {
 
     expect(tree.dump().values.length).toBe(1024);
 
-    // 3. Post O(1) Epoch Root
     await measureAndLogMetric(
       'postEpochRoot O(1) (Depth 10)',
       repContract.postEpochRoot(1n, root, '', signature).then((tx) => tx.wait())
     );
 
-    // 4. Claim O(log N) Reputation
     const payload = settler.generateProofOfStatePayload(tree, contextUID, aliceAddr, 1n);
 
     await measureAndLogMetric(
@@ -90,7 +86,6 @@ describe('DRIFT Scaling & Latency Benchmarks', () => {
     const contextUID = await drift.core.registerContext('Scaling.Depth20.' + Date.now());
     const aliceAddr = await alice.getAddress();
 
-    // 1. Deploy Target Client
     const initData = new Interface([
       'function initialize(address,address,bytes32,address,uint256,uint256,string,bytes32[],uint256[])'
     ]).encodeFunctionData('initialize', [
@@ -113,38 +108,31 @@ describe('DRIFT Scaling & Latency Benchmarks', () => {
     );
     const repContract = new Contract(clientAddress, SettlerArtifact.abi, alice);
 
-    // 2. Generate 1,000,000 Node Tree Off-chain
     const scores = await generateMockScores(999999);
 
     const { root, signature, tree } = await measureAndLogMetric(
       'Tree Gen (Depth 20)',
       Promise.resolve({}),
-      async () => await settler.buildAndSignEpochRoot(clientAddress, contextUID, 2n, scores)
+      async () => await settler.buildAndSignEpochRoot(clientAddress, contextUID, 2n, scores, mockUploader)
     );
 
     expect(tree.dump().values.length).toBe(1000000);
 
-    // 3. Post O(1) Epoch Root
     await measureAndLogMetric(
       'postEpochRoot O(1) (Depth 20)',
       repContract.postEpochRoot(2n, root, '', signature).then((tx) => tx.wait())
     );
 
-    // 4. Extract Proof and Verify Mathematical Depth
     const payload = settler.generateProofOfStatePayload(tree, contextUID, aliceAddr, 2n);
 
-    // Depth for 1,000,000 leaves is strictly 20.
     expect(payload.proofs[0].length).toBeGreaterThanOrEqual(19);
     expect(payload.proofs[0].length).toBeLessThanOrEqual(21);
 
-    // 5. Execute O(log N) Claim and Assert Gas Boundary
     const txReceipt = (await measureAndLogMetric(
       'claimReputation O(log n) (Depth 20)',
       repContract.claimReputation(aliceAddr, role, 100n, 2n, payload.proofs[0]).then((tx) => tx.wait())
     )) as any;
 
-    // Assert that the calldata overhead + execution does not break 120,000 gas.
-    // If this fails, your paper's claim of ~92,000 gas is false and must be corrected.
     expect(BigInt(txReceipt.gasUsed)).toBeLessThan(120000n);
-  }, 120000); // 120s timeout required for 1M node generation in V8
+  }, 120000);
 });
