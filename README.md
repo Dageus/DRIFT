@@ -9,7 +9,7 @@ Decentralized Reputation Infrastructure for Trust
 
 ## Introduction
 
-DRIFT is a context-scoped reputation protocol for decentralized networks. It operates atop existing attestation layers (EAS, Verax) to aggregate signed claims into verifiable, Sybil-resistant reputation scores.
+DRIFT is a protocol that treats reputation as a scalable, context-scoped primitive. By moving heavy algorithmic trust computations off-chain and utilizing succinct state proofs for on-chain settlement, DRIFT achieves constant-cost global updates and fast user verification without expanding ledger storage footprints.
 
 The protocol is built on three design principles:
 
@@ -23,7 +23,7 @@ The protocol is built on three design principles:
 
 ### Context
 
-A context is a unique, namespaced reputation domain registered permissionlessly. Each context exposes an anti-spam commitment barrier (0.01 ether) and dictates its verification profile: accepted attestation schemas, evaluation adapters, and administrators (via OpenZeppelin AccessControl). Context identifiers (`contextUID`) are derived deterministically via `keccak256(abi.encodePacked(name))`.
+A context is a unique, namespaced reputation domain registered permissionlessly. Each context dictates its verification profile: accepted attestation schemas, evaluation adapters, and administrators (via OpenZeppelin AccessControl). Context identifiers (`contextUID`) are derived deterministically via `keccak256(abi.encodePacked(name))`.
 
 ### Schema
 
@@ -77,6 +77,12 @@ Contract addresses are stored in `packages/contracts/deployments/{chainId}.json`
 - [`/contracts`](./packages/contracts/) — Foundry project containing core protocol registries, soulbound token factories, context gatekeepers, and governance templates.
 
 - [`/sdk`](./packages/sdk/) — Node.js/TypeScript SDK with data providers, off-chain computation engines, and EIP-712 settlement oracles.
+
+## Prerequisites
+
+- [`NodeJS`](https://nodejs.org/)
+
+- [`Foundry`](https://www.getfoundry.sh/)
 
 ## License
 
