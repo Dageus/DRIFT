@@ -1,16 +1,16 @@
 # DRIFT Smart Contracts
 
-This repository contains the core smart contract primitives for DRIFT (Decentralized Reputation Infrastructure for Trust). The codebase isolates structural participant verification, identity-bound credential ledgers, and pluggable governance execution templates.
+This package contains the foundational on-chain ledger and execution layers for DRIFT (Decentralized Reputation Infrastructure for Trust). The codebase establishes a secure boundary for context isolation, identity-bound credential registries, and pluggable governance modules.
 
-The architecture deploys via EIP-1167 minimal proxy factories to prevent on-chain state bloat and reduce deployment gas costs for context creators.
+To prevent state bloat and control initialization overhead for context builders, DRIFT utilizes **EIP-1167 Minimal Proxy Clones**, ensuring that deploying a secure meritocratic ecosystem scales efficiently under strict gas parameters.
 
 ## Core Architecture Components
 
-**DRIFTCore.sol** manages organizational context spaces, handles schema links, and acts as the gatekeeper ledger for active node states.
+- **DRIFTCore.sol:** The global administrative registry. It anchors organizational namespace allocations (`contextUID`), maintains active cryptographic data stream mappings (`schemaUID` whitelists), and governs participant verification states.
 
-**DRIFTToken.sol** is an EIP-1155 multi-token registry tracking identity-bound attributes. Transfers are explicitly short-circuited to guarantee non-transferable credentials.
+- **DRIFTToken.sol**: An identity-bound, soulbound **EIP-1155 Multi-Token Ledger** tracking score weights across isolated `(Context, Role)` vectors. Transfer operations are hard-coded to `revert` to prevent credential monetization or hijack exploits.
 
-**WeightedGovernanceClient.sol** consumes off-chain computational assertions (e.g., EigenTrust) by verifying EIP-712 signatures from a trusted settler. It handles proposal configurations and translates token ownership into voting power coefficients.
+- **WeightedGovernanceClient.sol**: A pluggable, proof-of-state governance execution client. Unlike conventional token-weighted systems, it implements cryptographic verification via state proofs (`createProposalWithProofs` and `castVoteWithProofs`), enabling execution power to be driven by earned, epoch-pivoted reputation bounds.
 
 ## Implementing a Client Contract
 
@@ -32,47 +32,33 @@ Once registered, context administrators configure trust boundaries by adding sch
 sequenceDiagram
     autonumber
     actor User as Participant Node
-    participant Front as DApp Frontend (DriftClient SDK)
-    participant EAS as EAS Subgraph (GraphQL Data)
-    participant Settler as DriftSettler (Off-Chain Engine)
-    participant Core as DRIFTCore Contract (Registry)
-    participant Gov as Governance Client Clone
-    participant Token as DRIFTToken Contract (Ledger)
+    participant SDK as DriftClient SDK
+    participant Settler as DriftSettler (Oracle Node)
+    participant Gov as WeightedGovernance Client
+    participant Core as DRIFTCore Contract
 
-    User->>Front: Click "Settle My Score"
-    Front->>Front: Extract active account, role & contextUID
-    Front->>Settler: HTTP POST /api/v1/settle<br/>{ userAddress, role, contextUID }
-    activate Settler
-    Settler->>EAS: GraphQL Query (fetchUserRecords / fetchRecordsByAttester)
-    EAS-->>Settler: Return raw hex AttestationRecord[]
+    Note over User,Core: 1. Off-Chain Root Generation & Settlement
+    Settler->>Settler: Compile Graph-Based Iterative Propagation Math
+    Settler->>Settler: Generate Merkle Tree From Node Dataset
+    Settler->>Settler: Sign EIP-712 Data Envelope
+    Settler->>Gov: postEpochRoot(epoch, root, treeURI, signature)
+    Gov->>Gov: Validate Settler Signature & Commit Merkle Root State
 
-    Settler->>Settler: Execute EigenTrustEngine matrix math
-    Settler->>Settler: Sign calculation payload using EIP-712 Domain Separator
-    Settler-->>Front: Return JSON JSON { score, epoch, signature }
-    deactivate Settler
-
-    Front->>User: Prompt MetaMask Signature Call
-    User->>Front: Approve & sign transaction gas fees
-    Front->>Gov: settleReputation(node, role, score, epoch, signature)
+    Note over User,Core: 2. Decentralized User Path Verification
+    User->>SDK: Initiate Claim Request
+    SDK->>SDK: Extract Account Index & Local Proof Branch ($O(\log n)$ Path)
+    SDK->>Gov: claimReputation(node, role, score, epoch, proof)
     activate Gov
-
-    Gov->>Gov: Replay Check: require(!consumedDigests[digest])
-    Gov->>Gov: Cryptographic Recovery: ECDSA.recover(digest, sig)
-    Gov->>Gov: Assert Signer: require(recovered == trustedSettler)
-
-    Gov->>Core: reward(contextUID, role, node, score)
+    
+    Gov->>Core: Validate Registry Status
     activate Core
-    Core->>Core: Assert Onboarding Status:<br/>nodeStatus != NONE && nodeStatus != BANNED
-    Core->>Token: rewardReputation(node, tokenId, score)
-    activate Token
-    Token-->>Core: Success (State modified)
-    deactivate Token
-    Core-->>Gov: Success
+    Core-->>Gov: Active Node Confirmed
     deactivate Core
-
-    Gov-->>Front: Emit ReputationSettled(contextUID, node, role, score, epoch)
+    
+    Gov->>Gov: Assert Merkle Proof Against Checked Epoch Root
+    Gov->>Gov: Mint Context-Scoped Soulbound Token Balance
+    Gov-->>User: Emit ReputationSettled()
     deactivate Gov
-    Front-->>User: UI Update: Display Settlement Success
 ```
 
 ## Development
@@ -94,8 +80,8 @@ EVM:
 ### Setup
 
 ```bash
-git clone https://github.com/drift-org/DRIFT
-cd DRIFT
+git clone https://github.com/Dageus/DRIFT
+cd DRIFT/packages/contracts
 
 # Install Foundry dependencies
 forge install
