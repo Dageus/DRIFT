@@ -58,7 +58,7 @@ contract WeightedGovernanceClientTest is DRIFTTestHelper {
             address(driftToken),
             contextUID,
             settler,
-            100, // Proposal threshold is 100 voting power
+            100,
             0,
             "EigenTrust",
             roles,
@@ -125,8 +125,8 @@ contract WeightedGovernanceClientTest is DRIFTTestHelper {
         core.registerNode(contextUID, "0x");
 
         uint256 epoch = 1;
-        uint256 proposerScore = 50; // Power = 50 * 5 = 250 (Meets 100 threshold)
-        uint256 voterScore = 100; // Power = 100 * 1 = 100
+        uint256 proposerScore = 50; // 50 * 5 = 250
+        uint256 voterScore = 100; // 100 * 1 = 100
 
         bytes32 leaf1 = keccak256(
             bytes.concat(
