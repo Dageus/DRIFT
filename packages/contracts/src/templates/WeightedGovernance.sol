@@ -42,6 +42,7 @@ contract WeightedGovernanceClient is
     error InvalidEpochLength();
     error EpochLengthNotConfigured();
     error EpochNotYetElapsed(uint256 requiredBlock, uint256 currentBlock);
+    error WeightsNotNormalized(uint256 sum, uint256 expected);
 
     // State Variables
     string private _reputationAlgorithm;
@@ -62,6 +63,9 @@ contract WeightedGovernanceClient is
         "SettleRoot(bytes32 contextUID,uint256 epoch,bytes32 merkleRoot,string treeURI)"
     );
 
+    /// @notice Fixed-point scale role weights must sum to (w_r in [0, WEIGHT_SCALE], sum == WEIGHT_SCALE).
+    uint256 public constant WEIGHT_SCALE = 10_000;
+
     // Mappings
     mapping(uint256 => bytes32) public epochRoots;
     mapping(address => mapping(bytes32 => uint256)) public lastClaimedEpoch;
@@ -72,12 +76,14 @@ contract WeightedGovernanceClient is
     // Versioned Weight Configuration
     uint32 public currentConfigVersion;
     mapping(uint32 => WeightConfig) private _weightHistory;
+    /// @notice The weight config version in effect when each epoch was settled (set in postEpochRoot).
+    mapping(uint256 => uint32) public epochConfigVersion;
 
     uint256 public proposalCount;
     mapping(uint256 => Proposal) public proposals;
 
     // Events
-    event RoleWeightUpdated(bytes32 indexed role, uint256 weight, uint32 indexed configVersion);
+    event RoleWeightsUpdated(uint32 indexed configVersion);
     event EpochLengthConfigured(uint256 epochLength, uint256 epochAnchorBlock);
 
     /// @notice Struct representing a versioned weight configuration snapshot
@@ -142,6 +148,12 @@ contract WeightedGovernanceClient is
         if (_roles.length != _weights.length) revert ArrayLengthMismatch();
         if (_roles.length > 10) revert MaximumRoleLengthExceeded();
 
+        uint256 weightSum = 0;
+        for (uint256 i = 0; i < _weights.length; i++) {
+            weightSum += _weights[i];
+        }
+        if (weightSum != WEIGHT_SCALE) revert WeightsNotNormalized(weightSum, WEIGHT_SCALE);
+
         __EIP712_init("DRIFT_WeightedGovernance", "1");
 
         core = IDRIFTCore(_core);
@@ -168,26 +180,40 @@ contract WeightedGovernanceClient is
 
     // ROLE WEIGHTS & CONFIG ===================================================
 
-    /// @notice Updates the voting weight associated with a specific role
-    /// @param role The identifier of the role
-    /// @param weight The new weight to apply
-    function setRoleWeight(
-        bytes32 role,
-        uint256 weight
+    /// @notice Replaces the full active role set and weights in one call. Weights must sum to
+    ///         WEIGHT_SCALE — a single-role update cannot preserve that invariant, so partial
+    ///         weight edits are not supported.
+    /// @param roles Complete set of active roles after this call
+    /// @param weights Weights corresponding to `roles`, must sum to WEIGHT_SCALE
+    function setRoleWeights(
+        bytes32[] calldata roles,
+        uint256[] calldata weights
     ) external onlyContextAdmin {
-        roleWeights[role] = weight;
+        if (roles.length != weights.length) revert ArrayLengthMismatch();
+        if (roles.length > 10) revert MaximumRoleLengthExceeded();
+
+        uint256 weightSum = 0;
+        for (uint256 i = 0; i < weights.length; i++) {
+            weightSum += weights[i];
+        }
+        if (weightSum != WEIGHT_SCALE) revert WeightsNotNormalized(weightSum, WEIGHT_SCALE);
+
+        for (uint256 i = 0; i < activeRoles.length; i++) {
+            delete roleWeights[activeRoles[i]];
+        }
+        delete activeRoles;
 
         currentConfigVersion++;
         WeightConfig storage newConfig = _weightHistory[currentConfigVersion];
 
-        // Copy all active roles to the new version
-        for (uint256 i = 0; i < activeRoles.length; i++) {
-            bytes32 r = activeRoles[i];
-            newConfig.roles.push(r);
-            newConfig.weights[r] = roleWeights[r];
+        for (uint256 i = 0; i < roles.length; i++) {
+            activeRoles.push(roles[i]);
+            roleWeights[roles[i]] = weights[i];
+            newConfig.roles.push(roles[i]);
+            newConfig.weights[roles[i]] = weights[i];
         }
 
-        emit RoleWeightUpdated(role, weight, currentConfigVersion);
+        emit RoleWeightsUpdated(currentConfigVersion);
     }
 
     /// @notice Fixes the epoch length (β, in blocks) and anchors epoch boundaries to the current
@@ -291,6 +317,7 @@ contract WeightedGovernanceClient is
 
         currentEpoch = epoch;
         epochRoots[epoch] = merkleRoot;
+        epochConfigVersion[epoch] = currentConfigVersion;
 
         emit EpochRootPosted(contextUID, epoch, merkleRoot, treeURI);
     }
@@ -386,6 +413,9 @@ contract WeightedGovernanceClient is
             revert ArrayLengthMismatch();
         }
 
+        uint32 pinnedConfigVersion = epochConfigVersion[currentEpoch];
+        WeightConfig storage pinnedConfig = _weightHistory[pinnedConfigVersion];
+
         uint256 proposerPower = 0;
         bytes32 root = epochRoots[currentEpoch];
 
@@ -398,7 +428,7 @@ contract WeightedGovernanceClient is
                 revert InvalidMerkleProof();
             }
 
-            proposerPower += (score * roleWeights[role]);
+            proposerPower += (score * pinnedConfig.weights[role]) / WEIGHT_SCALE;
         }
 
         if (proposerPower < proposalThreshold) revert BelowProposalThreshold();
@@ -412,7 +442,7 @@ contract WeightedGovernanceClient is
         p.target = target;
         p.payload = payload;
         p.snapshotEpoch = currentEpoch;
-        p.configVersion = currentConfigVersion;
+        p.configVersion = pinnedConfigVersion;
 
         emit ProposalCreated(id, description, p.deadline, p.snapshotEpoch, p.configVersion);
         return id;
@@ -489,7 +519,7 @@ contract WeightedGovernanceClient is
                 revert InvalidMerkleProof();
             }
 
-            totalPower += scores[i] * weight;
+            totalPower += (scores[i] * weight) / WEIGHT_SCALE;
         }
 
         if (totalPower == 0) revert NoVotingPower(msg.sender);
@@ -524,7 +554,7 @@ contract WeightedGovernanceClient is
             bytes32 leaf = _canonicalLeaf(account, roles[i], scores[i], p.snapshotEpoch);
             if (MerkleProof.verify(proofs[i], root, leaf)) {
                 uint256 weight = _weightHistory[p.configVersion].weights[roles[i]];
-                totalPower += (scores[i] * weight);
+                totalPower += (scores[i] * weight) / WEIGHT_SCALE;
             }
         }
     }
@@ -545,12 +575,14 @@ contract WeightedGovernanceClient is
         bytes32 root = epochRoots[epoch];
         if (root == bytes32(0)) revert EpochNotFound(epoch);
 
+        WeightConfig storage configAtEpoch = _weightHistory[epochConfigVersion[epoch]];
+
         for (uint256 i = 0; i < roles.length; i++) {
             bytes32 leaf = _canonicalLeaf(account, roles[i], scores[i], epoch);
             if (!MerkleProof.verify(proofs[i], root, leaf)) {
                 revert InvalidMerkleProof();
             }
-            totalPower += (scores[i] * roleWeights[roles[i]]);
+            totalPower += (scores[i] * configAtEpoch.weights[roles[i]]) / WEIGHT_SCALE;
         }
     }
 

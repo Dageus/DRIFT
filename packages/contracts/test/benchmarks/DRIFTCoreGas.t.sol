@@ -81,6 +81,7 @@ contract DRIFTCoreGasBenchmarkTest is Test {
     function test_Benchmark_DeployClientClone() public {
         bytes32[] memory roles = new bytes32[](1);
         uint256[] memory weights = new uint256[](1);
+        weights[0] = 10_000;
         bytes memory initData = abi.encodeWithSelector(
             WeightedGovernanceClient.initialize.selector,
             address(core),

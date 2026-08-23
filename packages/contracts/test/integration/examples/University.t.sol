@@ -59,8 +59,8 @@ contract UniversityScenarioTest is Test {
         roles[1] = ROLE_PROFESSOR;
 
         uint256[] memory weights = new uint256[](2);
-        weights[0] = 1;
-        weights[1] = 50;
+        weights[0] = 1000; // STUDENT: 10%
+        weights[1] = 9000; // PROFESSOR: 90%
 
         bytes memory initData = abi.encodeWithSelector(
             WeightedGovernanceClient.initialize.selector,

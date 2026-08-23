@@ -52,8 +52,8 @@ contract WeightedGovernanceClientTest is DRIFTTestHelper {
         roles[1] = ROLE_PROFESSOR;
 
         uint256[] memory weights = new uint256[](2);
-        weights[0] = 1;
-        weights[1] = 5;
+        weights[0] = 2000; // STUDENT: 20%
+        weights[1] = 8000; // PROFESSOR: 80%
 
         bytes memory initData = abi.encodeWithSelector(
             WeightedGovernanceClient.initialize.selector,
@@ -61,7 +61,7 @@ contract WeightedGovernanceClientTest is DRIFTTestHelper {
             address(driftToken),
             contextUID,
             settler,
-            100,
+            10,
             0,
             "EigenTrust",
             roles,
@@ -84,8 +84,8 @@ contract WeightedGovernanceClientTest is DRIFTTestHelper {
 
     /// @notice Verifies client constructor and initializers correctly load arrays
     function test_InitializationSetsWeights() public view {
-        assertEq(client.roleWeights(ROLE_STUDENT), 1);
-        assertEq(client.roleWeights(ROLE_PROFESSOR), 5);
+        assertEq(client.roleWeights(ROLE_STUDENT), 2000);
+        assertEq(client.roleWeights(ROLE_PROFESSOR), 8000);
         assertEq(client.trustedSettler(), settler);
     }
 
@@ -130,8 +130,8 @@ contract WeightedGovernanceClientTest is DRIFTTestHelper {
         core.registerNode(contextUID, "0x");
 
         uint256 epoch = 1;
-        uint256 proposerScore = 50; // 50 * 5 = 250
-        uint256 voterScore = 100; // 100 * 1 = 100
+        uint256 proposerScore = 50; // 50 * 8000 / 10000 = 40
+        uint256 voterScore = 100; // 100 * 2000 / 10000 = 20
 
         bytes32 leaf1 = keccak256(
             bytes.concat(
@@ -175,7 +175,195 @@ contract WeightedGovernanceClientTest is DRIFTTestHelper {
         client.castVoteWithProofs(proposalId, true, voterRoles, voterScores, voterProofs);
 
         (,,, uint256 votesFor,,,,) = client.getProposal(proposalId);
-        assertEq(votesFor, 100);
+        assertEq(votesFor, 20);
+    }
+
+    // ROLE WEIGHT NORMALIZATION & PINNING (A4) ================================
+
+    /// @notice initialize() must reject weights that don't sum to WEIGHT_SCALE
+    function test_RevertIf_InitializeWeightsNotNormalized() public {
+        bytes32[] memory roles = new bytes32[](1);
+        roles[0] = ROLE_STUDENT;
+        uint256[] memory weights = new uint256[](1);
+        weights[0] = 9999;
+
+        bytes memory initData = abi.encodeWithSelector(
+            WeightedGovernanceClient.initialize.selector,
+            address(core),
+            address(driftToken),
+            contextUID,
+            settler,
+            0,
+            0,
+            "EigenTrust",
+            roles,
+            weights
+        );
+
+        vm.prank(admin);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                WeightedGovernanceClient.WeightsNotNormalized.selector, 9999, 10_000
+            )
+        );
+        factory.deployClient(contextUID, address(template), initData, bytes32("badsalt"));
+    }
+
+    /// @notice setRoleWeights must reject weights that don't sum to WEIGHT_SCALE
+    function test_RevertIf_SetRoleWeightsNotNormalized() public {
+        bytes32[] memory roles = new bytes32[](2);
+        roles[0] = ROLE_STUDENT;
+        roles[1] = ROLE_PROFESSOR;
+        uint256[] memory weights = new uint256[](2);
+        weights[0] = 5000;
+        weights[1] = 4000;
+
+        vm.prank(admin);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                WeightedGovernanceClient.WeightsNotNormalized.selector, 9000, 10_000
+            )
+        );
+        client.setRoleWeights(roles, weights);
+    }
+
+    /// @notice setRoleWeights fully replaces the active role set and bumps the config version
+    function test_SetRoleWeights_ReplacesActiveRolesAndVersion() public {
+        bytes32 roleTA = keccak256("TA");
+        bytes32[] memory roles = new bytes32[](1);
+        roles[0] = roleTA;
+        uint256[] memory weights = new uint256[](1);
+        weights[0] = 10_000;
+
+        uint32 versionBefore = client.currentConfigVersion();
+
+        vm.prank(admin);
+        client.setRoleWeights(roles, weights);
+
+        assertEq(client.currentConfigVersion(), versionBefore + 1);
+        assertEq(client.roleWeights(roleTA), 10_000);
+        assertEq(client.roleWeights(ROLE_STUDENT), 0);
+
+        bytes32[] memory active = client.getActiveRoles();
+        assertEq(active.length, 1);
+        assertEq(active[0], roleTA);
+    }
+
+    /// @notice A weight change after an epoch settles must not alter that epoch's already-pinned
+    ///         proposal/vote power — this is the JIT-weight-change fix (A4).
+    function test_JITWeightChange_DoesNotAffectPinnedProposal() public {
+        address proposer = makeAddr("proposer2");
+        address voter = makeAddr("voter2");
+
+        vm.prank(proposer);
+        core.registerNode(contextUID, "0x");
+        vm.prank(voter);
+        core.registerNode(contextUID, "0x");
+
+        uint256 epoch = 1;
+        uint256 proposerScore = 50; // PROFESSOR, weight 8000 at settlement time
+        uint256 voterScore = 100; // STUDENT, weight 2000 at settlement time
+
+        bytes32 leafProposer = keccak256(
+            bytes.concat(
+                keccak256(abi.encode(contextUID, proposer, ROLE_PROFESSOR, proposerScore, epoch))
+            )
+        );
+        bytes32 leafVoter = keccak256(
+            bytes.concat(keccak256(abi.encode(contextUID, voter, ROLE_STUDENT, voterScore, epoch)))
+        );
+        bytes32 root = _hashPair(leafProposer, leafVoter);
+
+        vm.roll(block.number + epoch);
+        client.postEpochRoot(
+            epoch, root, "", _signEpochRoot(settlerPk, contextUID, epoch, root, address(client))
+        );
+
+        // Admin changes weights AFTER epoch 1 settled, BEFORE the proposal is created/voted on.
+        bytes32[] memory newRoles = new bytes32[](2);
+        newRoles[0] = ROLE_STUDENT;
+        newRoles[1] = ROLE_PROFESSOR;
+        uint256[] memory newWeights = new uint256[](2);
+        newWeights[0] = 9000; // flipped from 2000
+        newWeights[1] = 1000; // flipped from 8000
+        vm.prank(admin);
+        client.setRoleWeights(newRoles, newWeights);
+
+        bytes32[] memory proposerRoles = new bytes32[](1);
+        proposerRoles[0] = ROLE_PROFESSOR;
+        uint256[] memory proposerScores = new uint256[](1);
+        proposerScores[0] = proposerScore;
+        bytes32[][] memory proposerProofs = new bytes32[][](1);
+        proposerProofs[0] = new bytes32[](1);
+        proposerProofs[0][0] = leafVoter;
+
+        vm.prank(proposer);
+        uint256 proposalId = client.createProposalWithProofs(
+            "JIT Test", address(0), "", 3, proposerRoles, proposerScores, proposerProofs
+        );
+
+        // Proposal must be pinned to the config version active when epoch 1 settled (version 0),
+        // not the version bumped by the post-settlement weight change (version 1).
+        (, uint32 configVersion) = client.getProposalSnapshot(proposalId);
+        assertEq(configVersion, 0);
+
+        bytes32[] memory voterRoles = new bytes32[](1);
+        voterRoles[0] = ROLE_STUDENT;
+        uint256[] memory voterScores = new uint256[](1);
+        voterScores[0] = voterScore;
+        bytes32[][] memory voterProofs = new bytes32[][](1);
+        voterProofs[0] = new bytes32[](1);
+        voterProofs[0][0] = leafProposer;
+
+        vm.prank(voter);
+        client.castVoteWithProofs(proposalId, true, voterRoles, voterScores, voterProofs);
+
+        (,,, uint256 votesFor,,,,) = client.getProposal(proposalId);
+        // Old (pinned) weight: 100 * 2000 / 10000 = 20. A live-weight bug would instead give
+        // 100 * 9000 / 10000 = 90.
+        assertEq(votesFor, 20);
+    }
+
+    /// @notice getVotingPowerAtEpoch must resolve the weight config active at the queried epoch,
+    ///         not whatever is live now.
+    function test_GetVotingPowerAtEpoch_UsesEpochPinnedWeights() public {
+        address voter = makeAddr("voter3");
+        vm.prank(voter);
+        core.registerNode(contextUID, "0x");
+
+        uint256 epoch = 1;
+        uint256 score = 100;
+        bytes32 leaf = keccak256(
+            bytes.concat(keccak256(abi.encode(contextUID, voter, ROLE_STUDENT, score, epoch)))
+        );
+        bytes32 root = leaf;
+
+        vm.roll(block.number + epoch);
+        client.postEpochRoot(
+            epoch, root, "", _signEpochRoot(settlerPk, contextUID, epoch, root, address(client))
+        );
+
+        bytes32[] memory roles = new bytes32[](1);
+        roles[0] = ROLE_STUDENT;
+        uint256[] memory scores = new uint256[](1);
+        scores[0] = score;
+        bytes32[][] memory proofs = new bytes32[][](1);
+        proofs[0] = new bytes32[](0);
+
+        uint256 powerBefore = client.getVotingPowerAtEpoch(voter, epoch, roles, scores, proofs);
+        assertEq(powerBefore, 20); // 100 * 2000 / 10000
+
+        bytes32[] memory newRoles = new bytes32[](2);
+        newRoles[0] = ROLE_STUDENT;
+        newRoles[1] = ROLE_PROFESSOR;
+        uint256[] memory newWeights = new uint256[](2);
+        newWeights[0] = 9000;
+        newWeights[1] = 1000;
+        vm.prank(admin);
+        client.setRoleWeights(newRoles, newWeights);
+
+        uint256 powerAfter = client.getVotingPowerAtEpoch(voter, epoch, roles, scores, proofs);
+        assertEq(powerAfter, powerBefore);
     }
 
     // EPOCH BOUNDARY ENFORCEMENT (A1: on-chain beta/h_0) =====================
@@ -297,7 +485,7 @@ contract WeightedGovernanceClientTest is DRIFTTestHelper {
         bytes32[] memory roles = new bytes32[](1);
         roles[0] = ROLE_STUDENT;
         uint256[] memory weights = new uint256[](1);
-        weights[0] = 1;
+        weights[0] = 10_000;
 
         bytes memory initData = abi.encodeWithSelector(
             WeightedGovernanceClient.initialize.selector,

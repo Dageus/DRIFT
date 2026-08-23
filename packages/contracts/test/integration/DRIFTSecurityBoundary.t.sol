@@ -55,7 +55,7 @@ contract DRIFTSecurityBoundaryTest is Test {
         bytes32[] memory roles = new bytes32[](1);
         roles[0] = ROLE;
         uint256[] memory weights = new uint256[](1);
-        weights[0] = 1;
+        weights[0] = 10_000;
 
         bytes memory initData = abi.encodeWithSelector(
             WeightedGovernanceClient.initialize.selector,
