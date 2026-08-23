@@ -46,6 +46,33 @@ describe('Reputation Engines', () => {
       expect(engine.calculateScore([])).toBe(0n);
       expect(engine.calculateScore(records)).toBe(0n);
     });
+
+    it('should be deterministic under a canonical node ordering (A3/A5(iii))', () => {
+      // Same attestation set, deliberately submitted in several different orders (simulating
+      // different indexers/storage backends returning A_c^E in different traversal order).
+      // The engine must resolve a canonical order internally and produce a bit-identical score
+      // regardless of the order records arrive in.
+      const records = [
+        createRecord('0xD', '0xA', 40),
+        createRecord('0xA', '0xB', 100),
+        createRecord('0xC', '0xA', 70),
+        createRecord('0xB', '0xC', 100),
+        createRecord('0xC', '0xB', 30),
+        createRecord('0xB', '0xD', 20)
+      ];
+
+      const forward = new EigenTrustEngine({ schemaDefinition: 'uint256 score' }).calculateScore(records);
+      const reversed = new EigenTrustEngine({ schemaDefinition: 'uint256 score' }).calculateScore(
+        [...records].reverse()
+      );
+
+      // Fixed shuffle distinct from both forward and reverse order.
+      const shuffled = [records[3], records[0], records[5], records[1], records[4], records[2]];
+      const shuffledScore = new EigenTrustEngine({ schemaDefinition: 'uint256 score' }).calculateScore(shuffled);
+
+      expect(reversed).toBe(forward);
+      expect(shuffledScore).toBe(forward);
+    });
   });
 
   describe('TemporalDecayEngine', () => {

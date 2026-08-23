@@ -69,11 +69,21 @@ export class EigenTrustEngine implements IReputationEngine {
 
     if (allNodes.size === 0) return 0n;
 
-    const nodes = Array.from(allNodes);
+    // Canonical iteration order (A5(iii)/A3 determinism): sort explicitly rather than relying on
+    // Set insertion order, which tracks the caller-supplied `records` order. Row/column layout of
+    // the transition matrix must be independent of storage/indexer traversal order so two callers
+    // fetching the same A_c^E in different order compute a bit-identical result. Bigint fixed-point
+    // addition happens to be order-independent regardless, but that's incidental to the accumulator
+    // choice, not a guarantee — don't rely on it if the accumulation logic ever changes.
+    const nodes = Array.from(allNodes).sort();
     const numNodes = nodes.length;
 
-    // Detect the targeted subject from the active context
-    const targetSubject = validRecords[0].subject.toLowerCase();
+    // Detect the targeted subject from the active context. Canonical selection (A3/A5(iii)):
+    // in production every record shares one subject (IAttestationProvider.fetchUserRecords
+    // returns records about a single target), so this reduces to that subject regardless of
+    // order. For a general multi-subject graph, pick the lexicographically smallest subject
+    // deterministically instead of validRecords[0], which tracks caller-supplied array order.
+    const targetSubject = validRecords.map((r) => r.subject.toLowerCase()).sort()[0];
     const targetIndex = nodes.indexOf(targetSubject);
     if (targetIndex === -1) return 0n;
 
@@ -136,8 +146,7 @@ export class EigenTrustEngine implements IReputationEngine {
             const scoreij = subjectMap.get(targetNode) ?? 0n;
 
             const matrixTransition = (scoreij * SCALE) / rowSum;
-            const totalTransition =
-              (oneMinusAlphaScaled * matrixTransition + alphaScaled * pVector[j]) / SCALE;
+            const totalTransition = (oneMinusAlphaScaled * matrixTransition + alphaScaled * pVector[j]) / SCALE;
 
             nextT[j] += (srcRank * totalTransition) / SCALE;
           }
