@@ -82,6 +82,7 @@ contract UniversityScenarioTest is Test {
             factory.deployClient(contextUID, address(template), initData, bytes32("salt"));
         client = WeightedGovernanceClient(cloneAddr);
         core.grantRole(adminRole, address(client));
+        client.setEpochLength(1);
         vm.stopPrank();
     }
 
@@ -114,6 +115,7 @@ contract UniversityScenarioTest is Test {
             ? keccak256(abi.encodePacked(leafBob, leafAlice))
             : keccak256(abi.encodePacked(leafAlice, leafBob));
 
+        vm.roll(block.number + epoch);
         client.postEpochRoot(epoch, root, "", _signRoot(epoch, root));
 
         bytes32 gradingSchemaUID = keccak256("schema.grading");

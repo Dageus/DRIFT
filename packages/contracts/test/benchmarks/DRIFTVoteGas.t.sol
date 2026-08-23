@@ -68,6 +68,7 @@ contract DRIFTVoteGasTest is Test {
             factory.deployClient(contextUID, address(template), initData, bytes32("salt"));
         client = WeightedGovernanceClient(cloneAddr);
         core.grantRole(core.contextAdminRole(contextUID), address(client));
+        client.setEpochLength(1);
         vm.stopPrank();
 
         vm.prank(node);
@@ -146,6 +147,7 @@ contract DRIFTVoteGasTest is Test {
             bytes32 digest = MessageHashUtils.toTypedDataHash(domainSeparator, structHash);
 
             (uint8 v, bytes32 r, bytes32 s) = vm.sign(settlerPk, digest);
+            vm.roll(block.number + epoch);
             client.postEpochRoot(epoch, calculatedRoot, "", abi.encodePacked(r, s, v));
         }
 

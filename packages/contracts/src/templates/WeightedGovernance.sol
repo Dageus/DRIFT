@@ -8,6 +8,7 @@ import {
 import { ECDSA } from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import { MerkleProof } from "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 import { MessageHashUtils } from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
+import { SignatureChecker } from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
 
 import { DRIFTTypes } from "../Common.sol";
 import { IDRIFTClientMetadata } from "../client/IDRIFTClientMetadata.sol";
@@ -37,6 +38,10 @@ contract WeightedGovernanceClient is
     error ZeroAddressSettler();
     error QuorumNotReached(uint256 total, uint256 required);
     error WeightConfigVersionNotFound(uint32 version);
+    error EpochLengthAlreadySet();
+    error InvalidEpochLength();
+    error EpochLengthNotConfigured();
+    error EpochNotYetElapsed(uint256 requiredBlock, uint256 currentBlock);
 
     // State Variables
     string private _reputationAlgorithm;
@@ -47,6 +52,11 @@ contract WeightedGovernanceClient is
     address public trustedSettler;
     uint256 public currentEpoch;
     uint256 public quorumThreshold;
+
+    /// @notice Epoch length in blocks (β). Fixed once via `setEpochLength`; 0 means unconfigured.
+    uint256 public epochLength;
+    /// @notice Block height epoch boundaries are anchored to (h_0). Set alongside epochLength.
+    uint256 public epochAnchorBlock;
 
     bytes32 public constant SETTLE_ROOT_TYPEHASH = keccak256(
         "SettleRoot(bytes32 contextUID,uint256 epoch,bytes32 merkleRoot,string treeURI)"
@@ -68,6 +78,7 @@ contract WeightedGovernanceClient is
 
     // Events
     event RoleWeightUpdated(bytes32 indexed role, uint256 weight, uint32 indexed configVersion);
+    event EpochLengthConfigured(uint256 epochLength, uint256 epochAnchorBlock);
 
     /// @notice Struct representing a versioned weight configuration snapshot
     struct WeightConfig {
@@ -179,6 +190,22 @@ contract WeightedGovernanceClient is
         emit RoleWeightUpdated(role, weight, currentConfigVersion);
     }
 
+    /// @notice Fixes the epoch length (β, in blocks) and anchors epoch boundaries to the current
+    ///         block (h_0). Callable exactly once — boundaries are immutable thereafter, so the
+    ///         settler cannot choose epoch windows after the fact.
+    /// @param blocks_ Number of blocks per epoch. Must be non-zero.
+    function setEpochLength(
+        uint256 blocks_
+    ) external onlyContextAdmin {
+        if (epochLength != 0) revert EpochLengthAlreadySet();
+        if (blocks_ == 0) revert InvalidEpochLength();
+
+        epochLength = blocks_;
+        epochAnchorBlock = block.number;
+
+        emit EpochLengthConfigured(blocks_, block.number);
+    }
+
     /// @notice Updates the trusted settler address
     /// @param newSettler The new address authorized to sign epoch roots
     function setTrustedSettler(
@@ -245,6 +272,12 @@ contract WeightedGovernanceClient is
         if (epochRoots[epoch] != bytes32(0)) {
             revert EpochAlreadyPosted(epoch);
         }
+        if (epochLength == 0) revert EpochLengthNotConfigured();
+
+        uint256 boundaryBlock = epochAnchorBlock + (epochLength * epoch);
+        if (block.number < boundaryBlock) {
+            revert EpochNotYetElapsed(boundaryBlock, block.number);
+        }
 
         bytes32 structHash = keccak256(
             abi.encode(
@@ -252,7 +285,7 @@ contract WeightedGovernanceClient is
             )
         );
         bytes32 digest = _hashTypedDataV4(structHash);
-        if (ECDSA.recover(digest, sig) != trustedSettler) {
+        if (!SignatureChecker.isValidSignatureNow(trustedSettler, digest, sig)) {
             revert InvalidSettlerSignature();
         }
 
