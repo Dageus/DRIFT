@@ -98,6 +98,28 @@ contract DRIFTSecurityTest is Test {
         driftToken.safeTransferFrom(node, makeAddr("stranger"), tokenId, 1, "");
     }
 
+    /// @notice Ensures reputation tokens cannot be transferred via the batch entry point either
+    /// (P2 non-transferability requires both safeTransferFrom AND safeBatchTransferFrom to revert)
+    function test_BatchTransferReverts() public {
+        vm.startPrank(admin);
+        core.grantRole(core.FACTORY_ROLE(), admin);
+        core.setContextClient(contextUID, admin);
+        core.reward(contextUID, ROLE_PROFESSOR, node, 50);
+        core.setContextClient(contextUID, address(client));
+        vm.stopPrank();
+
+        uint256 tokenId = uint256(keccak256(abi.encode(contextUID, ROLE_PROFESSOR)));
+
+        uint256[] memory tokenIds = new uint256[](1);
+        tokenIds[0] = tokenId;
+        uint256[] memory amounts = new uint256[](1);
+        amounts[0] = 1;
+
+        vm.prank(node);
+        vm.expectRevert(IDRIFTToken.NonTransmissibleToken.selector);
+        driftToken.safeBatchTransferFrom(node, makeAddr("stranger"), tokenIds, amounts, "");
+    }
+
     // NODE STATUS SECURITY ====================================================
 
     /// @notice Ensures a node marked as BANNED cannot bypass the ban by deregistering

@@ -59,7 +59,7 @@ describe('DriftSettler Cryptographic Boundaries', () => {
       { node: '0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB', role: role1, score: 50n }
     ];
 
-    const { tree } = await settler.buildAndSignEpochRoot(clientAddress, contextUID, epoch, scores);
+    const { tree } = await settler.buildAndSignEpochRoot(clientAddress, contextUID, epoch, scores, mockUploader);
 
     const payload = settler.generateProofOfStatePayload(tree, contextUID, targetNode, epoch);
 
@@ -82,7 +82,7 @@ describe('DriftSettler Cryptographic Boundaries', () => {
     const epoch = 1n;
     const scores: ScoreEntry[] = [{ node: '0x1111111111111111111111111111111111111111', role: role1, score: 100n }];
 
-    const { tree } = await settler.buildAndSignEpochRoot(clientAddress, contextUID, epoch, scores);
+    const { tree } = await settler.buildAndSignEpochRoot(clientAddress, contextUID, epoch, scores, mockUploader);
 
     expect(() => {
       settler.generateProofOfStatePayload(tree, contextUID, '0xGHOST_NODE', epoch);

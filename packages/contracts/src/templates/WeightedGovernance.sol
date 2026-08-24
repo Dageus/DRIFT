@@ -198,7 +198,8 @@ contract WeightedGovernanceClient is
         }
         if (weightSum != WEIGHT_SCALE) revert WeightsNotNormalized(weightSum, WEIGHT_SCALE);
 
-        for (uint256 i = 0; i < activeRoles.length; i++) {
+        uint256 activeRolesLength = activeRoles.length;
+        for (uint256 i = 0; i < activeRolesLength; i++) {
             delete roleWeights[activeRoles[i]];
         }
         delete activeRoles;

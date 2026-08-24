@@ -1,0 +1,95 @@
+name: DRIFT Deployment
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/contracts/src/**'
+      - 'packages/contracts/script/**'
+
+env:
+  FOUNDRY_PROFILE: ci
+
+jobs:
+  test:
+    name: Pre-flight Verification
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/contracts
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          cache: true
+
+      - name: Build
+        run: forge build
+
+      - name: Test
+        run: forge test -vvv
+
+  deploy:
+    name: Deploy Core Systems (${{ matrix.network }})
+    needs: test
+    runs-on: ubuntu-latest
+
+    environment: ${{ matrix.network }}
+
+    strategy:
+      matrix:
+        network: [sepolia, arbitrum_sepolia, avalanche_fuji]
+      fail-fast: false
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          cache: true
+
+      - name: Execute Deployment
+        run: ./packages/contracts/script/deploy.sh
+        env:
+          PRIVATE_KEY: ${{ secrets.DEPLOYER_PRIVATE_KEY }}
+          NETWORK_TARGET: ${{ matrix.network }}
+          ETHERSCAN_API_KEY: ${{ secrets.ETHERSCAN_API_KEY }}
+
+      - name: Staging Deployment Artifact Archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-${{ matrix.network }}
+          path: packages/contracts/deployments/
+
+  commit-artifacts:
+    name: Consolidate Network Configurations
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Matrix Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: tmp-artifacts/
+
+      - name: Consolidate Configuration Trees
+        run: |
+          mkdir -p packages/contracts/deployments/
+          find tmp-artifacts/ -name "*.json" -exec cp {} packages/contracts/deployments/ \;
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add packages/contracts/deployments/
+
+          git diff --staged --quiet && echo "No updates to track." || {
+            git commit -m "chore: settle deployment artifacts [skip ci]"
+            git push
+          }
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

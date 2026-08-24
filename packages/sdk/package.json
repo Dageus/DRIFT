@@ -28,7 +28,9 @@
   "scripts": {
     "build": "tsc --project tsconfig.json",
     "build:watch": "tsc --project tsconfig.json --watch",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --config vitest.unit.config.ts",
+    "test:e2e": "vitest run"
   },
   "dependencies": {
     "@openzeppelin/merkle-tree": "^1.0.8",

@@ -307,6 +307,186 @@ contract DRIFTSecurityBoundaryTest is Test {
         vm.stopPrank();
     }
 
+    /// @notice P3 output isolation: a leaf/proof valid in context c1 must not be usable as voting
+    /// power in a different client c2's governance, even when the identical root bytes are posted
+    /// for c2. The client reconstructs the leaf from its OWN immutable `contextUID` (never a
+    /// caller-supplied one), so a leaf hash that recomputes correctly for c1 recomputes to a
+    /// different value under c2 — this is what should make the replay fail.
+    function test_RevertIf_CrossContextProofReplay() public {
+        vm.startPrank(admin);
+        bytes32 contextUID2 = core.registerContext("test.security.other");
+
+        bytes32[] memory roles2 = new bytes32[](1);
+        roles2[0] = ROLE;
+        uint256[] memory weights2 = new uint256[](1);
+        weights2[0] = 10_000;
+
+        WeightedGovernanceClient templateB = new WeightedGovernanceClient();
+        bytes memory initDataB = abi.encodeWithSelector(
+            WeightedGovernanceClient.initialize.selector,
+            address(core),
+            address(driftToken),
+            contextUID2,
+            settler,
+            0,
+            0,
+            "EigenTrust",
+            roles2,
+            weights2
+        );
+        address cloneAddrB =
+            factory.deployClient(contextUID2, address(templateB), initDataB, bytes32("salt-b"));
+        WeightedGovernanceClient clientB = WeightedGovernanceClient(cloneAddrB);
+        core.grantRole(core.contextAdminRole(contextUID2), address(clientB));
+        clientB.setEpochLength(1);
+        vm.stopPrank();
+
+        // Root bytes numerically equal to context1's admin leaf (from setUp), posted for context2
+        // under a genuine, independently-valid settler signature (the EIP-712 digest binds
+        // contextUID2, so this is not itself a forged signature).
+        uint256 epoch = 1;
+        uint256 setupScore = 1000;
+        bytes32 leafFromContext1 = keccak256(
+            bytes.concat(keccak256(abi.encode(contextUID, admin, ROLE, setupScore, epoch)))
+        );
+
+        bytes32 domainSeparatorB = keccak256(
+            abi.encode(
+                keccak256(
+                    "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
+                ),
+                keccak256("DRIFT_WeightedGovernance"),
+                keccak256("1"),
+                block.chainid,
+                address(clientB)
+            )
+        );
+        bytes32 structHashB = keccak256(
+            abi.encode(
+                clientB.SETTLE_ROOT_TYPEHASH(), contextUID2, epoch, leafFromContext1, keccak256("")
+            )
+        );
+        bytes32 digestB = MessageHashUtils.toTypedDataHash(domainSeparatorB, structHashB);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(settlerPk, digestB);
+
+        vm.roll(block.number + epoch);
+        clientB.postEpochRoot(epoch, leafFromContext1, "", abi.encodePacked(r, s, v));
+
+        // Replay context1's (leaf-producing) admin claim verbatim against clientB.
+        bytes32[] memory roles = new bytes32[](1);
+        roles[0] = ROLE;
+        uint256[] memory scores = new uint256[](1);
+        scores[0] = setupScore;
+        bytes32[][] memory proofs = new bytes32[][](1);
+        proofs[0] = new bytes32[](0);
+
+        vm.startPrank(admin);
+        vm.expectRevert(IDRIFTSettler.InvalidMerkleProof.selector);
+        clientB.createProposalWithProofs(
+            "Cross-Context Replay Attempt", address(0), "", 3, roles, scores, proofs
+        );
+        vm.stopPrank();
+    }
+
+    // FUZZ TESTS ==============================================================
+
+    /// @notice Malformed (garbage-sibling) proofs must never verify, regardless of the claimed
+    /// score value.
+    function testFuzz_RevertIf_MalformedProof(
+        uint256 score,
+        bytes32 garbageSibling
+    ) public {
+        bytes32[] memory roles = new bytes32[](1);
+        roles[0] = ROLE;
+        uint256[] memory scores = new uint256[](1);
+        scores[0] = score;
+        bytes32[][] memory proofs = new bytes32[][](1);
+        proofs[0] = new bytes32[](1);
+        proofs[0][0] = garbageSibling;
+
+        vm.prank(admin);
+        vm.expectRevert(IDRIFTSettler.InvalidMerkleProof.selector);
+        client.castVoteWithProofs(proposalId, true, roles, scores, proofs);
+    }
+
+    /// @notice A leaf/proof valid for a later epoch must never be usable against a proposal
+    /// snapshotted at an earlier epoch, for any score magnitude (generalizes
+    /// test_RevertIf_StaleEpochReplay beyond its single hardcoded score).
+    function testFuzz_RevertIf_WrongEpochProofReplay(
+        uint256 futureScore
+    ) public {
+        uint256 epoch2 = 2;
+        bytes32 futureLeaf = keccak256(
+            bytes.concat(keccak256(abi.encode(contextUID, alice, ROLE, futureScore, epoch2)))
+        );
+
+        bytes32 domainSeparator = keccak256(
+            abi.encode(
+                keccak256(
+                    "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
+                ),
+                keccak256("DRIFT_WeightedGovernance"),
+                keccak256("1"),
+                block.chainid,
+                address(client)
+            )
+        );
+        bytes32 structHash = keccak256(
+            abi.encode(client.SETTLE_ROOT_TYPEHASH(), contextUID, epoch2, futureLeaf, keccak256(""))
+        );
+        bytes32 digest = MessageHashUtils.toTypedDataHash(domainSeparator, structHash);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(settlerPk, digest);
+
+        vm.roll(block.number + epoch2);
+        client.postEpochRoot(epoch2, futureLeaf, "", abi.encodePacked(r, s, v));
+
+        bytes32[] memory roles = new bytes32[](1);
+        roles[0] = ROLE;
+        uint256[] memory scores = new uint256[](1);
+        scores[0] = futureScore;
+        bytes32[][] memory proofs = new bytes32[][](1);
+        proofs[0] = new bytes32[](0);
+
+        vm.prank(alice);
+        vm.expectRevert(IDRIFTSettler.InvalidMerkleProof.selector);
+        client.castVoteWithProofs(proposalId, true, roles, scores, proofs);
+    }
+
+    /// @notice Settlement's monotonic epoch nonce rejects any epoch other than currentEpoch + 1 —
+    /// covers both stale-nonce replay (badEpoch <= currentEpoch) and premature future postings
+    /// (badEpoch > currentEpoch + 1), keeping settlement strictly sequential.
+    function testFuzz_RevertIf_PostEpochRootWrongNonce(
+        uint256 badEpoch
+    ) public {
+        vm.assume(badEpoch != client.currentEpoch() + 1);
+
+        bytes32 root = keccak256(abi.encode("fuzz-root", badEpoch));
+
+        bytes32 domainSeparator = keccak256(
+            abi.encode(
+                keccak256(
+                    "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
+                ),
+                keccak256("DRIFT_WeightedGovernance"),
+                keccak256("1"),
+                block.chainid,
+                address(client)
+            )
+        );
+        bytes32 structHash = keccak256(
+            abi.encode(client.SETTLE_ROOT_TYPEHASH(), contextUID, badEpoch, root, keccak256(""))
+        );
+        bytes32 digest = MessageHashUtils.toTypedDataHash(domainSeparator, structHash);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(settlerPk, digest);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                WeightedGovernanceClient.InvalidEpoch.selector, badEpoch, client.currentEpoch() + 1
+            )
+        );
+        client.postEpochRoot(badEpoch, root, "", abi.encodePacked(r, s, v));
+    }
+
     // INTERNAL HELPERS ========================================================
 
     function _hashPair(

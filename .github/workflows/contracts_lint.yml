@@ -1,0 +1,35 @@
+name: Contracts Lint
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/contracts/**'
+  pull_request:
+    paths:
+      - 'packages/contracts/**'
+
+env:
+  FOUNDRY_PROFILE: ci
+
+jobs:
+  lint:
+    name: Format & Lint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/contracts
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          cache: true
+
+      - name: Check formatting
+        run: forge fmt --check
+
+      - name: Lint
+        run: forge lint

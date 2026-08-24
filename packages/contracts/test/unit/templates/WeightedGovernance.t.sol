@@ -6,8 +6,8 @@ import { IDRIFTSettler } from "../../../src/client/IDRIFTSettler.sol";
 import { DRIFTCore } from "../../../src/core/DRIFTCore.sol";
 import { WeightedGovernanceClient } from "../../../src/templates/WeightedGovernance.sol";
 import { DRIFTToken } from "../../../src/token/DRIFTToken.sol";
-import { DRIFTTestHelper } from "../../utils/DRIFTTestHelper.sol";
 import { MockERC1271Signer } from "../../mocks/MockERC1271Signer.sol";
+import { DRIFTTestHelper } from "../../utils/DRIFTTestHelper.sol";
 import { ERC1967Proxy } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 contract WeightedGovernanceClientTest is DRIFTTestHelper {
@@ -442,7 +442,8 @@ contract WeightedGovernanceClientTest is DRIFTTestHelper {
 
         uint256 epoch = 1;
         bytes32 root = keccak256("root");
-        bytes memory sig = _signEpochRoot(ownerPk, freshContextUID, epoch, root, address(freshClient));
+        bytes memory sig =
+            _signEpochRoot(ownerPk, freshContextUID, epoch, root, address(freshClient));
 
         vm.roll(freshClient.epochAnchorBlock() + freshClient.epochLength() * epoch);
         freshClient.postEpochRoot(epoch, root, "", sig);
@@ -465,7 +466,8 @@ contract WeightedGovernanceClientTest is DRIFTTestHelper {
 
         uint256 epoch = 1;
         bytes32 root = keccak256("root");
-        bytes memory sig = _signEpochRoot(ownerPk, freshContextUID, epoch, root, address(freshClient));
+        bytes memory sig =
+            _signEpochRoot(ownerPk, freshContextUID, epoch, root, address(freshClient));
 
         vm.roll(freshClient.epochAnchorBlock() + freshClient.epochLength() * epoch);
         vm.expectRevert(IDRIFTSettler.InvalidSettlerSignature.selector);
@@ -480,7 +482,9 @@ contract WeightedGovernanceClientTest is DRIFTTestHelper {
         address trustedSettlerAddr
     ) internal returns (WeightedGovernanceClient freshClient, bytes32 freshContextUID) {
         vm.startPrank(admin);
-        freshContextUID = core.registerContext(string(abi.encodePacked("test.university.", block.number, gasleft())));
+        freshContextUID = core.registerContext(
+            string(abi.encodePacked("test.university.", block.number, gasleft()))
+        );
 
         bytes32[] memory roles = new bytes32[](1);
         roles[0] = ROLE_STUDENT;
@@ -502,8 +506,9 @@ contract WeightedGovernanceClientTest is DRIFTTestHelper {
 
         bytes32 adminRole = core.contextAdminRole(freshContextUID);
         core.grantRole(adminRole, admin);
-        address cloneAddr =
-            factory.deployClient(freshContextUID, address(template), initData, bytes32(block.number));
+        address cloneAddr = factory.deployClient(
+            freshContextUID, address(template), initData, bytes32(block.number)
+        );
         freshClient = WeightedGovernanceClient(cloneAddr);
         core.grantRole(adminRole, address(freshClient));
         vm.stopPrank();
