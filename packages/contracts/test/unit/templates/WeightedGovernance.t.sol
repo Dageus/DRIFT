@@ -76,8 +76,26 @@ contract WeightedGovernanceClientTest is DRIFTTestHelper {
             factory.deployClient(contextUID, address(template), initData, bytes32("salt"));
         client = WeightedGovernanceClient(cloneAddr);
         core.grantRole(adminRole, address(client));
-        client.setEpochLength(1);
+        client.setEpochLength(EPOCH_LENGTH);
+        client.setDisputeWindow(DISPUTE_WINDOW);
+        client.setResponseWindow(RESPONSE_WINDOW);
+        client.setSettlementBond(SETTLEMENT_BOND);
         vm.stopPrank();
+    }
+
+    // B1 test cadence: epochLength must exceed disputeWindow + responseWindow.
+    uint256 constant EPOCH_LENGTH = 10;
+    uint256 constant DISPUTE_WINDOW = 1;
+    uint256 constant RESPONSE_WINDOW = 1;
+    uint256 constant SETTLEMENT_BOND = 0.001 ether;
+    uint256 constant CHALLENGE_BOND = 0.001 ether;
+
+    /// @dev Rolls past both the current epoch's dispute+response windows so its root is finalized
+    ///      and usable by claim/governance reads.
+    function _rollPastFinalization(
+        WeightedGovernanceClient c
+    ) internal {
+        vm.roll(block.number + c.disputeWindow() + c.responseWindow() + 1);
     }
 
     // INITIALIZATION ==========================================================
@@ -105,8 +123,9 @@ contract WeightedGovernanceClientTest is DRIFTTestHelper {
         bytes32 root = leaf;
         bytes memory sig = _signEpochRoot(settlerPk, contextUID, epoch, root, address(client));
 
-        vm.roll(block.number + epoch);
-        client.postEpochRoot(epoch, root, "", sig);
+        vm.roll(client.epochAnchorBlock() + client.epochLength() * epoch);
+        client.postEpochRoot{ value: SETTLEMENT_BOND }(epoch, root, "", sig);
+        _rollPastFinalization(client);
 
         bytes32[] memory proof = new bytes32[](0);
 
@@ -144,10 +163,11 @@ contract WeightedGovernanceClientTest is DRIFTTestHelper {
 
         bytes32 root = _hashPair(leaf1, leaf2);
 
-        vm.roll(block.number + epoch);
-        client.postEpochRoot(
+        vm.roll(client.epochAnchorBlock() + client.epochLength() * epoch);
+        client.postEpochRoot{ value: SETTLEMENT_BOND }(
             epoch, root, "", _signEpochRoot(settlerPk, contextUID, epoch, root, address(client))
         );
+        _rollPastFinalization(client);
 
         bytes32[] memory proposerRoles = new bytes32[](1);
         proposerRoles[0] = ROLE_PROFESSOR;
@@ -274,10 +294,11 @@ contract WeightedGovernanceClientTest is DRIFTTestHelper {
         );
         bytes32 root = _hashPair(leafProposer, leafVoter);
 
-        vm.roll(block.number + epoch);
-        client.postEpochRoot(
+        vm.roll(client.epochAnchorBlock() + client.epochLength() * epoch);
+        client.postEpochRoot{ value: SETTLEMENT_BOND }(
             epoch, root, "", _signEpochRoot(settlerPk, contextUID, epoch, root, address(client))
         );
+        _rollPastFinalization(client);
 
         // Admin changes weights AFTER epoch 1 settled, BEFORE the proposal is created/voted on.
         bytes32[] memory newRoles = new bytes32[](2);
@@ -338,10 +359,11 @@ contract WeightedGovernanceClientTest is DRIFTTestHelper {
         );
         bytes32 root = leaf;
 
-        vm.roll(block.number + epoch);
-        client.postEpochRoot(
+        vm.roll(client.epochAnchorBlock() + client.epochLength() * epoch);
+        client.postEpochRoot{ value: SETTLEMENT_BOND }(
             epoch, root, "", _signEpochRoot(settlerPk, contextUID, epoch, root, address(client))
         );
+        _rollPastFinalization(client);
 
         bytes32[] memory roles = new bytes32[](1);
         roles[0] = ROLE_STUDENT;
@@ -381,7 +403,7 @@ contract WeightedGovernanceClientTest is DRIFTTestHelper {
                 WeightedGovernanceClient.EpochNotYetElapsed.selector, boundary, block.number
             )
         );
-        client.postEpochRoot(epoch, root, "", sig);
+        client.postEpochRoot{ value: SETTLEMENT_BOND }(epoch, root, "", sig);
     }
 
     /// @notice Posting exactly at the boundary block succeeds
@@ -391,7 +413,7 @@ contract WeightedGovernanceClientTest is DRIFTTestHelper {
         bytes memory sig = _signEpochRoot(settlerPk, contextUID, epoch, root, address(client));
 
         vm.roll(client.epochAnchorBlock() + client.epochLength() * epoch);
-        client.postEpochRoot(epoch, root, "", sig);
+        client.postEpochRoot{ value: SETTLEMENT_BOND }(epoch, root, "", sig);
 
         assertEq(client.epochRoots(epoch), root);
     }
@@ -437,8 +459,12 @@ contract WeightedGovernanceClientTest is DRIFTTestHelper {
         (WeightedGovernanceClient freshClient, bytes32 freshContextUID) =
             _deployFreshClient(address(wallet));
 
-        vm.prank(admin);
-        freshClient.setEpochLength(1);
+        vm.startPrank(admin);
+        freshClient.setEpochLength(EPOCH_LENGTH);
+        freshClient.setDisputeWindow(DISPUTE_WINDOW);
+        freshClient.setResponseWindow(RESPONSE_WINDOW);
+        freshClient.setSettlementBond(SETTLEMENT_BOND);
+        vm.stopPrank();
 
         uint256 epoch = 1;
         bytes32 root = keccak256("root");
@@ -446,7 +472,7 @@ contract WeightedGovernanceClientTest is DRIFTTestHelper {
             _signEpochRoot(ownerPk, freshContextUID, epoch, root, address(freshClient));
 
         vm.roll(freshClient.epochAnchorBlock() + freshClient.epochLength() * epoch);
-        freshClient.postEpochRoot(epoch, root, "", sig);
+        freshClient.postEpochRoot{ value: SETTLEMENT_BOND }(epoch, root, "", sig);
 
         assertEq(freshClient.epochRoots(epoch), root);
     }
@@ -461,8 +487,12 @@ contract WeightedGovernanceClientTest is DRIFTTestHelper {
         (WeightedGovernanceClient freshClient, bytes32 freshContextUID) =
             _deployFreshClient(address(wallet));
 
-        vm.prank(admin);
-        freshClient.setEpochLength(1);
+        vm.startPrank(admin);
+        freshClient.setEpochLength(EPOCH_LENGTH);
+        freshClient.setDisputeWindow(DISPUTE_WINDOW);
+        freshClient.setResponseWindow(RESPONSE_WINDOW);
+        freshClient.setSettlementBond(SETTLEMENT_BOND);
+        vm.stopPrank();
 
         uint256 epoch = 1;
         bytes32 root = keccak256("root");
@@ -471,7 +501,7 @@ contract WeightedGovernanceClientTest is DRIFTTestHelper {
 
         vm.roll(freshClient.epochAnchorBlock() + freshClient.epochLength() * epoch);
         vm.expectRevert(IDRIFTSettler.InvalidSettlerSignature.selector);
-        freshClient.postEpochRoot(epoch, root, "", sig);
+        freshClient.postEpochRoot{ value: SETTLEMENT_BOND }(epoch, root, "", sig);
     }
 
     // INTERNAL HELPERS ========================================================

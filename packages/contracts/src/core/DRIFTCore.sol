@@ -184,6 +184,7 @@ contract DRIFTCore is
         }
 
         nodeStatus[contextUID][msg.sender] = status;
+        _nodeRegisteredAtBlock[contextUID][msg.sender] = block.number;
 
         emit NodeRegistered(contextUID, msg.sender);
     }
@@ -213,6 +214,9 @@ contract DRIFTCore is
     ) external onlyContextAdmin(contextUID) {
         if (nodeStatus[contextUID][node] == NodeStatus.BANNED) revert CannotUnbanViaStatusUpdate();
         nodeStatus[contextUID][node] = newStatus;
+        if (newStatus == NodeStatus.BANNED) {
+            _nodeBannedAtBlock[contextUID][node] = block.number;
+        }
         // Emit custom status transition event
         emit NodeStatusUpdated(contextUID, node, newStatus);
     }
@@ -326,6 +330,22 @@ contract DRIFTCore is
         bytes32 uid
     ) external view returns (bool) {
         return _contextExists(uid);
+    }
+
+    /// @inheritdoc IDRIFTCore
+    function nodeRegisteredAtBlock(
+        bytes32 contextUID,
+        address node
+    ) external view returns (uint256) {
+        return _nodeRegisteredAtBlock[contextUID][node];
+    }
+
+    /// @inheritdoc IDRIFTCore
+    function nodeBannedAtBlock(
+        bytes32 contextUID,
+        address node
+    ) external view returns (uint256) {
+        return _nodeBannedAtBlock[contextUID][node];
     }
 
     // Modifiers ===============================================================

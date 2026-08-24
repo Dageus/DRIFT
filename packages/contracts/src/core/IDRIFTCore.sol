@@ -222,4 +222,18 @@ interface IDRIFTCore is IAccessControl {
     function contextExists(
         bytes32 uid
     ) external view returns (bool);
+
+    /// @notice Block at which `node` was (most recently) registered in `contextUID`, or 0 if never.
+    ///         Used by B1 non-inclusion disputes to evaluate eligibility as of a past epoch
+    ///         boundary rather than current status.
+    function nodeRegisteredAtBlock(
+        bytes32 contextUID,
+        address node
+    ) external view returns (uint256);
+
+    /// @notice Block at which `node` was banned in `contextUID`, or 0 if never banned.
+    function nodeBannedAtBlock(
+        bytes32 contextUID,
+        address node
+    ) external view returns (uint256);
 }

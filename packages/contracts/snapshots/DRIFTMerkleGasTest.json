@@ -1,7 +1,7 @@
 {
-  "Claim_Depth_10_Users_1024": "88279",
-  "Claim_Depth_15_Users_32768": "89925",
-  "Claim_Depth_1_Users_2": "85306",
-  "Claim_Depth_20_Users_1M": "91560",
-  "PostRoot_O1_Cost": "75499"
+  "Claim_Depth_10_Users_1024": "91477",
+  "Claim_Depth_15_Users_32768": "93124",
+  "Claim_Depth_1_Users_2": "88497",
+  "Claim_Depth_20_Users_1M": "94759",
+  "PostRoot_O1_Cost": "129582"
 }

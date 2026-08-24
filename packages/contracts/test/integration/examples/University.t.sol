@@ -82,9 +82,18 @@ contract UniversityScenarioTest is Test {
             factory.deployClient(contextUID, address(template), initData, bytes32("salt"));
         client = WeightedGovernanceClient(cloneAddr);
         core.grantRole(adminRole, address(client));
-        client.setEpochLength(1);
+        client.setEpochLength(EPOCH_LENGTH);
+        client.setDisputeWindow(DISPUTE_WINDOW);
+        client.setResponseWindow(RESPONSE_WINDOW);
+        client.setSettlementBond(SETTLEMENT_BOND);
         vm.stopPrank();
     }
+
+    // B1 test cadence: epochLength must exceed disputeWindow + responseWindow.
+    uint256 constant EPOCH_LENGTH = 10;
+    uint256 constant DISPUTE_WINDOW = 1;
+    uint256 constant RESPONSE_WINDOW = 1;
+    uint256 constant SETTLEMENT_BOND = 0.001 ether;
 
     // SCENARIO ================================================================
 
@@ -115,8 +124,9 @@ contract UniversityScenarioTest is Test {
             ? keccak256(abi.encodePacked(leafBob, leafAlice))
             : keccak256(abi.encodePacked(leafAlice, leafBob));
 
-        vm.roll(block.number + epoch);
-        client.postEpochRoot(epoch, root, "", _signRoot(epoch, root));
+        vm.roll(client.epochAnchorBlock() + client.epochLength() * epoch);
+        client.postEpochRoot{ value: SETTLEMENT_BOND }(epoch, root, "", _signRoot(epoch, root));
+        vm.roll(block.number + client.disputeWindow() + client.responseWindow() + 1);
 
         bytes32 gradingSchemaUID = keccak256("schema.grading");
         bytes memory addSchemaPayload = abi.encodeWithSelector(

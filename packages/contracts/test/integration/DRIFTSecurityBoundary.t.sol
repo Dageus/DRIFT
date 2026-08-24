@@ -29,6 +29,20 @@ contract DRIFTSecurityBoundaryTest is Test {
 
     uint256 public proposalId;
 
+    // B1 test cadence: epochLength must exceed disputeWindow + responseWindow.
+    uint256 constant EPOCH_LENGTH = 10;
+    uint256 constant DISPUTE_WINDOW = 1;
+    uint256 constant RESPONSE_WINDOW = 1;
+    uint256 constant SETTLEMENT_BOND = 0.001 ether;
+
+    /// @dev Rolls past a client's current dispute+response windows so its latest posted root
+    ///      finalizes and becomes usable by claim/governance reads.
+    function _rollPastFinalization(
+        WeightedGovernanceClient c
+    ) internal {
+        vm.roll(block.number + c.disputeWindow() + c.responseWindow() + 1);
+    }
+
     // SETUP ===================================================================
 
     function setUp() public {
@@ -74,7 +88,10 @@ contract DRIFTSecurityBoundaryTest is Test {
             factory.deployClient(contextUID, address(template), initData, bytes32("salt"));
         client = WeightedGovernanceClient(cloneAddr);
         core.grantRole(core.contextAdminRole(contextUID), address(client));
-        client.setEpochLength(1);
+        client.setEpochLength(EPOCH_LENGTH);
+        client.setDisputeWindow(DISPUTE_WINDOW);
+        client.setResponseWindow(RESPONSE_WINDOW);
+        client.setSettlementBond(SETTLEMENT_BOND);
         vm.stopPrank();
 
         vm.prank(alice);
@@ -107,8 +124,11 @@ contract DRIFTSecurityBoundaryTest is Test {
         bytes32 digest = MessageHashUtils.toTypedDataHash(domainSeparator, structHash);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(settlerPk, digest);
 
-        vm.roll(block.number + epoch);
-        client.postEpochRoot(epoch, setupLeaf, "", abi.encodePacked(r, s, v));
+        vm.roll(client.epochAnchorBlock() + client.epochLength() * epoch);
+        client.postEpochRoot{ value: SETTLEMENT_BOND }(
+            epoch, setupLeaf, "", abi.encodePacked(r, s, v)
+        );
+        _rollPastFinalization(client);
 
         bytes32[] memory setupRoles = new bytes32[](1);
         setupRoles[0] = ROLE;
@@ -216,8 +236,9 @@ contract DRIFTSecurityBoundaryTest is Test {
         bytes32 digest = MessageHashUtils.toTypedDataHash(domainSeparator, structHash);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(settlerPk, digest);
 
-        vm.roll(block.number + epoch);
-        client.postEpochRoot(epoch, root, "", abi.encodePacked(r, s, v));
+        vm.roll(client.epochAnchorBlock() + client.epochLength() * epoch);
+        client.postEpochRoot{ value: SETTLEMENT_BOND }(epoch, root, "", abi.encodePacked(r, s, v));
+        _rollPastFinalization(client);
 
         bytes32[][] memory proofs = new bytes32[][](1);
         proofs[0] = new bytes32[](2);
@@ -289,8 +310,10 @@ contract DRIFTSecurityBoundaryTest is Test {
         bytes32 digest = MessageHashUtils.toTypedDataHash(domainSeparator, structHash);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(settlerPk, digest);
 
-        vm.roll(block.number + epoch2);
-        client.postEpochRoot(epoch2, aliceLeaf, "", abi.encodePacked(r, s, v));
+        vm.roll(client.epochAnchorBlock() + client.epochLength() * epoch2);
+        client.postEpochRoot{ value: SETTLEMENT_BOND }(
+            epoch2, aliceLeaf, "", abi.encodePacked(r, s, v)
+        );
 
         bytes32[] memory roles = new bytes32[](1);
         roles[0] = ROLE;
@@ -338,7 +361,10 @@ contract DRIFTSecurityBoundaryTest is Test {
             factory.deployClient(contextUID2, address(templateB), initDataB, bytes32("salt-b"));
         WeightedGovernanceClient clientB = WeightedGovernanceClient(cloneAddrB);
         core.grantRole(core.contextAdminRole(contextUID2), address(clientB));
-        clientB.setEpochLength(1);
+        clientB.setEpochLength(EPOCH_LENGTH);
+        clientB.setDisputeWindow(DISPUTE_WINDOW);
+        clientB.setResponseWindow(RESPONSE_WINDOW);
+        clientB.setSettlementBond(SETTLEMENT_BOND);
         vm.stopPrank();
 
         // Root bytes numerically equal to context1's admin leaf (from setUp), posted for context2
@@ -369,8 +395,11 @@ contract DRIFTSecurityBoundaryTest is Test {
         bytes32 digestB = MessageHashUtils.toTypedDataHash(domainSeparatorB, structHashB);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(settlerPk, digestB);
 
-        vm.roll(block.number + epoch);
-        clientB.postEpochRoot(epoch, leafFromContext1, "", abi.encodePacked(r, s, v));
+        vm.roll(clientB.epochAnchorBlock() + clientB.epochLength() * epoch);
+        clientB.postEpochRoot{ value: SETTLEMENT_BOND }(
+            epoch, leafFromContext1, "", abi.encodePacked(r, s, v)
+        );
+        _rollPastFinalization(clientB);
 
         // Replay context1's (leaf-producing) admin claim verbatim against clientB.
         bytes32[] memory roles = new bytes32[](1);
@@ -437,8 +466,10 @@ contract DRIFTSecurityBoundaryTest is Test {
         bytes32 digest = MessageHashUtils.toTypedDataHash(domainSeparator, structHash);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(settlerPk, digest);
 
-        vm.roll(block.number + epoch2);
-        client.postEpochRoot(epoch2, futureLeaf, "", abi.encodePacked(r, s, v));
+        vm.roll(client.epochAnchorBlock() + client.epochLength() * epoch2);
+        client.postEpochRoot{ value: SETTLEMENT_BOND }(
+            epoch2, futureLeaf, "", abi.encodePacked(r, s, v)
+        );
 
         bytes32[] memory roles = new bytes32[](1);
         roles[0] = ROLE;

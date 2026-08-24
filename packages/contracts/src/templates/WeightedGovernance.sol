@@ -66,6 +66,47 @@ contract WeightedGovernanceClient is
     /// @notice Fixed-point scale role weights must sum to (w_r in [0, WEIGHT_SCALE], sum == WEIGHT_SCALE).
     uint256 public constant WEIGHT_SCALE = 10_000;
 
+    // B1 — non-inclusion disputes =============================================
+
+    /// @notice Floor a non-zero settlementBond/challengeBond must clear. Plain constants rather
+    ///         than admin-configurable values, so an admin (or an admin colluding with the
+    ///         settler) can never grief the bond down to economically meaningless.
+    uint256 public constant MIN_SETTLEMENT_BOND = 0.001 ether;
+    uint256 public constant MIN_CHALLENGE_BOND = 0.001 ether;
+
+    /// @notice Wei the settler must escrow per posted epoch, forfeited on a successful challenge.
+    uint256 public settlementBond;
+    /// @notice Wei a challenger must escrow to open a non-inclusion challenge.
+    uint256 public challengeBond;
+    /// @notice Blocks after posting during which a non-inclusion challenge may be opened.
+    ///         One-time set via `setDisputeWindow`; 0 means unconfigured.
+    uint256 public disputeWindow;
+    /// @notice Blocks an open challenge has for a rebuttal before it can be claimed unanswered.
+    ///         One-time set via `setResponseWindow`; 0 means unconfigured.
+    uint256 public responseWindow;
+
+    /// @notice Block at which each epoch's root was posted.
+    mapping(uint256 => uint256) public epochPostedAtBlock;
+    /// @notice The settler's escrowed bond for each epoch (zeroed once withdrawn or forfeited).
+    mapping(uint256 => uint256) public epochBondAmount;
+    /// @notice Count of unresolved challenges currently open against each epoch.
+    mapping(uint256 => uint256) public openChallengeCount;
+    /// @notice Number of consecutive epoch rollbacks (unanswered challenges), reset to 0 the next
+    ///         time an epoch finalizes cleanly. Read-only signal for admins deciding whether to
+    ///         rotate the settler via the existing `setTrustedSettler` — no auto-rotation.
+    uint256 public consecutiveFailedEpochs;
+
+    struct Challenge {
+        uint256 openedAtBlock;
+        uint256 bond;
+        address challenger;
+        bool resolved;
+    }
+
+    /// @notice epoch => missing node => open/resolved challenge. Concurrent per-node, not
+    ///         serialized per-epoch — see `challengeOmission`.
+    mapping(uint256 => mapping(address => Challenge)) public challenges;
+
     // Mappings
     mapping(uint256 => bytes32) public epochRoots;
     mapping(address => mapping(bytes32 => uint256)) public lastClaimedEpoch;
@@ -233,6 +274,44 @@ contract WeightedGovernanceClient is
         emit EpochLengthConfigured(blocks_, block.number);
     }
 
+    /// @notice Fixes the non-inclusion challenge window (in blocks). Callable exactly once, same
+    ///         pattern as `setEpochLength`. Required before `postEpochRoot` will accept a root.
+    function setDisputeWindow(
+        uint256 blocks_
+    ) external onlyContextAdmin {
+        if (disputeWindow != 0) revert DisputeWindowAlreadySet();
+        if (blocks_ == 0) revert InvalidDisputeWindow();
+        disputeWindow = blocks_;
+    }
+
+    /// @notice Fixes the challenge response window (in blocks). Callable exactly once. Required
+    ///         before `postEpochRoot` will accept a root.
+    function setResponseWindow(
+        uint256 blocks_
+    ) external onlyContextAdmin {
+        if (responseWindow != 0) revert ResponseWindowAlreadySet();
+        if (blocks_ == 0) revert InvalidResponseWindow();
+        responseWindow = blocks_;
+    }
+
+    /// @notice Sets the settler's per-epoch settlement bond. Enforced >= MIN_SETTLEMENT_BOND
+    ///         whenever it's actually required (at `postEpochRoot` time), not just here — so
+    ///         simply never calling this can't leave a silent zero-bond hole.
+    function setSettlementBond(
+        uint256 amount
+    ) external onlyContextAdmin {
+        if (amount < MIN_SETTLEMENT_BOND) revert BondBelowFloor(amount, MIN_SETTLEMENT_BOND);
+        settlementBond = amount;
+    }
+
+    /// @notice Sets the challenger's bond for opening a non-inclusion challenge.
+    function setChallengeBond(
+        uint256 amount
+    ) external onlyContextAdmin {
+        if (amount < MIN_CHALLENGE_BOND) revert BondBelowFloor(amount, MIN_CHALLENGE_BOND);
+        challengeBond = amount;
+    }
+
     /// @notice Updates the trusted settler address
     /// @param newSettler The new address authorized to sign epoch roots
     function setTrustedSettler(
@@ -292,7 +371,7 @@ contract WeightedGovernanceClient is
         bytes32 merkleRoot,
         string calldata treeURI,
         bytes calldata sig
-    ) external {
+    ) external payable {
         if (epoch != currentEpoch + 1) {
             revert InvalidEpoch(epoch, currentEpoch + 1);
         }
@@ -300,8 +379,25 @@ contract WeightedGovernanceClient is
             revert EpochAlreadyPosted(epoch);
         }
         if (epochLength == 0) revert EpochLengthNotConfigured();
+        if (disputeWindow == 0 || responseWindow == 0) revert DisputeWindowNotConfigured();
+        if (epochLength <= disputeWindow + responseWindow) {
+            revert WindowsExceedEpochLength(epochLength, disputeWindow, responseWindow);
+        }
+        if (settlementBond < MIN_SETTLEMENT_BOND) {
+            revert BondBelowFloor(settlementBond, MIN_SETTLEMENT_BOND);
+        }
+        if (msg.value != settlementBond) {
+            revert InsufficientBond(msg.value, settlementBond);
+        }
+        // The previous epoch (if any) must be fully finalized before this one can be posted —
+        // this is what keeps settlement sequential now that a pending/challengeable state exists.
+        if (epoch > 1) {
+            if (!_isFinalized(currentEpoch)) revert EpochNotYetFinalized(currentEpoch);
+            // Reaching here proves the previous epoch finalized without a rollback this cycle.
+            consecutiveFailedEpochs = 0;
+        }
 
-        uint256 boundaryBlock = epochAnchorBlock + (epochLength * epoch);
+        uint256 boundaryBlock = _boundaryBlockFor(epoch);
         if (block.number < boundaryBlock) {
             revert EpochNotYetElapsed(boundaryBlock, block.number);
         }
@@ -319,6 +415,8 @@ contract WeightedGovernanceClient is
         currentEpoch = epoch;
         epochRoots[epoch] = merkleRoot;
         epochConfigVersion[epoch] = currentConfigVersion;
+        epochPostedAtBlock[epoch] = block.number;
+        epochBondAmount[epoch] = msg.value;
 
         emit EpochRootPosted(contextUID, epoch, merkleRoot, treeURI);
     }
@@ -340,6 +438,7 @@ contract WeightedGovernanceClient is
             revert NodeNotRegistered(contextUID, node);
         }
         if (epochRoots[epoch] == bytes32(0)) revert EpochNotFound(epoch);
+        if (!_isFinalized(epoch)) revert EpochNotYetFinalized(epoch);
         if (epoch <= lastClaimedEpoch[node][role]) {
             revert AlreadyClaimed(node, role, epoch);
         }
@@ -379,6 +478,142 @@ contract WeightedGovernanceClient is
         return MerkleProof.verify(merkleProof, epochRoots[epoch], leaf);
     }
 
+    // B1 — NON-INCLUSION DISPUTES =============================================
+
+    /// @inheritdoc IDRIFTSettler
+    function challengeOmission(
+        uint256 epoch,
+        address missingNode
+    ) external payable {
+        if (epoch != currentEpoch) revert EpochNotFound(epoch);
+        if (block.number > epochPostedAtBlock[epoch] + disputeWindow) {
+            revert DisputeWindowClosed(epoch);
+        }
+        if (
+            challenges[epoch][missingNode].openedAtBlock != 0
+                && !challenges[epoch][missingNode].resolved
+        ) {
+            // A resolved (or never-opened) slot can be reused: this matters after a rollback and
+            // repost of the same epoch number, where a fresh challenge against the same node must
+            // be possible if the corrected root still omits them.
+            revert ChallengeAlreadyOpen(epoch, missingNode);
+        }
+        if (!_disputeEligible(missingNode, _boundaryBlockFor(epoch))) {
+            revert NodeNotEligibleForDispute(missingNode);
+        }
+        if (challengeBond < MIN_CHALLENGE_BOND) {
+            revert BondBelowFloor(challengeBond, MIN_CHALLENGE_BOND);
+        }
+        if (msg.value != challengeBond) revert InsufficientBond(msg.value, challengeBond);
+
+        challenges[epoch][missingNode] = Challenge({
+            openedAtBlock: block.number, bond: msg.value, challenger: msg.sender, resolved: false
+        });
+        openChallengeCount[epoch]++;
+
+        emit ChallengeOpened(contextUID, epoch, missingNode, msg.sender, msg.value);
+    }
+
+    /// @inheritdoc IDRIFTSettler
+    function respondToChallenge(
+        uint256 epoch,
+        address node,
+        bytes32 role,
+        uint256 score,
+        bytes32[] calldata merkleProof
+    ) external {
+        Challenge storage c = challenges[epoch][node];
+        if (c.openedAtBlock == 0) revert ChallengeNotFound(epoch, node);
+        if (c.resolved) revert ChallengeAlreadyResolved(epoch, node);
+        if (epochRoots[epoch] == bytes32(0)) revert EpochAlreadyInvalidated(epoch);
+        if (block.number > c.openedAtBlock + responseWindow) {
+            revert ResponseWindowClosed(epoch, node);
+        }
+
+        bytes32 leaf = _canonicalLeaf(node, role, score, epoch);
+        if (!MerkleProof.verify(merkleProof, epochRoots[epoch], leaf)) {
+            revert InvalidMerkleProof();
+        }
+
+        c.resolved = true;
+        openChallengeCount[epoch]--;
+        uint256 bond = c.bond;
+        c.bond = 0;
+
+        (bool sent,) = trustedSettler.call{ value: bond }("");
+        if (!sent) revert ExecutionFailed();
+
+        emit ChallengeDefeated(contextUID, epoch, node);
+    }
+
+    /// @inheritdoc IDRIFTSettler
+    function claimUnansweredChallenge(
+        uint256 epoch,
+        address node
+    ) external {
+        Challenge storage c = challenges[epoch][node];
+        if (c.openedAtBlock == 0) revert ChallengeNotFound(epoch, node);
+        if (c.resolved) revert ChallengeAlreadyResolved(epoch, node);
+        if (epochRoots[epoch] == bytes32(0)) revert EpochAlreadyInvalidated(epoch);
+        if (block.number <= c.openedAtBlock + responseWindow) {
+            revert ResponseWindowStillOpen(epoch, node);
+        }
+
+        c.resolved = true;
+        openChallengeCount[epoch]--;
+
+        uint256 bond = epochBondAmount[epoch];
+        epochBondAmount[epoch] = 0;
+        epochRoots[epoch] = bytes32(0);
+        epochPostedAtBlock[epoch] = 0;
+        currentEpoch = epoch - 1;
+
+        consecutiveFailedEpochs++;
+        uint256 failCount = consecutiveFailedEpochs;
+
+        address challenger = c.challenger;
+        (bool sent,) = challenger.call{ value: bond }("");
+        if (!sent) revert ExecutionFailed();
+
+        emit NonInclusionProven(contextUID, epoch, node, challenger, bond, failCount);
+    }
+
+    /// @inheritdoc IDRIFTSettler
+    function reclaimMootChallenge(
+        uint256 epoch,
+        address node
+    ) external {
+        Challenge storage c = challenges[epoch][node];
+        if (c.openedAtBlock == 0) revert ChallengeNotFound(epoch, node);
+        if (c.resolved) revert ChallengeAlreadyResolved(epoch, node);
+        if (epochRoots[epoch] != bytes32(0)) revert EpochNotInvalidated(epoch);
+
+        c.resolved = true;
+        openChallengeCount[epoch]--;
+        uint256 bond = c.bond;
+        c.bond = 0;
+
+        address challenger = c.challenger;
+        (bool sent,) = challenger.call{ value: bond }("");
+        if (!sent) revert ExecutionFailed();
+    }
+
+    /// @inheritdoc IDRIFTSettler
+    function withdrawSettlementBond(
+        uint256 epoch
+    ) external {
+        if (!_isFinalized(epoch)) revert EpochNotYetFinalized(epoch);
+        uint256 bond = epochBondAmount[epoch];
+        if (bond == 0) revert NoBondToWithdraw(epoch);
+
+        epochBondAmount[epoch] = 0;
+
+        (bool sent,) = trustedSettler.call{ value: bond }("");
+        if (!sent) revert ExecutionFailed();
+
+        emit SettlementBondWithdrawn(contextUID, epoch, bond);
+    }
+
     // GOVERNANCE: PROPOSALS ===================================================
 
     /// @dev Disabled. All voting in this client requires Merkle state proofs.
@@ -413,6 +648,7 @@ contract WeightedGovernanceClient is
         if (roles.length != scores.length || roles.length != proofs.length) {
             revert ArrayLengthMismatch();
         }
+        if (!_isFinalized(currentEpoch)) revert EpochNotYetFinalized(currentEpoch);
 
         uint32 pinnedConfigVersion = epochConfigVersion[currentEpoch];
         WeightConfig storage pinnedConfig = _weightHistory[pinnedConfigVersion];
@@ -506,6 +742,7 @@ contract WeightedGovernanceClient is
 
         bytes32 root = epochRoots[p.snapshotEpoch];
         if (root == bytes32(0)) revert EpochNotFound(p.snapshotEpoch);
+        if (!_isFinalized(p.snapshotEpoch)) revert EpochNotYetFinalized(p.snapshotEpoch);
 
         uint256 totalPower = 0;
 
@@ -575,6 +812,7 @@ contract WeightedGovernanceClient is
 
         bytes32 root = epochRoots[epoch];
         if (root == bytes32(0)) revert EpochNotFound(epoch);
+        if (!_isFinalized(epoch)) revert EpochNotYetFinalized(epoch);
 
         WeightConfig storage configAtEpoch = _weightHistory[epochConfigVersion[epoch]];
 
@@ -692,5 +930,41 @@ contract WeightedGovernanceClient is
         uint256 epoch
     ) internal view returns (bytes32) {
         return keccak256(bytes.concat(keccak256(abi.encode(contextUID, node, role, score, epoch))));
+    }
+
+    /// @notice The on-chain boundary block for `epoch`: h_0 + beta * epoch.
+    function _boundaryBlockFor(
+        uint256 epoch
+    ) internal view returns (uint256) {
+        return epochAnchorBlock + (epochLength * epoch);
+    }
+
+    /// @notice B1 dispute eligibility: `node` must have been registered at-or-before `boundary`
+    ///         and not yet banned as of `boundary` — evaluated against registry state *as of the
+    ///         boundary block*, not current status, so a ban applied after the fact can't strip a
+    ///         legitimately-omitted node's standing to dispute (see DRIFTCoreStorage).
+    function _disputeEligible(
+        address node,
+        uint256 boundary
+    ) internal view returns (bool) {
+        uint256 registeredAt = core.nodeRegisteredAtBlock(contextUID, node);
+        if (registeredAt == 0 || registeredAt > boundary) return false;
+
+        uint256 bannedAt = core.nodeBannedAtBlock(contextUID, node);
+        if (bannedAt != 0 && bannedAt <= boundary) return false;
+
+        return true;
+    }
+
+    /// @notice An epoch is finalized once its dispute+response windows have fully elapsed and no
+    ///         challenge against it remains unresolved. `openChallengeCount == 0` matters even
+    ///         after the time bound passes: a timed-out-but-not-yet-claimed challenge must not
+    ///         let a genuinely bad epoch slip into use before its rollback actually executes.
+    function _isFinalized(
+        uint256 epoch
+    ) internal view returns (bool) {
+        return epochRoots[epoch] != bytes32(0)
+            && block.number > epochPostedAtBlock[epoch] + disputeWindow + responseWindow
+            && openChallengeCount[epoch] == 0;
     }
 }

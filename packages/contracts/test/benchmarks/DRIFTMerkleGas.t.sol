@@ -68,12 +68,21 @@ contract DRIFTMerkleGasTest is Test {
             factory.deployClient(contextUID, address(template), initData, bytes32("salt"));
         client = WeightedGovernanceClient(cloneAddr);
         core.grantRole(core.contextAdminRole(contextUID), address(client));
-        client.setEpochLength(1);
+        client.setEpochLength(EPOCH_LENGTH);
+        client.setDisputeWindow(DISPUTE_WINDOW);
+        client.setResponseWindow(RESPONSE_WINDOW);
+        client.setSettlementBond(SETTLEMENT_BOND);
         vm.stopPrank();
 
         vm.prank(node);
         core.registerNode(contextUID, "0x");
     }
+
+    // B1 test cadence: epochLength must exceed disputeWindow + responseWindow.
+    uint256 constant EPOCH_LENGTH = 10;
+    uint256 constant DISPUTE_WINDOW = 1;
+    uint256 constant RESPONSE_WINDOW = 1;
+    uint256 constant SETTLEMENT_BOND = 0.001 ether;
 
     // BENCHMARKS ==============================================================
 
@@ -118,9 +127,9 @@ contract DRIFTMerkleGasTest is Test {
         bytes32 digest = MessageHashUtils.toTypedDataHash(domainSeparator, structHash);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(settlerPk, digest);
 
-        vm.roll(block.number + 1);
+        vm.roll(client.epochAnchorBlock() + client.epochLength());
         vm.startSnapshotGas("PostRoot_O1_Cost");
-        client.postEpochRoot(1, root, "", abi.encodePacked(r, s, v));
+        client.postEpochRoot{ value: SETTLEMENT_BOND }(1, root, "", abi.encodePacked(r, s, v));
         vm.stopSnapshotGas();
     }
 
@@ -188,8 +197,11 @@ contract DRIFTMerkleGasTest is Test {
             bytes32 digest = MessageHashUtils.toTypedDataHash(domainSeparator, structHash);
 
             (uint8 v, bytes32 r, bytes32 s) = vm.sign(settlerPk, digest);
-            vm.roll(block.number + epoch);
-            client.postEpochRoot(epoch, calculatedRoot, "", abi.encodePacked(r, s, v));
+            vm.roll(client.epochAnchorBlock() + client.epochLength() * epoch);
+            client.postEpochRoot{ value: SETTLEMENT_BOND }(
+                epoch, calculatedRoot, "", abi.encodePacked(r, s, v)
+            );
+            vm.roll(block.number + client.disputeWindow() + client.responseWindow() + 1);
         }
 
         vm.startSnapshotGas(snapshotName);

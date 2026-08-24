@@ -30,7 +30,18 @@ abstract contract DRIFTCoreStorage {
     // Context UID => client address
     mapping(bytes32 => address) internal _contextClients;
 
+    // Context UID => Node Address => block.number at which the node was (most recently) registered.
+    // Used by B1 non-inclusion disputes to evaluate eligibility as of a past epoch boundary rather
+    // than current status, which a colluding admin could otherwise change after the fact.
+    // internal, not public: exposed via the explicit IDRIFTCore.nodeRegisteredAtBlock view function
+    // in DRIFTCore.sol, mirroring how `nodeStatus` is exposed via `isRegistered` rather than a raw
+    // getter, so it doesn't clash with the interface function of the same name.
+    mapping(bytes32 => mapping(address => uint256)) internal _nodeRegisteredAtBlock;
+
+    // Context UID => Node Address => block.number at which the node was banned (0 if never banned).
+    mapping(bytes32 => mapping(address => uint256)) internal _nodeBannedAtBlock;
+
     /// @dev Reserved storage slots for future upgrades.
     ///      Each variable added above must reduce this by its slot count.
-    uint256[43] private __gap;
+    uint256[41] private __gap;
 }

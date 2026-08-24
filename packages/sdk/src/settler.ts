@@ -166,6 +166,37 @@ export class DriftSettler {
     return { roles, scores, proofs };
   }
 
+  /**
+   * Finds the single leaf for (node, role) at `epoch` and returns exactly what
+   * `respondToChallenge` (B1 non-inclusion disputes) needs: the leaf's score and inclusion proof.
+   * Reuses the same tree-scanning logic as generateProofOfStatePayload rather than requiring any
+   * new tree-construction machinery — the B1 leaf encoding is unchanged from the existing
+   * H(c‖n‖r‖score‖E) scheme.
+   */
+  public generateChallengeResponse(
+    tree: StandardMerkleTree<string[]>,
+    contextUID: string,
+    node: string,
+    role: string,
+    epoch: bigint
+  ): { score: bigint; proof: string[] } {
+    for (const [i, v] of tree.entries()) {
+      // v[0] = contextUID, v[1] = node, v[2] = role, v[3] = score, v[4] = epoch
+      if (
+        v[0] === contextUID &&
+        v[1].toLowerCase() === node.toLowerCase() &&
+        v[2] === role &&
+        BigInt(v[4]) === epoch
+      ) {
+        return { score: BigInt(v[3]), proof: tree.getProof(i) };
+      }
+    }
+
+    throw new Error(
+      `DRIFT SDK: No leaf found for node ${node} role ${role} at epoch ${epoch} — cannot respond to challenge.`
+    );
+  }
+
   private async _fetchDomain(contractAddress: string): Promise<TypedDataDomain> {
     const provider = this.signer.provider;
     if (!provider) throw new Error('DRIFT SDK: Signer must have a provider to fetch EIP-712 domain.');
