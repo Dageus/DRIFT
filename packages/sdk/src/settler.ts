@@ -5,6 +5,28 @@ const EIP712_ABI = [
   'function eip712Domain() external view returns (bytes1 fields, string name, string version, uint256 chainId, address verifyingContract, bytes32 salt, uint256[] extensions)'
 ];
 
+const EPOCH_BOUNDARY_ABI = [
+  'function epochLength() external view returns (uint256)',
+  'function epochAnchorBlock() external view returns (uint256)'
+];
+
+/**
+ * Thrown by assertSynchronizedForEpoch when the connected provider's observed chain head has not
+ * yet reached the epoch's on-chain boundary block (h_0 + beta * epoch). Settlement must be
+ * deferred, not retried against stale/incomplete data (O1).
+ */
+export class EpochNotSynchronizedError extends Error {
+  constructor(
+    public readonly observedHead: bigint,
+    public readonly boundaryBlock: bigint
+  ) {
+    super(
+      `DRIFT SDK: observed chain head (block ${observedHead}) has not reached the epoch boundary block ${boundaryBlock} yet — defer settlement.`
+    );
+    this.name = 'EpochNotSynchronizedError';
+  }
+}
+
 const SETTLE_ROOT_TYPES = {
   SettleRoot: [
     { name: 'contextUID', type: 'bytes32' },
@@ -34,8 +56,62 @@ export class DriftSettler {
   }
 
   /**
+   * O1 synchronization check: computes the on-chain boundary block for `epoch`
+   * (epochAnchorBlock + epochLength * epoch) and compares it to the connected provider's
+   * currently observed chain head. This repo does not yet ship a dedicated indexer/subgraph
+   * (see TODO.md), so the RPC provider's head is used as an interim proxy for "the indexer's
+   * observed head" the thesis's O1 assumption describes.
+   *
+   * Callers computing Phi_c for `epoch` MUST check this (or use assertSynchronizedForEpoch)
+   * BEFORE fetching attestations and calling buildAndSignEpochRoot — this method intentionally
+   * does not gate buildAndSignEpochRoot itself, so tree-building/signing stays unit-testable
+   * against an offline signer with no provider attached.
+   */
+  public async isSynchronizedForEpoch(
+    clientAddress: string,
+    epoch: bigint
+  ): Promise<{ synced: boolean; observedHead: bigint; boundaryBlock: bigint }> {
+    const provider = this.signer.provider;
+    if (!provider) throw new Error('DRIFT SDK: Signer must have a provider to check epoch synchronization.');
+
+    const [{ epochLength, epochAnchorBlock }, observedHeadNum] = await Promise.all([
+      this._fetchEpochBoundaryConfig(clientAddress),
+      provider.getBlockNumber()
+    ]);
+
+    const boundaryBlock = epochAnchorBlock + epochLength * epoch;
+    const observedHead = BigInt(observedHeadNum);
+
+    return { synced: observedHead >= boundaryBlock, observedHead, boundaryBlock };
+  }
+
+  private async _fetchEpochBoundaryConfig(
+    clientAddress: string
+  ): Promise<{ epochLength: bigint; epochAnchorBlock: bigint }> {
+    const contract = new Contract(clientAddress, EPOCH_BOUNDARY_ABI, this.signer.provider);
+    const [epochLength, epochAnchorBlock] = await Promise.all([
+      contract.epochLength(),
+      contract.epochAnchorBlock()
+    ]);
+    return { epochLength: BigInt(epochLength), epochAnchorBlock: BigInt(epochAnchorBlock) };
+  }
+
+  /**
+   * Convenience wrapper around isSynchronizedForEpoch that throws EpochNotSynchronizedError
+   * instead of returning a boolean — for callers that want to fail fast rather than branch.
+   */
+  public async assertSynchronizedForEpoch(clientAddress: string, epoch: bigint): Promise<void> {
+    const { synced, observedHead, boundaryBlock } = await this.isSynchronizedForEpoch(clientAddress, epoch);
+    if (!synced) throw new EpochNotSynchronizedError(observedHead, boundaryBlock);
+  }
+
+  /**
    * Build a Merkle tree from off-chain scores and sign the root.
    * Directly matches EVM double-hashing: keccak256(bytes.concat(keccak256(abi.encode(...))))
+   *
+   * Does NOT perform the O1 synchronization check itself — call
+   * isSynchronizedForEpoch/assertSynchronizedForEpoch before computing Phi_c for `epoch` and
+   * invoking this method.
    */
   public async buildAndSignEpochRoot(
     clientAddress: string,

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { Wallet, id } from 'ethers';
-import { DriftSettler } from '../../src/settler';
+import { DriftSettler, EpochNotSynchronizedError } from '../../src/settler';
 import type { ScoreEntry } from '../../src/settler';
 
 const mockUploader = async (tree) => `arweave://mock-hash-${Date.now()}`;
@@ -87,5 +87,55 @@ describe('DriftSettler Cryptographic Boundaries', () => {
     expect(() => {
       settler.generateProofOfStatePayload(tree, contextUID, '0xGHOST_NODE', epoch);
     }).toThrow(/No reputation claims found/);
+  });
+});
+
+describe('DriftSettler O1 Synchronization Check', () => {
+  const clientAddress = '0x1234567890123456789012345678901234567890';
+
+  function makeSettler(observedHead: number, epochLength: bigint, epochAnchorBlock: bigint): DriftSettler {
+    const fakeProvider = { getBlockNumber: async () => observedHead } as any;
+    const signer = Wallet.createRandom().connect(fakeProvider);
+    const settler = new DriftSettler(signer);
+    (settler as any)._fetchEpochBoundaryConfig = async () => ({ epochLength, epochAnchorBlock });
+    return settler;
+  }
+
+  it('reports synced once the observed head reaches the boundary block', async () => {
+    // boundary = 100 (anchor) + 10 (beta) * 3 (epoch) = 130
+    const settler = makeSettler(130, 10n, 100n);
+    const result = await settler.isSynchronizedForEpoch(clientAddress, 3n);
+
+    expect(result.boundaryBlock).toBe(130n);
+    expect(result.observedHead).toBe(130n);
+    expect(result.synced).toBe(true);
+  });
+
+  it('reports not synced while the observed head is behind the boundary block', async () => {
+    const settler = makeSettler(129, 10n, 100n);
+    const result = await settler.isSynchronizedForEpoch(clientAddress, 3n);
+
+    expect(result.boundaryBlock).toBe(130n);
+    expect(result.synced).toBe(false);
+  });
+
+  it('assertSynchronizedForEpoch throws EpochNotSynchronizedError when behind the boundary', async () => {
+    const settler = makeSettler(50, 10n, 100n);
+
+    await expect(settler.assertSynchronizedForEpoch(clientAddress, 3n)).rejects.toThrow(
+      EpochNotSynchronizedError
+    );
+  });
+
+  it('assertSynchronizedForEpoch resolves once at or past the boundary', async () => {
+    const settler = makeSettler(200, 10n, 100n);
+    await expect(settler.assertSynchronizedForEpoch(clientAddress, 3n)).resolves.toBeUndefined();
+  });
+
+  it('throws a plain error when the signer has no provider attached', async () => {
+    const offlineSettler = new DriftSettler(Wallet.createRandom());
+    await expect(offlineSettler.isSynchronizedForEpoch(clientAddress, 1n)).rejects.toThrow(
+      /must have a provider/
+    );
   });
 });
