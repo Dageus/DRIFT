@@ -6,6 +6,7 @@ import { GovernanceModule } from './modules/governance';
 import { DriftSettler } from './settler';
 import type { ProofOfStatePayload } from './settler';
 import { LocalTrustStore } from './trust/LocalTrustStore';
+import { NodeTrustStore } from './trust/NodeTrustStore';
 import type { ITrustStore } from './trust/ITrustStore';
 import type { IReputationEngine } from './engines/IReputationEngine';
 import type { IAttestationProvider } from './providers/IAttestationProvider';
@@ -47,7 +48,11 @@ export class Drift {
     this._provider = (signerOrProvider as Signer).provider ?? (signerOrProvider as Provider);
 
     this._attestationProvider = config.attestationProvider;
-    this._trustStore = config.storageProvider ?? new LocalTrustStore();
+    // A7: `localStorage` (LocalTrustStore's backing store) does not exist under Node, where it
+    // would silently no-op on every read/write. Fall back to a filesystem-backed store there so
+    // server-side SDK use persists trust weights instead of losing them.
+    this._trustStore =
+      config.storageProvider ?? (typeof localStorage !== 'undefined' ? new LocalTrustStore() : new NodeTrustStore());
 
     this.core = new CoreModule(config.coreAddress, signerOrProvider);
     this.reputation = new ReputationModule(signerOrProvider);
