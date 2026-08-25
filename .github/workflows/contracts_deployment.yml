@@ -41,7 +41,7 @@ jobs:
 
     strategy:
       matrix:
-        network: [sepolia, arbitrum_sepolia, avalanche_fuji]
+        network: [sepolia, arbitrum_sepolia]
       fail-fast: false
 
     steps:
