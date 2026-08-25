@@ -3,4 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "license": "MIT",
+  "scripts": {
+    "build": "forge build",
+    "benchmark:gas": "./scripts/export-gas-benchmarks.sh"
+  }
 }

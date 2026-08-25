@@ -91,6 +91,11 @@ contract DRIFTMerkleGasTest is Test {
         _simulateAndMeasureClaim(1, 1, "Claim_Depth_1_Users_2");
     }
 
+    /// @notice Benchmarks a reputation claim requiring a proof depth of 5 (32 users)
+    function test_Gas_New_Claim_Depth5_32Users() public {
+        _simulateAndMeasureClaim(5, 1, "Claim_Depth_5_Users_32");
+    }
+
     /// @notice Benchmarks a reputation claim requiring a proof depth of 10 (1,024 users)
     function test_Gas_New_Claim_Depth10_1024Users() public {
         _simulateAndMeasureClaim(10, 1, "Claim_Depth_10_Users_1024");
@@ -104,6 +109,11 @@ contract DRIFTMerkleGasTest is Test {
     /// @notice Benchmarks a reputation claim requiring a proof depth of 20 (1,000,000+ users)
     function test_Gas_New_Claim_Depth20_1MUsers() public {
         _simulateAndMeasureClaim(20, 1, "Claim_Depth_20_Users_1M");
+    }
+
+    /// @notice Benchmarks a reputation claim requiring a proof depth of 25 (33,000,000+ users)
+    function test_Gas_New_Claim_Depth25_33MUsers() public {
+        _simulateAndMeasureClaim(25, 1, "Claim_Depth_25_Users_33M");
     }
 
     /// @notice Benchmarks the O(1) fixed cost of posting the epoch root

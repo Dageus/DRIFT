@@ -1,5 +1,7 @@
 {
   "Vote_Depth_10_Users_1024": "59310",
   "Vote_Depth_15_Users_32768": "60989",
-  "Vote_Depth_20_Users_1M": "62653"
+  "Vote_Depth_20_Users_1M": "62653",
+  "Vote_Depth_25_Users_33M": "64352",
+  "Vote_Depth_5_Users_32": "57618"
 }

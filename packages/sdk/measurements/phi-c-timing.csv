@@ -1,0 +1,5 @@
+n,edges,trials,mean_ms,median_ms,stdev_ms,k_max,measured,notes
+100,500,20,28.690,27.733,8.238,10,true,
+1000,5000,10,1036.286,1016.813,57.498,10,true,
+10000,50000,3,115893.495,113217.868,9953.670,10,true,
+100000,,0,10976104.8,,,10,false,"extrapolated: O(N^2) fit over the two largest measured points (N=1000, N=10000)"

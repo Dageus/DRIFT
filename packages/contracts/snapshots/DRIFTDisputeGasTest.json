@@ -1,0 +1,11 @@
+{
+  "ChallengeOmission": "106628",
+  "ClaimUnansweredChallenge": "60726",
+  "ReclaimMootChallenge": "34380",
+  "RespondToChallenge_Depth1": "38891",
+  "SetChallengeBond": "46871",
+  "SetDisputeWindow": "47055",
+  "SetResponseWindow": "46752",
+  "SetSettlementBond": "47306",
+  "WithdrawSettlementBond": "39102"
+}

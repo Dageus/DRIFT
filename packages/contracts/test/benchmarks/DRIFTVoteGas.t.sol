@@ -86,6 +86,11 @@ contract DRIFTVoteGasTest is Test {
 
     // BENCHMARKS ==============================================================
 
+    /// @notice Benchmarks a vote cast requiring a proof depth of 5 (32 users)
+    function test_Gas_Vote_Depth5_32Users() public {
+        _simulateAndMeasureVote(5, "Vote_Depth_5_Users_32");
+    }
+
     /// @notice Benchmarks a vote cast requiring a proof depth of 10 (1,024 users)
     function test_Gas_Vote_Depth10_1024Users() public {
         _simulateAndMeasureVote(10, "Vote_Depth_10_Users_1024");
@@ -99,6 +104,11 @@ contract DRIFTVoteGasTest is Test {
     /// @notice Benchmarks a vote cast requiring a proof depth of 20 (1,000,000+ users)
     function test_Gas_Vote_Depth20_1MUsers() public {
         _simulateAndMeasureVote(20, "Vote_Depth_20_Users_1M");
+    }
+
+    /// @notice Benchmarks a vote cast requiring a proof depth of 25 (33,000,000+ users)
+    function test_Gas_Vote_Depth25_33MUsers() public {
+        _simulateAndMeasureVote(25, "Vote_Depth_25_Users_33M");
     }
 
     // INTERNAL HELPERS ========================================================
