@@ -194,6 +194,12 @@ contract WeightedGovernanceClient is
             weightSum += _weights[i];
         }
         if (weightSum != WEIGHT_SCALE) revert WeightsNotNormalized(weightSum, WEIGHT_SCALE);
+        // Mirrors setTrustedSettler's zero-check (line ~320) — without it, a context initialized
+        // with trustedSettler == address(0) can never accept a valid postEpochRoot signature
+        // (SignatureChecker.isValidSignatureNow against address(0) always fails), silently
+        // bricking the context at creation time instead of failing loudly. Found via Slither's
+        // missing-zero-check detector (B3 triage).
+        if (_trustedSettler == address(0)) revert ZeroAddressSettler();
 
         __EIP712_init("DRIFT_WeightedGovernance", "1");
 

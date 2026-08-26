@@ -120,6 +120,35 @@ contract DRIFTSecurityTest is Test {
         driftToken.safeBatchTransferFrom(node, makeAddr("stranger"), tokenIds, amounts, "");
     }
 
+    /// @notice Generalizes test_TransferReverts (P2) beyond one hardcoded caller/tokenId/amount:
+    /// safeTransferFrom's override ignores every argument and reverts unconditionally, so no
+    /// combination of from/to/tokenId/amount/data — including from==to, zero address, or zero
+    /// amount — can ever succeed. No prior minting needed since the override never reaches state.
+    function testFuzz_RevertIf_TransferReverts(
+        address from,
+        address to,
+        uint256 tokenId,
+        uint256 amount,
+        bytes memory data
+    ) public {
+        vm.expectRevert(IDRIFTToken.NonTransmissibleToken.selector);
+        driftToken.safeTransferFrom(from, to, tokenId, amount, data);
+    }
+
+    /// @notice Generalizes test_BatchTransferReverts (P2) the same way, including mismatched-length
+    /// and empty tokenIds/amounts arrays — safeBatchTransferFrom's override reverts before ever
+    /// inspecting the arrays.
+    function testFuzz_RevertIf_BatchTransferReverts(
+        address from,
+        address to,
+        uint256[] memory tokenIds,
+        uint256[] memory amounts,
+        bytes memory data
+    ) public {
+        vm.expectRevert(IDRIFTToken.NonTransmissibleToken.selector);
+        driftToken.safeBatchTransferFrom(from, to, tokenIds, amounts, data);
+    }
+
     // NODE STATUS SECURITY ====================================================
 
     /// @notice Ensures a node marked as BANNED cannot bypass the ban by deregistering

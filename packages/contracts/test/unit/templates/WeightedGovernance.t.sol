@@ -229,6 +229,34 @@ contract WeightedGovernanceClientTest is DRIFTTestHelper {
         factory.deployClient(contextUID, address(template), initData, bytes32("badsalt"));
     }
 
+    /// @notice initialize must reject a zero-address settler (B3 Slither triage: without this, a
+    /// context could be deployed with no address ever able to produce a valid postEpochRoot
+    /// signature, silently bricking it instead of failing loudly — mirrors setTrustedSettler's
+    /// existing zero-check).
+    function test_RevertIf_InitializeWithZeroAddressSettler() public {
+        bytes32[] memory roles = new bytes32[](1);
+        roles[0] = ROLE_STUDENT;
+        uint256[] memory weights = new uint256[](1);
+        weights[0] = 10_000;
+
+        bytes memory initData = abi.encodeWithSelector(
+            WeightedGovernanceClient.initialize.selector,
+            address(core),
+            address(driftToken),
+            contextUID,
+            address(0),
+            0,
+            0,
+            "EigenTrust",
+            roles,
+            weights
+        );
+
+        vm.prank(admin);
+        vm.expectRevert(WeightedGovernanceClient.ZeroAddressSettler.selector);
+        factory.deployClient(contextUID, address(template), initData, bytes32("zerosettlersalt"));
+    }
+
     /// @notice setRoleWeights must reject weights that don't sum to WEIGHT_SCALE
     function test_RevertIf_SetRoleWeightsNotNormalized() public {
         bytes32[] memory roles = new bytes32[](2);

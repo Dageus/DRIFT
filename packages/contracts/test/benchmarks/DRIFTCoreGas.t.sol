@@ -87,7 +87,7 @@ contract DRIFTCoreGasBenchmarkTest is Test {
             address(core),
             address(driftToken),
             contextUID,
-            address(0),
+            makeAddr("benchmarkSettler"),
             0,
             0,
             "EigenTrust",

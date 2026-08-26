@@ -23,6 +23,7 @@
           foundry
           solc
           nodejs_22
+          slither-analyzer
         ];
 
         shellHook = ''

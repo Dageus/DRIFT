@@ -49,6 +49,45 @@ describe('DriftSettler Cryptographic Boundaries', () => {
     expect(tree.dump().values.length).toBe(2);
   });
 
+  it('produces an identical root across repeated builds from the same scores (B3 determinism)', async () => {
+    // Complements the A3/A5(iii) engine-level determinism test (Phi_c score, same input order
+    // varied → same score) with the settlement-layer claim B3 asks for directly: identical scores
+    // → identical committed ROOT, both across repeated builds of the same order and — the
+    // stronger form, since StandardMerkleTree sorts internally — across a differently-ordered
+    // presentation of the same entries.
+    const epoch = 1n;
+    const scores: ScoreEntry[] = [
+      { node: '0x1111111111111111111111111111111111111111', role: role1, score: 100n },
+      { node: '0x2222222222222222222222222222222222222222', role: role2, score: 500n },
+      { node: '0x3333333333333333333333333333333333333333', role: role1, score: 250n }
+    ];
+
+    const build1 = await settler.buildAndSignEpochRoot(
+      clientAddress,
+      contextUID,
+      epoch,
+      scores,
+      mockUploader
+    );
+    const build2 = await settler.buildAndSignEpochRoot(
+      clientAddress,
+      contextUID,
+      epoch,
+      scores,
+      mockUploader
+    );
+    const build3Reordered = await settler.buildAndSignEpochRoot(
+      clientAddress,
+      contextUID,
+      epoch,
+      [...scores].reverse(),
+      mockUploader
+    );
+
+    expect(build2.root).toBe(build1.root);
+    expect(build3Reordered.root).toBe(build1.root);
+  });
+
   it('should correctly generate perfectly parallel ProofOfState arrays', async () => {
     const epoch = 2n;
     const targetNode = '0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';

@@ -336,36 +336,7 @@ contract DRIFTSecurityBoundaryTest is Test {
     /// caller-supplied one), so a leaf hash that recomputes correctly for c1 recomputes to a
     /// different value under c2 — this is what should make the replay fail.
     function test_RevertIf_CrossContextProofReplay() public {
-        vm.startPrank(admin);
-        bytes32 contextUID2 = core.registerContext("test.security.other");
-
-        bytes32[] memory roles2 = new bytes32[](1);
-        roles2[0] = ROLE;
-        uint256[] memory weights2 = new uint256[](1);
-        weights2[0] = 10_000;
-
-        WeightedGovernanceClient templateB = new WeightedGovernanceClient();
-        bytes memory initDataB = abi.encodeWithSelector(
-            WeightedGovernanceClient.initialize.selector,
-            address(core),
-            address(driftToken),
-            contextUID2,
-            settler,
-            0,
-            0,
-            "EigenTrust",
-            roles2,
-            weights2
-        );
-        address cloneAddrB =
-            factory.deployClient(contextUID2, address(templateB), initDataB, bytes32("salt-b"));
-        WeightedGovernanceClient clientB = WeightedGovernanceClient(cloneAddrB);
-        core.grantRole(core.contextAdminRole(contextUID2), address(clientB));
-        clientB.setEpochLength(EPOCH_LENGTH);
-        clientB.setDisputeWindow(DISPUTE_WINDOW);
-        clientB.setResponseWindow(RESPONSE_WINDOW);
-        clientB.setSettlementBond(SETTLEMENT_BOND);
-        vm.stopPrank();
+        (bytes32 contextUID2, WeightedGovernanceClient clientB) = _deployContextBClient();
 
         // Root bytes numerically equal to context1's admin leaf (from setUp), posted for context2
         // under a genuine, independently-valid settler signature (the EIP-712 digest binds
@@ -518,7 +489,103 @@ contract DRIFTSecurityBoundaryTest is Test {
         client.postEpochRoot(badEpoch, root, "", abi.encodePacked(r, s, v));
     }
 
+    /// @notice Generalizes test_RevertIf_CrossContextProofReplay (P3 output isolation) beyond its
+    /// single hardcoded proposer/score: for any claimed identity and score, a leaf/root that
+    /// verifies in context1 must never verify in context2, since each client reconstructs the leaf
+    /// from its own immutable `contextUID`.
+    function testFuzz_RevertIf_CrossContextProofReplay(
+        address proposer,
+        uint256 setupScore
+    ) public {
+        (bytes32 contextUID2, WeightedGovernanceClient clientB) = _deployContextBClient();
+
+        uint256 epoch = 1;
+        bytes32 leafFromContext1 = keccak256(
+            bytes.concat(keccak256(abi.encode(contextUID, proposer, ROLE, setupScore, epoch)))
+        );
+
+        bytes32 domainSeparatorB = keccak256(
+            abi.encode(
+                keccak256(
+                    "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
+                ),
+                keccak256("DRIFT_WeightedGovernance"),
+                keccak256("1"),
+                block.chainid,
+                address(clientB)
+            )
+        );
+        bytes32 structHashB = keccak256(
+            abi.encode(
+                clientB.SETTLE_ROOT_TYPEHASH(), contextUID2, epoch, leafFromContext1, keccak256("")
+            )
+        );
+        bytes32 digestB = MessageHashUtils.toTypedDataHash(domainSeparatorB, structHashB);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(settlerPk, digestB);
+
+        vm.roll(clientB.epochAnchorBlock() + clientB.epochLength() * epoch);
+        clientB.postEpochRoot{ value: SETTLEMENT_BOND }(
+            epoch, leafFromContext1, "", abi.encodePacked(r, s, v)
+        );
+        _rollPastFinalization(clientB);
+
+        bytes32[] memory roles = new bytes32[](1);
+        roles[0] = ROLE;
+        uint256[] memory scores = new uint256[](1);
+        scores[0] = setupScore;
+        bytes32[][] memory proofs = new bytes32[][](1);
+        proofs[0] = new bytes32[](0);
+
+        vm.prank(proposer);
+        vm.expectRevert(IDRIFTSettler.InvalidMerkleProof.selector);
+        clientB.createProposalWithProofs(
+            "Cross-Context Replay Attempt", address(0), "", 3, roles, scores, proofs
+        );
+    }
+
     // INTERNAL HELPERS ========================================================
+
+    /// @dev Deploys a second, independent WeightedGovernanceClient (context2), fully configured
+    /// with the same B1 windows/bond as the main `client` — shared by
+    /// test_RevertIf_CrossContextProofReplay and its fuzz generalization.
+    function _deployContextBClient()
+        internal
+        returns (bytes32 contextUID2, WeightedGovernanceClient clientB)
+    {
+        vm.startPrank(admin);
+        contextUID2 = core.registerContext(
+            string(abi.encodePacked("test.security.other.", block.number, gasleft()))
+        );
+
+        bytes32[] memory roles2 = new bytes32[](1);
+        roles2[0] = ROLE;
+        uint256[] memory weights2 = new uint256[](1);
+        weights2[0] = 10_000;
+
+        WeightedGovernanceClient templateB = new WeightedGovernanceClient();
+        bytes memory initDataB = abi.encodeWithSelector(
+            WeightedGovernanceClient.initialize.selector,
+            address(core),
+            address(driftToken),
+            contextUID2,
+            settler,
+            0,
+            0,
+            "EigenTrust",
+            roles2,
+            weights2
+        );
+        address cloneAddrB = factory.deployClient(
+            contextUID2, address(templateB), initDataB, bytes32(block.number)
+        );
+        clientB = WeightedGovernanceClient(cloneAddrB);
+        core.grantRole(core.contextAdminRole(contextUID2), address(clientB));
+        clientB.setEpochLength(EPOCH_LENGTH);
+        clientB.setDisputeWindow(DISPUTE_WINDOW);
+        clientB.setResponseWindow(RESPONSE_WINDOW);
+        clientB.setSettlementBond(SETTLEMENT_BOND);
+        vm.stopPrank();
+    }
 
     function _hashPair(
         bytes32 a,
