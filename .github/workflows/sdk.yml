@@ -16,6 +16,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # The SDK's TypeScript source imports ABI JSON directly from
+      # packages/contracts/out/ (Foundry's build output, gitignored). Without this, `npm run
+      # build --workspace=packages/sdk` fails with TS2307 "Cannot find module" on a clean
+      # checkout — it only "works locally" because contracts/out/ already exists from a prior
+      # `forge build`/`forge test` run.
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          cache: true
+
+      - name: Build contracts (for SDK ABI imports)
+        working-directory: packages/contracts
+        run: forge build
 
       - uses: actions/setup-node@v4
         with:
