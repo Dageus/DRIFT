@@ -110,10 +110,14 @@ interface IDRIFTCore is IAccessControl {
 
     // Client management =======================================================
 
-    /// @notice updates a context's policy, emitting an event.
+    /// @notice Updates a context's client, emitting an event.
+    /// @param  caller  The address that actually requested this change (e.g. the factory's own
+    ///                 msg.sender) — re-validated against contextAdminRole(contextUID)
+    ///                 independently of the onlyRole(FACTORY_ROLE) gate on this function itself.
     function setContextClient(
         bytes32 contextUID,
-        address clientContract
+        address clientContract,
+        address caller
     ) external;
 
     // Schema management =======================================================

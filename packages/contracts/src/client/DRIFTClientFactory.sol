@@ -49,6 +49,6 @@ contract DRIFTClientFactory {
             }
         }
 
-        core.setContextClient(contextUID, clone);
+        core.setContextClient(contextUID, clone, msg.sender);
     }
 }

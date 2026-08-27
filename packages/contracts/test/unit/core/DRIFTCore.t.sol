@@ -66,6 +66,31 @@ contract DRIFTCoreTest is Test {
         assertTrue(core.hasRole(adminRole, creator));
     }
 
+    /// @notice Security audit fix: contextAdminRole(uid) must be self-administering — the
+    /// platform's DEFAULT_ADMIN_ROLE holder must NOT be able to grant a permissionlessly
+    /// registered context's admin role to anyone without that context's own admin consenting.
+    /// Regression test for the cross-context admin takeover found in the final audit: before the
+    /// fix, `admin` (DEFAULT_ADMIN_ROLE) could call grantRole(contextAdminRole(uid), attacker) for
+    /// any context `creator` ever registered, with no involvement from `creator` at all.
+    function test_RevertIf_PlatformAdminGrantsContextAdminRoleWithoutConsent() public {
+        bytes32 uid = _registerContext();
+        bytes32 adminRole = core.contextAdminRole(uid);
+
+        vm.prank(admin);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector, admin, adminRole
+            )
+        );
+        core.grantRole(adminRole, stranger);
+
+        // The context's own admin can still manage the role themselves (self-administering, not
+        // "nobody can ever grant it again").
+        vm.prank(creator);
+        core.grantRole(adminRole, stranger);
+        assertTrue(core.hasRole(adminRole, stranger));
+    }
+
     /// @notice Prevents initialization of malformed context identifiers
     function test_RegisterContextRevertsIfEmptyName() public {
         vm.prank(creator);
@@ -173,7 +198,7 @@ contract DRIFTCoreTest is Test {
 
         vm.startPrank(admin);
         core.grantRole(core.FACTORY_ROLE(), admin);
-        core.setContextClient(uid, creator);
+        core.setContextClient(uid, creator, creator);
         vm.stopPrank();
 
         vm.prank(creator);
@@ -192,7 +217,7 @@ contract DRIFTCoreTest is Test {
 
         vm.startPrank(admin);
         core.grantRole(core.FACTORY_ROLE(), admin);
-        core.setContextClient(uid, creator);
+        core.setContextClient(uid, creator, creator);
         vm.stopPrank();
 
         vm.prank(creator);
@@ -215,7 +240,7 @@ contract DRIFTCoreTest is Test {
 
         vm.startPrank(admin);
         core.grantRole(core.FACTORY_ROLE(), admin);
-        core.setContextClient(uid, creator);
+        core.setContextClient(uid, creator, creator);
         vm.stopPrank();
 
         vm.prank(creator);
@@ -227,5 +252,87 @@ contract DRIFTCoreTest is Test {
         uint256 expectedTokenId = uint256(keccak256(abi.encode(uid, bytes32(0))));
         assertEq(driftToken.balanceOf(node, expectedTokenId), 0);
         assertTrue(core.isRegistered(uid, node));
+    }
+
+    /// @notice Security audit fix: deregisterNode must burn every reputation token the node holds
+    /// in that context, so balanceOf can't keep reporting a non-zero balance after isRegistered()
+    /// has already gone false — a stale signal any external integration trusting balanceOf as a
+    /// membership proxy would otherwise be misled by.
+    function test_DeregisterNodeBurnsHeldReputation() public {
+        bytes32 uid = _registerContext();
+        bytes32 role = keccak256("ROLE_A");
+        bytes32 role2 = keccak256("ROLE_B");
+
+        vm.prank(node);
+        core.registerNode(uid, "0x");
+
+        vm.startPrank(admin);
+        core.grantRole(core.FACTORY_ROLE(), admin);
+        core.setContextClient(uid, creator, creator);
+        vm.stopPrank();
+
+        vm.startPrank(creator);
+        core.reward(uid, role, node, 100);
+        core.reward(uid, role2, node, 50);
+        vm.stopPrank();
+
+        uint256 tokenId1 = uint256(keccak256(abi.encode(uid, role)));
+        uint256 tokenId2 = uint256(keccak256(abi.encode(uid, role2)));
+        assertEq(driftToken.balanceOf(node, tokenId1), 100);
+        assertEq(driftToken.balanceOf(node, tokenId2), 50);
+
+        vm.prank(node);
+        core.deregisterNode(uid);
+
+        assertEq(driftToken.balanceOf(node, tokenId1), 0);
+        assertEq(driftToken.balanceOf(node, tokenId2), 0);
+        assertFalse(core.isRegistered(uid, node));
+    }
+
+    /// @notice A node that deregisters, re-registers, and re-earns the same role must have that
+    /// balance tracked again — not silently skipped because _nodeHasEarnedRole was left set from
+    /// the first stint. Regression test for the reset-on-deregister half of the fix above.
+    function test_DeregisterThenReregisterAndReearn_TracksRoleAgain() public {
+        bytes32 uid = _registerContext();
+        bytes32 role = keccak256("ROLE_A");
+        uint256 tokenId = uint256(keccak256(abi.encode(uid, role)));
+
+        vm.startPrank(admin);
+        core.grantRole(core.FACTORY_ROLE(), admin);
+        core.setContextClient(uid, creator, creator);
+        vm.stopPrank();
+
+        vm.prank(node);
+        core.registerNode(uid, "0x");
+        vm.prank(creator);
+        core.reward(uid, role, node, 100);
+
+        vm.prank(node);
+        core.deregisterNode(uid);
+        assertEq(driftToken.balanceOf(node, tokenId), 0);
+
+        vm.prank(node);
+        core.registerNode(uid, "0x");
+        vm.prank(creator);
+        core.reward(uid, role, node, 200);
+        assertEq(driftToken.balanceOf(node, tokenId), 200);
+
+        vm.prank(node);
+        core.deregisterNode(uid);
+        assertEq(driftToken.balanceOf(node, tokenId), 0);
+    }
+
+    /// @notice Security audit fix: setContextClient must independently verify `caller` holds
+    /// contextAdminRole(contextUID), not just trust that whatever FACTORY_ROLE holder is calling
+    /// already checked. A FACTORY_ROLE holder that (correctly or via a bug) passes a caller who
+    /// isn't that context's admin must be rejected regardless of the FACTORY_ROLE gate passing.
+    function test_RevertIf_SetContextClientCallerIsNotContextAdmin() public {
+        bytes32 uid = _registerContext();
+
+        vm.startPrank(admin);
+        core.grantRole(core.FACTORY_ROLE(), admin);
+        vm.expectRevert(abi.encodeWithSelector(IDRIFTCore.UnauthorizedCaller.selector, stranger));
+        core.setContextClient(uid, creator, stranger);
+        vm.stopPrank();
     }
 }

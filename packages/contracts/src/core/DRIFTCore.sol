@@ -77,6 +77,13 @@ contract DRIFTCore is
         _contexts[uid] =
             DRIFTTypes.Context({ uid: uid, name: name, owner: msg.sender, active: true });
 
+        // Self-administering: contextAdminRole(uid)'s own members manage that role, not
+        // DEFAULT_ADMIN_ROLE (AccessControl's default for any role never passed to
+        // _setRoleAdmin). Without this, the platform's global admin could grantRole a context's
+        // admin role to anyone — including for contexts registered permissionlessly by unrelated
+        // third parties via this same function — without the context owner's consent. Set before
+        // _grantRole so the very first grant already goes through the self-administering path.
+        _setRoleAdmin(contextAdminRole(uid), contextAdminRole(uid));
         _grantRole(contextAdminRole(uid), msg.sender);
 
         emit ContextRegistered(uid, name, msg.sender);
@@ -112,11 +119,19 @@ contract DRIFTCore is
     // Client management =======================================================
 
     /// @inheritdoc IDRIFTCore
-    // WARNING: shouldn't the factory be the only one allowed to do this?
+    /// @dev Defense in depth: `onlyRole(FACTORY_ROLE)` alone would make this fully dependent on
+    ///      every FACTORY_ROLE holder correctly re-deriving and checking the *original* caller
+    ///      against `contextAdminRole(contextUID)` before calling in — true today for
+    ///      DRIFTClientFactory.deployClient, but nothing here enforced it independently. `caller`
+    ///      is re-validated against the role directly, so a bug in a future/alternate factory
+    ///      can't silently rebind another context's client.
     function setContextClient(
         bytes32 contextUID,
-        address clientContract
+        address clientContract,
+        address caller
     ) external onlyRole(FACTORY_ROLE) {
+        if (!hasRole(contextAdminRole(contextUID), caller)) revert UnauthorizedCaller(caller);
+
         _contextClients[contextUID] = clientContract;
 
         emit ClientUpdated(contextUID, clientContract);
@@ -202,7 +217,25 @@ contract DRIFTCore is
 
         delete nodeStatus[contextUID][msg.sender];
 
-        // BUG: what about the reputation tokens of that user?
+        // Burn every reputation token this node holds in this context. Without this, balanceOf
+        // would keep reporting a non-zero balance for a node that isRegistered() now says has
+        // left — a stale, misleading signal for any external integration that trusts balanceOf as
+        // a membership proxy instead of (or in addition to) isRegistered(). Clearing
+        // _nodeHasEarnedRole per role, not just deleting the array, matters: it lets a future
+        // re-registration + re-earning of the same role push it back into a fresh
+        // _nodeEarnedRoles entry for the *next* deregistration to find.
+        bytes32[] storage earnedRoles = _nodeEarnedRoles[contextUID][msg.sender];
+        uint256 earnedRolesLength = earnedRoles.length;
+        for (uint256 i = 0; i < earnedRolesLength; i++) {
+            bytes32 role = earnedRoles[i];
+            uint256 tokenId = uint256(keccak256(abi.encode(contextUID, role)));
+            uint256 balance = driftToken.balanceOf(msg.sender, tokenId);
+            if (balance > 0) {
+                driftToken.slashReputation(msg.sender, tokenId, balance);
+            }
+            _nodeHasEarnedRole[contextUID][msg.sender][role] = false;
+        }
+        delete _nodeEarnedRoles[contextUID][msg.sender];
 
         emit NodeDeregistered(contextUID, msg.sender);
     }
@@ -278,6 +311,11 @@ contract DRIFTCore is
         NodeStatus status = nodeStatus[contextUID][node];
         if (status == NodeStatus.NONE || status == NodeStatus.BANNED) {
             revert NodeNotRegistered(contextUID, node);
+        }
+
+        if (!_nodeHasEarnedRole[contextUID][node][role]) {
+            _nodeHasEarnedRole[contextUID][node][role] = true;
+            _nodeEarnedRoles[contextUID][node].push(role);
         }
 
         // Cast Context UID to Token ID

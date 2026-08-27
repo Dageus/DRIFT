@@ -86,9 +86,9 @@ contract DRIFTSecurityTest is Test {
     function test_TransferReverts() public {
         vm.startPrank(admin);
         core.grantRole(core.FACTORY_ROLE(), admin);
-        core.setContextClient(contextUID, admin);
+        core.setContextClient(contextUID, admin, admin);
         core.reward(contextUID, ROLE_PROFESSOR, node, 50);
-        core.setContextClient(contextUID, address(client));
+        core.setContextClient(contextUID, address(client), admin);
         vm.stopPrank();
 
         uint256 tokenId = uint256(keccak256(abi.encode(contextUID, ROLE_PROFESSOR)));
@@ -103,9 +103,9 @@ contract DRIFTSecurityTest is Test {
     function test_BatchTransferReverts() public {
         vm.startPrank(admin);
         core.grantRole(core.FACTORY_ROLE(), admin);
-        core.setContextClient(contextUID, admin);
+        core.setContextClient(contextUID, admin, admin);
         core.reward(contextUID, ROLE_PROFESSOR, node, 50);
-        core.setContextClient(contextUID, address(client));
+        core.setContextClient(contextUID, address(client), admin);
         vm.stopPrank();
 
         uint256 tokenId = uint256(keccak256(abi.encode(contextUID, ROLE_PROFESSOR)));
@@ -173,6 +173,6 @@ contract DRIFTSecurityTest is Test {
                 IAccessControl.AccessControlUnauthorizedAccount.selector, node, factoryRole
             )
         );
-        core.setContextClient(contextUID, address(this));
+        core.setContextClient(contextUID, address(this), admin);
     }
 }

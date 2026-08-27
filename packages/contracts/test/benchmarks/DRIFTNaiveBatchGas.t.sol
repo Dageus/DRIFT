@@ -48,7 +48,7 @@ contract DRIFTNaiveBatchGasTest is Test {
         // NaiveBatchSettler stands in for a context client here purely to satisfy
         // `onlyContextClient` on core.reward — it is not a real governance client.
         core.grantRole(core.FACTORY_ROLE(), admin);
-        core.setContextClient(contextUID, address(naiveSettler));
+        core.setContextClient(contextUID, address(naiveSettler), admin);
         vm.stopPrank();
     }
 

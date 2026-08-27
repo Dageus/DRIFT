@@ -1,8 +1,8 @@
 {
-  "AddSchema": "65732",
-  "DeployClientClone": "376027",
+  "AddSchema": "65768",
+  "DeployClientClone": "377059",
   "DeployClientFull": "3951582",
-  "RegisterContext": "105403",
-  "RegisterNode": "63764",
-  "VerifyAttestation": "3746"
+  "RegisterContext": "130086",
+  "RegisterNode": "63742",
+  "VerifyAttestation": "3724"
 }
