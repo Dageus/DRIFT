@@ -1,4 +1,4 @@
-import type { AttestationRecord } from '../types';
+import type { AttestationRecord } from '../types.js';
 
 export interface IAttestationProvider {
   /**
@@ -6,4 +6,9 @@ export interface IAttestationProvider {
    * and normalizes it into our standard AttestationRecord format.
    */
   fetchUserRecords(contextUID: string, userAddress: string): Promise<AttestationRecord[]>;
+
+  /**
+   * NOTE: future implementation (not enough time for the MVP)
+   */
+  // fetchAllContextRecords(contextUID: string): Promise<AttestationRecord[]>;
 }

@@ -1,6 +1,6 @@
 import { Signer, Provider, Contract, Interface } from 'ethers';
-import CoreArtifact from '../../../contracts/out/DRIFTCore.sol/DRIFTCore.json';
-import { handleContractError } from '../utils';
+import CoreArtifact from '../../../contracts/out/DRIFTCore.sol/DRIFTCore.json' with { type: 'json' };
+import { handleContractError } from '../utils.js';
 
 export class CoreModule {
   public readonly contract: any;

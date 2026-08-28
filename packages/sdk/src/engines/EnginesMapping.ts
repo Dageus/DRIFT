@@ -1,5 +1,5 @@
-import { EigenTrustEngine } from './EigenTrust';
-import { IReputationEngine } from './IReputationEngine';
+import { EigenTrustEngine } from './EigenTrust.js';
+import { IReputationEngine } from './IReputationEngine.js';
 
 export interface EngineCreationParams {
   schemaDefinition: string;

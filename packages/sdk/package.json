@@ -8,6 +8,9 @@
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "engines": {
+    "node": ">=20.10.0"
+  },
   "files": [
     "dist"
   ],
@@ -23,6 +26,14 @@
     "./providers": {
       "import": "./dist/providers/index.js",
       "types": "./dist/providers/index.d.ts"
+    },
+    "./trust": {
+      "import": "./dist/trust/index.js",
+      "types": "./dist/trust/index.d.ts"
+    },
+    "./merkle": {
+      "import": "./dist/merkle/index.js",
+      "types": "./dist/merkle/index.d.ts"
     }
   },
   "scripts": {
@@ -30,6 +41,7 @@
     "build:watch": "tsc --project tsconfig.json --watch",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --config vitest.unit.config.ts",
+    "test:coverage": "vitest run --config vitest.unit.config.ts --coverage",
     "test:e2e": "vitest run"
   },
   "dependencies": {
@@ -39,6 +51,7 @@
   },
   "devDependencies": {
     "@types/node": "^25.9.1",
+    "@vitest/coverage-v8": "^4.1.11",
     "typescript": "^5.8.3",
     "vitest": "^4.1.8"
   }

@@ -1,5 +1,5 @@
-import type { IAttestationProvider } from './IAttestationProvider';
-import type { AttestationRecord } from '../types';
+import type { IAttestationProvider } from './IAttestationProvider.js';
+import type { AttestationRecord } from '../types.js';
 
 const USER_QUERY = `
   query GetAttestations($recipient: String!, $schema: String!) {

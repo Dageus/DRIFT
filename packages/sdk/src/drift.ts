@@ -1,15 +1,15 @@
 import { Signer, Provider, Contract } from 'ethers';
-import { DriftFactory } from './modules/factory';
-import { CoreModule } from './modules/core';
-import { ReputationModule } from './modules/reputation';
-import { GovernanceModule } from './modules/governance';
-import { DriftSettler } from './settler';
-import type { ProofOfStatePayload } from './settler';
-import { LocalTrustStore } from './trust/LocalTrustStore';
-import { NodeTrustStore } from './trust/NodeTrustStore';
-import type { ITrustStore } from './trust/ITrustStore';
-import type { IReputationEngine } from './engines/IReputationEngine';
-import type { IAttestationProvider } from './providers/IAttestationProvider';
+import { DriftFactory } from './modules/factory.js';
+import { CoreModule } from './modules/core.js';
+import { ReputationModule } from './modules/reputation.js';
+import { GovernanceModule } from './modules/governance.js';
+import { DriftSettler } from './settler.js';
+import type { ProofOfStatePayload } from './settler.js';
+import { LocalTrustStore } from './trust/LocalTrustStore.js';
+import { NodeTrustStore } from './trust/NodeTrustStore.js';
+import type { ITrustStore } from './trust/ITrustStore.js';
+import type { IReputationEngine } from './engines/IReputationEngine.js';
+import type { IAttestationProvider } from './providers/IAttestationProvider.js';
 import type {
   ReputationOptions,
   ReputationResult,
@@ -18,8 +18,8 @@ import type {
   LocalReputationOptions,
   LocalReputationResult,
   VotingPowerOptions
-} from './types';
-import { REPUTATION_ENGINES } from './engines/EnginesMapping';
+} from './types.js';
+import { REPUTATION_ENGINES } from './engines/EnginesMapping.js';
 
 export interface DriftConfig {
   coreAddress: string;

@@ -118,7 +118,13 @@ export async function runGovernanceScenario(
     mockUploader
   );
 
-  await drifttester.reputation.postEpochRoot(clientAddress, epoch, root, '', signature);
+  // NOTE: this scenario predates the A1/A4/B1 contract changes and is stale beyond this call's
+  // signature — the deployed client here never gets setEpochLength/setDisputeWindow/
+  // setResponseWindow/setSettlementBond, and `weights` below doesn't sum to WEIGHT_SCALE, so this
+  // will still revert against current contracts even with the bond param added. Flagging rather
+  // than silently leaving broken; needs a full e2e-fixture pass against a live chain to fix for
+  // real (see packages/sdk/TODO.md).
+  await drifttester.reputation.postEpochRoot(clientAddress, epoch, root, '', signature, 0n);
 
   const testerPayload = drifttester.settler!.generateProofOfStatePayload(tree, contextUID, testerAddr, epoch);
 

@@ -11,6 +11,11 @@ export default defineConfig({
   test: {
     include: ['test/local/**/*.test.ts', 'test/merkle-alignment.test.ts'],
     pool: 'forks',
-    maxWorkers: 1
+    maxWorkers: 1,
+    coverage: {
+      provider: 'v8',
+      include: ['src/**/*.ts'],
+      reporter: ['text', 'html']
+    }
   }
 });

@@ -1,5 +1,5 @@
 import { AbiCoder } from 'ethers';
-import type { AttestationRecord, AttestationData } from './types';
+import type { AttestationRecord, AttestationData } from './types.js';
 
 export class SchemaEncoder {
   private readonly coder = AbiCoder.defaultAbiCoder();

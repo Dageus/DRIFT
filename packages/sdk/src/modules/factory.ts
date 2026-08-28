@@ -1,6 +1,6 @@
 import { Signer, Contract, Provider, Interface } from 'ethers';
-import FactoryArtifact from '../../../contracts/out/DRIFTClientFactory.sol/DRIFTClientFactory.json';
-import CoreArtifact from '../../../contracts/out/IDRIFTCore.sol/IDRIFTCore.json';
+import FactoryArtifact from '../../../contracts/out/DRIFTClientFactory.sol/DRIFTClientFactory.json' with { type: 'json' };
+import CoreArtifact from '../../../contracts/out/IDRIFTCore.sol/IDRIFTCore.json' with { type: 'json' };
 
 export class DriftFactory {
   private readonly contract: any;

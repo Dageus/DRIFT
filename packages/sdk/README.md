@@ -36,5 +36,5 @@ To ensure future platform adaptability, DRIFT isolates execution hooks from the 
 ## Installation
 
 ```bash
-npm install @drift-protocol/sdk ethers @openzeppelin/merkle-tree
+npm install @drift-network/sdk ethers @openzeppelin/merkle-tree
 ```

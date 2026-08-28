@@ -1,4 +1,4 @@
-import { ITrustStore } from "./ITrustStore";
+import { ITrustStore } from './ITrustStore.js';
 
 /**
  * Persistent local trust graph storage.
@@ -37,8 +37,7 @@ export class LocalTrustStore implements ITrustStore {
           weights = parsed.weights[key] ?? {};
         }
       }
-    } catch {
-    }
+    } catch {}
 
     const map = new Map(Object.entries(weights));
     this.cache.set(key, map);
@@ -83,8 +82,7 @@ export class LocalTrustStore implements ITrustStore {
     this.cache.delete(vKey);
     try {
       localStorage.removeItem(`${STORAGE_KEY}.${vKey}`);
-    } catch {
-    }
+    } catch {}
   }
 
   /**

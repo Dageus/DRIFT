@@ -1,7 +1,7 @@
 import { Signer, Provider, Contract, Interface } from 'ethers';
-import IGovArtifact from '../../../contracts/out/IDRIFTGovernanceProofOfState.sol/IDRIFTGovernanceProofOfState.json';
-import { handleContractError } from '../utils';
-import type { ProofOfStatePayload } from '../settler';
+import IGovArtifact from '../../../contracts/out/IDRIFTGovernanceProofOfState.sol/IDRIFTGovernanceProofOfState.json' with { type: 'json' };
+import { handleContractError } from '../utils.js';
+import type { ProofOfStatePayload } from '../settler.js';
 
 export class GovernanceModule {
   private readonly _signer?: Signer;

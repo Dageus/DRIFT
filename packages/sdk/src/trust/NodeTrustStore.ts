@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { ITrustStore } from './ITrustStore';
-import type { TrustGraph } from './LocalTrustStore';
+import { ITrustStore } from './ITrustStore.js';
+import type { TrustGraph } from './LocalTrustStore.js';
 
 const CURRENT_VERSION = 1;
 

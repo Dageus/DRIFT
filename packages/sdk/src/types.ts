@@ -1,4 +1,4 @@
-import { IReputationEngine } from './engines/IReputationEngine';
+import { IReputationEngine } from './engines/IReputationEngine.js';
 
 /** Raw attestation from any provider. The data field is opaque bytes. */
 export interface AttestationRecord {
