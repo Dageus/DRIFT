@@ -1,8 +1,5 @@
 import { Signer, Provider, Contract, Interface, AbiCoder, keccak256 } from 'ethers';
-// Deliberately the concrete client ABI, not IDRIFTSettler.json — see
-// WeightedGovernanceClientContract's doc comment: ~30 of the client's own custom errors aren't
-// declared on any interface, so decoding reverts against the narrow interface ABI silently failed
-// for most real revert cases.
+// Concrete client ABI, not IDRIFTSettler.json — see WeightedGovernanceClientContract's doc comment.
 import ClientArtifact from '../../../contracts/out/WeightedGovernance.sol/WeightedGovernanceClient.json' with { type: 'json' };
 import { handleContractError, isSigner } from '../utils.js';
 import { DriftConfigError } from '../errors.js';

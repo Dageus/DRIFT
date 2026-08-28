@@ -1,7 +1,5 @@
 import { Signer, Provider, Contract, Interface } from 'ethers';
-// Deliberately the concrete client ABI, not IDRIFTGovernanceProofOfState.json — see
-// WeightedGovernanceClientContract's doc comment: getActiveRoles isn't on any interface this
-// client implements, and using the narrow interface ABI silently broke calling it.
+// Concrete client ABI, not IDRIFTGovernanceProofOfState.json — see WeightedGovernanceClientContract's doc comment.
 import GovernanceArtifact from '../../../contracts/out/WeightedGovernance.sol/WeightedGovernanceClient.json' with { type: 'json' };
 import { handleContractError, isSigner } from '../utils.js';
 import { DriftConfigError, DriftNotFoundError, DriftValidationError } from '../errors.js';

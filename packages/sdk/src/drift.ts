@@ -38,6 +38,12 @@ export interface DriftConfig {
   onWarning?: (message: string, error: unknown) => void;
 }
 
+/**
+ * Main SDK entry point. Wraps DRIFTCore, the client factory, and a governance client's
+ * settlement/voting surface behind `core`/`factory`/`reputation`/`governance`, and adds
+ * `getReputation` as a single router across all three query modes. `settler` is only populated
+ * when constructed with a `Signer` (epoch settlement requires signing, not just reading).
+ */
 export class Drift {
   public readonly core: CoreModule;
   public readonly reputation: ReputationModule;
@@ -87,6 +93,13 @@ export class Drift {
 
   // Reputation Router =========================================================
 
+  /**
+   * Single entry point for all three reputation query modes:
+   *  - `{ mode: 'global' }`  — on-chain ERC-1155 balance (optionally one role, else all roles summed)
+   *  - `{ mode: 'local' }`   — off-chain subjective score from a viewer's trust graph
+   *  - `{ mode: 'voting' }`  — Merkle-proven voting power for a governance client
+   * The return type is inferred from `options.mode` (see `ReputationResult`).
+   */
   public async getReputation<T extends ReputationOptions>(subject: string, options: T): Promise<ReputationResult<T>> {
     switch (options.mode) {
       case 'global':
@@ -221,10 +234,13 @@ export class Drift {
 
   // Trust Weights =============================================================
 
+  /** Sets `viewer`'s subjective trust weight (0-10000) for `attester`. Feeds `{ mode: 'local' }`
+   *  reputation queries; persisted via the configured `storageProvider` (or the platform default). */
   public async setTrust(viewer: string, attester: string, weight: number): Promise<void> {
     await this._trustStore.setWeight(viewer, attester, weight);
   }
 
+  /** Returns `viewer`'s full trust graph as a map of lowercase attester address to weight. */
   public async getTrustGraph(viewer: string): Promise<Map<string, number>> {
     return await this._trustStore.getWeights(viewer);
   }

@@ -1,12 +1,7 @@
 import type { BaseContract, ContractTransactionResponse } from 'ethers';
 
-/**
- * Hand-typed surface of the DRIFTCore ABI actually used by CoreModule. Not generated (no
- * typechain step in this build yet — see packages/sdk/TODO.md section 2), so this must be kept
- * in sync with `packages/contracts/src/core/DRIFTCore.sol`/`IDRIFTCore.sol` by hand. Constructed
- * against the concrete `DRIFTCore.json` ABI (not the narrower `IDRIFTCore.json` interface ABI),
- * matching what `CoreModule` already loads.
- */
+/** Hand-typed surface of DRIFTCore's ABI used by CoreModule. Keep in sync with
+ *  DRIFTCore.sol/IDRIFTCore.sol by hand (see TODO.md section 2). */
 export interface DRIFTCoreContract extends BaseContract {
   registerContext(name: string): Promise<ContractTransactionResponse>;
   deactivateContext(contextUID: string): Promise<ContractTransactionResponse>;

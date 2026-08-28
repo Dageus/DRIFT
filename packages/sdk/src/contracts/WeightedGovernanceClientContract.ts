@@ -17,17 +17,12 @@ export interface ProposalSnapshotView {
 }
 
 /**
- * Hand-typed surface of the WeightedGovernanceClient ABI used by both GovernanceModule and
- * ReputationModule — they're two logical groupings of methods over the *same* deployed contract,
- * not two different contracts, so both modules construct their `Contract` instance against this
- * one concrete ABI. Deliberately NOT built from `IDRIFTGovernanceProofOfState.json` or
- * `IDRIFTSettler.json` (the interface ABIs): `getActiveRoles` isn't declared on any interface
- * this client implements, and roughly 30 of the client's own custom errors (`InvalidEpoch`,
- * `WeightsNotNormalized`, `BondBelowFloor`, ...) live directly on the concrete contract rather
- * than an interface — using the narrow interface ABI silently broke both `getActiveRoles()` calls
- * and revert-reason decoding for most real revert cases. Not generated (no typechain step yet —
- * see packages/sdk/TODO.md section 2), so keep this in sync with
- * `packages/contracts/src/templates/WeightedGovernance.sol` by hand.
+ * Hand-typed surface shared by GovernanceModule and ReputationModule — both operate on the same
+ * deployed contract, so both build their `Contract` against this one ABI. Deliberately the
+ * concrete `WeightedGovernanceClient.json`, not the narrower `IDRIFTGovernanceProofOfState.json`/
+ * `IDRIFTSettler.json` interface ABIs: `getActiveRoles` and ~30 of the client's own custom errors
+ * aren't declared on any interface, so the narrow ABI silently broke both `getActiveRoles()` and
+ * most revert decoding. Keep in sync with WeightedGovernance.sol by hand (see TODO.md section 2).
  */
 export interface WeightedGovernanceClientContract extends BaseContract {
   // Settlement (IDRIFTSettler) ================================================
@@ -48,7 +43,7 @@ export interface WeightedGovernanceClientContract extends BaseContract {
   ): Promise<ContractTransactionResponse>;
   verifyReputation(node: string, role: string, score: bigint, epoch: bigint, merkleProof: string[]): Promise<boolean>;
 
-  // B1 — non-inclusion disputes
+  // B1 — non-inclusion disputes ===============================================
   challengeOmission(
     epoch: bigint,
     missingNode: string,
@@ -65,7 +60,7 @@ export interface WeightedGovernanceClientContract extends BaseContract {
   reclaimMootChallenge(epoch: bigint, node: string): Promise<ContractTransactionResponse>;
   withdrawSettlementBond(epoch: bigint): Promise<ContractTransactionResponse>;
 
-  // Governance proposals/voting (IDRIFTGovernance / IDRIFTGovernanceProofOfState) =============
+  // Governance proposals/voting ===============================================
   createProposalWithProofs(
     description: string,
     target: string,
@@ -111,6 +106,6 @@ export interface WeightedGovernanceClientContract extends BaseContract {
     ): Promise<bigint>;
   };
 
-  // Client-specific (not on any interface) =====================================
+  // Client-specific (not on any interface) ====================================
   getActiveRoles(): Promise<string[]>;
 }

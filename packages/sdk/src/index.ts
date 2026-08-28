@@ -1,12 +1,6 @@
-// Main entry — the framework-agnostic core: constructing a Drift client, settling epochs, and
-// the shared types every module speaks. Reputation engines, attestation providers, and trust/
-// Merkle storage each have their own subpath entry point instead of being re-exported here:
-//   @drift-network/sdk/engines   — EigenTrustEngine, TemporalDecayEngine, WeightedLocalEngine, ...
-//   @drift-network/sdk/providers — EASProvider, IAttestationProvider
-//   @drift-network/sdk/trust     — LocalTrustStore, NodeTrustStore, ITrustStore
-//   @drift-network/sdk/merkle    — LocalTreeStore, IMerkleStore (Node-only)
-// Splitting this way keeps `Drift` itself importable without pulling in every engine/provider a
-// consumer isn't using, while still shipping as one package/version instead of several.
+// Framework-agnostic core: the Drift client, epoch settlement, shared types. Engines, providers,
+// and trust/Merkle storage live at their own subpaths instead — see README (Package Layout):
+//   @drift-network/sdk/engines | /providers | /trust | /merkle
 export { Drift } from './drift.js';
 export type { DriftConfig } from './drift.js';
 

@@ -27,11 +27,9 @@ export function errorMessage(error: unknown): string {
 }
 
 /**
- * Every module routes caught contract-call errors through this. Always throws — never returns —
- * so callers can write `return handleContractError(err, this._interface)` in a function whose
- * declared return type isn't `void`/`undefined` and have TypeScript accept it as control-flow-
- * terminating (this relies on the `never` return type below, which is why this function must
- * never be changed to sometimes return normally).
+ * Every module routes caught contract-call errors through this. Always throws — the `never`
+ * return type lets callers write `return handleContractError(...)` from a non-void function.
+ * Must never be changed to return normally.
  */
 export function handleContractError(error: unknown, iface: Interface): never {
   const err = error as {
