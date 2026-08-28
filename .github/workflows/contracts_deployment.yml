@@ -54,7 +54,7 @@ jobs:
           cache: true
 
       - name: Execute Deployment
-        run: ./packages/contracts/script/deploy.sh
+        run: ./scripts/deploy.sh
         env:
           PRIVATE_KEY: ${{ secrets.DEPLOYER_PRIVATE_KEY }}
           NETWORK_TARGET: ${{ matrix.network }}
