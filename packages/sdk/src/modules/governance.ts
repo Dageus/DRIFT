@@ -1,7 +1,16 @@
 import { Signer, Provider, Contract, Interface } from 'ethers';
-import IGovArtifact from '../../../contracts/out/IDRIFTGovernanceProofOfState.sol/IDRIFTGovernanceProofOfState.json' with { type: 'json' };
-import { handleContractError } from '../utils.js';
+// Deliberately the concrete client ABI, not IDRIFTGovernanceProofOfState.json — see
+// WeightedGovernanceClientContract's doc comment: getActiveRoles isn't on any interface this
+// client implements, and using the narrow interface ABI silently broke calling it.
+import GovernanceArtifact from '../../../contracts/out/WeightedGovernance.sol/WeightedGovernanceClient.json' with { type: 'json' };
+import { handleContractError, isSigner } from '../utils.js';
+import { DriftConfigError, DriftNotFoundError, DriftValidationError } from '../errors.js';
 import type { ProofOfStatePayload } from '../settler.js';
+import type {
+  WeightedGovernanceClientContract,
+  ProposalView,
+  ProposalSnapshotView
+} from '../contracts/WeightedGovernanceClientContract.js';
 
 export class GovernanceModule {
   private readonly _signer?: Signer;
@@ -10,17 +19,17 @@ export class GovernanceModule {
 
   constructor(signerOrProvider: Signer | Provider) {
     this._runner = signerOrProvider;
-    this._signer = 'signMessage' in signerOrProvider ? (signerOrProvider as Signer) : undefined;
-    this._interface = new Interface(IGovArtifact.abi);
+    this._signer = isSigner(signerOrProvider) ? signerOrProvider : undefined;
+    this._interface = new Interface(GovernanceArtifact.abi);
   }
 
   private _requireSigner(): Signer {
-    if (!this._signer) throw new Error('DRIFT SDK: Write operations require a connected signer.');
+    if (!this._signer) throw new DriftConfigError('DRIFT SDK: Write operations require a connected signer.');
     return this._signer;
   }
 
-  private _governanceClient(clientAddress: string): any {
-    return new Contract(clientAddress, IGovArtifact.abi, this._runner);
+  private _governanceClient(clientAddress: string): WeightedGovernanceClientContract {
+    return new Contract(clientAddress, GovernanceArtifact.abi, this._runner) as unknown as WeightedGovernanceClientContract;
   }
 
   // Pre-flight Simulation =====================================================
@@ -33,14 +42,13 @@ export class GovernanceModule {
   ): Promise<bigint> {
     this._validatePayload(payload);
     try {
-      const power = await this._governanceClient(clientAddress).getVotingPowerAtEpoch(
+      return await this._governanceClient(clientAddress).getVotingPowerAtEpoch(
         account,
         epoch,
         payload.roles,
         payload.scores,
         payload.proofs
       );
-      return BigInt(power);
     } catch (err) {
       handleContractError(err, this._interface);
     }
@@ -58,7 +66,7 @@ export class GovernanceModule {
   ): Promise<bigint> {
     this._validatePayload(payload);
     try {
-      const gc = this._governanceClient(clientAddress).connect(this._requireSigner());
+      const gc = this._governanceClient(clientAddress).connect(this._requireSigner()) as WeightedGovernanceClientContract;
       const tx = await gc.createProposalWithProofs(
         description,
         target,
@@ -70,18 +78,18 @@ export class GovernanceModule {
       );
       const receipt = await tx.wait();
 
-      const log = receipt.logs
-        .map((l: any) => {
+      const log = receipt?.logs
+        .map((l) => {
           try {
             return this._interface.parseLog(l);
           } catch {
             return null;
           }
         })
-        .find((l: any) => l?.name === 'ProposalCreated');
+        .find((l) => l?.name === 'ProposalCreated');
 
-      if (!log) throw new Error('DRIFT SDK: ProposalCreated event not found in receipt.');
-      return BigInt(log.args.proposalId);
+      if (!log) throw new DriftNotFoundError('DRIFT SDK: ProposalCreated event not found in receipt.');
+      return BigInt(log.args.proposalId as bigint);
     } catch (err) {
       handleContractError(err, this._interface);
     }
@@ -95,9 +103,8 @@ export class GovernanceModule {
   ): Promise<void> {
     this._validatePayload(payload);
     try {
-      const tx = await this._governanceClient(clientAddress)
-        .connect(this._requireSigner())
-        .castVoteWithProofs(proposalId, support, payload.roles, payload.scores, payload.proofs);
+      const gc = this._governanceClient(clientAddress).connect(this._requireSigner()) as WeightedGovernanceClientContract;
+      const tx = await gc.castVoteWithProofs(proposalId, support, payload.roles, payload.scores, payload.proofs);
       await tx.wait();
     } catch (err) {
       handleContractError(err, this._interface);
@@ -106,7 +113,8 @@ export class GovernanceModule {
 
   public async executeProposal(clientAddress: string, proposalId: bigint): Promise<void> {
     try {
-      const tx = await this._governanceClient(clientAddress).connect(this._requireSigner()).executeProposal(proposalId);
+      const gc = this._governanceClient(clientAddress).connect(this._requireSigner()) as WeightedGovernanceClientContract;
+      const tx = await gc.executeProposal(proposalId);
       await tx.wait();
     } catch (err) {
       handleContractError(err, this._interface);
@@ -115,7 +123,7 @@ export class GovernanceModule {
 
   // Views =====================================================================
 
-  public async hasVoted(clientAddress: string, proposalId: bigint | number, account: string): Promise<boolean> {
+  public async hasVoted(clientAddress: string, proposalId: bigint, account: string): Promise<boolean> {
     try {
       return await this._governanceClient(clientAddress).hasVoted(proposalId, account);
     } catch (err) {
@@ -131,7 +139,7 @@ export class GovernanceModule {
     }
   }
 
-  public async getProposal(clientAddress: string, proposalId: bigint) {
+  public async getProposal(clientAddress: string, proposalId: bigint): Promise<ProposalView> {
     try {
       const proposal = await this._governanceClient(clientAddress).getProposal(proposalId);
       return {
@@ -155,16 +163,12 @@ export class GovernanceModule {
    * @param proposalId The proposal ID
    * @returns snapshotEpoch and configVersion pinned at proposal creation
    */
-  public async getProposalSnapshot(
-    clientAddress: string,
-    proposalId: bigint
-  ): Promise<{ snapshotEpoch: bigint; configVersion: number }> {
+  public async getProposalSnapshot(clientAddress: string, proposalId: bigint): Promise<ProposalSnapshotView> {
     try {
-      const gc = this._governanceClient(clientAddress);
-      const result = await gc.getProposalSnapshot(proposalId);
+      const result = await this._governanceClient(clientAddress).getProposalSnapshot(proposalId);
       return {
         snapshotEpoch: BigInt(result.snapshotEpoch),
-        configVersion: Number(result.configVersion)
+        configVersion: BigInt(result.configVersion)
       };
     } catch (err) {
       handleContractError(err, this._interface);
@@ -180,9 +184,7 @@ export class GovernanceModule {
    */
   public async getWeightAtVersion(clientAddress: string, configVersion: number, role: string): Promise<bigint> {
     try {
-      const gc = this._governanceClient(clientAddress);
-      const weight = await gc.getWeightAtVersion(configVersion, role);
-      return BigInt(weight);
+      return await this._governanceClient(clientAddress).getWeightAtVersion(configVersion, role);
     } catch (err) {
       handleContractError(err, this._interface);
     }
@@ -207,16 +209,13 @@ export class GovernanceModule {
 
     try {
       const readOnlyClient = this._governanceClient(clientAddress);
-
-      const totalPower = await readOnlyClient.getVotingPowerForProposal.staticCall(
+      return await readOnlyClient.getVotingPowerForProposal.staticCall(
         proposalId,
         accountAddress,
         payload.roles,
         payload.scores,
         payload.proofs
       );
-
-      return totalPower;
     } catch (err) {
       handleContractError(err, this._interface);
     }
@@ -226,7 +225,7 @@ export class GovernanceModule {
 
   private _validatePayload(payload: ProofOfStatePayload): void {
     if (payload.roles.length !== payload.scores.length || payload.roles.length !== payload.proofs.length) {
-      throw new Error('DRIFT SDK: ProofOfStatePayload arrays must be perfectly parallel.');
+      throw new DriftValidationError('DRIFT SDK: ProofOfStatePayload arrays must be perfectly parallel.');
     }
   }
 }

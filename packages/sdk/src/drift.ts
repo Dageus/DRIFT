@@ -20,6 +20,8 @@ import type {
   VotingPowerOptions
 } from './types.js';
 import { REPUTATION_ENGINES } from './engines/EnginesMapping.js';
+import { isSigner, errorMessage } from './utils.js';
+import { DriftConfigError, DriftValidationError } from './errors.js';
 
 export interface DriftConfig {
   coreAddress: string;
@@ -27,6 +29,13 @@ export interface DriftConfig {
   attestationProvider: IAttestationProvider;
   tokenAddress?: string;
   storageProvider?: ITrustStore;
+  /**
+   * Called when a non-fatal per-role reputation lookup fails inside `getReputation({ mode:
+   * 'global' })` (one bad role shouldn't abort the whole balance breakdown). Defaults to
+   * `console.warn` — pass your own to route this into structured logging, or a no-op to silence
+   * it entirely.
+   */
+  onWarning?: (message: string, error: unknown) => void;
 }
 
 export class Drift {
@@ -38,6 +47,7 @@ export class Drift {
 
   private readonly _config: DriftConfig;
   private readonly _provider: Provider;
+  private readonly _onWarning: (message: string, error: unknown) => void;
   private _tokenAddress?: string;
 
   private _attestationProvider: IAttestationProvider;
@@ -45,7 +55,18 @@ export class Drift {
 
   constructor(signerOrProvider: Signer | Provider, config: DriftConfig) {
     this._config = config;
-    this._provider = (signerOrProvider as Signer).provider ?? (signerOrProvider as Provider);
+    this._onWarning = config.onWarning ?? ((message) => console.warn(message));
+
+    if (isSigner(signerOrProvider)) {
+      if (!signerOrProvider.provider) {
+        throw new DriftConfigError(
+          'DRIFT SDK: Signer must be connected to a provider (e.g. wallet.connect(provider)).'
+        );
+      }
+      this._provider = signerOrProvider.provider;
+    } else {
+      this._provider = signerOrProvider;
+    }
 
     this._attestationProvider = config.attestationProvider;
     // A7: `localStorage` (LocalTrustStore's backing store) does not exist under Node, where it
@@ -59,8 +80,8 @@ export class Drift {
     this.governance = new GovernanceModule(signerOrProvider);
     this.factory = new DriftFactory(config.factoryAddress, signerOrProvider);
 
-    if ('signMessage' in signerOrProvider) {
-      this.settler = new DriftSettler(signerOrProvider as Signer);
+    if (isSigner(signerOrProvider)) {
+      this.settler = new DriftSettler(signerOrProvider);
     }
   }
 
@@ -74,8 +95,10 @@ export class Drift {
         return (await this._getLocalReputation(subject, options)) as ReputationResult<T>;
       case 'voting':
         return (await this._getVotingPower(subject, options)) as ReputationResult<T>;
-      default:
-        throw new Error(`DRIFT SDK: Unknown reputation mode: ${(options as any).mode}`);
+      default: {
+        const unknownMode: string = (options as { mode: string }).mode;
+        throw new DriftValidationError(`DRIFT SDK: Unknown reputation mode: ${unknownMode}`);
+      }
     }
   }
 
@@ -106,8 +129,8 @@ export class Drift {
           breakdown[role] = bal;
           total += bal;
         }
-      } catch (err: any) {
-        console.warn(`DRIFT SDK: Failed to fetch reputation balance for role ${role}: ${err?.message || err}`);
+      } catch (err) {
+        this._onWarning(`DRIFT SDK: Failed to fetch reputation balance for role ${role}: ${errorMessage(err)}`, err);
       }
     }
 
@@ -145,7 +168,7 @@ export class Drift {
     };
 
     if (!opts.epoch || !opts.payload) {
-      throw new Error(
+      throw new DriftValidationError(
         'DRIFT SDK: Voting power query requires Proof-of-State parameters. ' +
           'Provide `epoch` (the snapshot epoch) and `payload` (the Merkle proof arrays).'
       );
@@ -186,7 +209,7 @@ export class Drift {
 
     const engineFactory = REPUTATION_ENGINES[algorithmLabel];
     if (!engineFactory) {
-      throw new Error(`DRIFT SDK: Unknown on-chain algorithm '${algorithmLabel}'.`);
+      throw new DriftConfigError(`DRIFT SDK: Unknown on-chain algorithm '${algorithmLabel}'.`);
     }
 
     const weightsMap = await this._trustStore.getWeights(viewer);

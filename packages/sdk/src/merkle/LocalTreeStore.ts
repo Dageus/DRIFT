@@ -2,6 +2,7 @@ import { StandardMerkleTree } from '@openzeppelin/merkle-tree';
 import * as fs from 'fs';
 import * as path from 'path';
 import { IMerkleStore } from './IMerkleStore.js';
+import { DriftNotFoundError } from '../errors.js';
 
 export class LocalTreeStore implements IMerkleStore {
   private baseDir: string;
@@ -21,7 +22,7 @@ export class LocalTreeStore implements IMerkleStore {
   public async loadTree(contextUID: string, epoch: bigint): Promise<StandardMerkleTree<string[]>> {
     const filename = path.join(this.baseDir, `${contextUID}_epoch_${epoch}.json`);
     if (!fs.existsSync(filename)) {
-      throw new Error(`Tree not found for context ${contextUID} at epoch ${epoch}`);
+      throw new DriftNotFoundError(`DRIFT SDK: Tree not found for context ${contextUID} at epoch ${epoch}`);
     }
     const data = JSON.parse(fs.readFileSync(filename, 'utf-8'));
     return StandardMerkleTree.load(data);
@@ -38,6 +39,6 @@ export class LocalTreeStore implements IMerkleStore {
       }
     }
 
-    throw new Error(`Leaf not found for node ${node} in context ${contextUID} at epoch ${epoch}`);
+    throw new DriftNotFoundError(`DRIFT SDK: Leaf not found for node ${node} in context ${contextUID} at epoch ${epoch}`);
   }
 }

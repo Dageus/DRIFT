@@ -1,5 +1,6 @@
 import { Signer, Contract, TypedDataDomain } from 'ethers';
 import { StandardMerkleTree } from '@openzeppelin/merkle-tree';
+import { DriftError, DriftConfigError, DriftNotFoundError } from './errors.js';
 
 const EIP712_ABI = [
   'function eip712Domain() external view returns (bytes1 fields, string name, string version, uint256 chainId, address verifyingContract, bytes32 salt, uint256[] extensions)'
@@ -15,7 +16,7 @@ const EPOCH_BOUNDARY_ABI = [
  * yet reached the epoch's on-chain boundary block (h_0 + beta * epoch). Settlement must be
  * deferred, not retried against stale/incomplete data (O1).
  */
-export class EpochNotSynchronizedError extends Error {
+export class EpochNotSynchronizedError extends DriftError {
   constructor(
     public readonly observedHead: bigint,
     public readonly boundaryBlock: bigint
@@ -23,7 +24,6 @@ export class EpochNotSynchronizedError extends Error {
     super(
       `DRIFT SDK: observed chain head (block ${observedHead}) has not reached the epoch boundary block ${boundaryBlock} yet — defer settlement.`
     );
-    this.name = 'EpochNotSynchronizedError';
   }
 }
 
@@ -72,7 +72,9 @@ export class DriftSettler {
     epoch: bigint
   ): Promise<{ synced: boolean; observedHead: bigint; boundaryBlock: bigint }> {
     const provider = this.signer.provider;
-    if (!provider) throw new Error('DRIFT SDK: Signer must have a provider to check epoch synchronization.');
+    if (!provider) {
+      throw new DriftConfigError('DRIFT SDK: Signer must have a provider to check epoch synchronization.');
+    }
 
     const [{ epochLength, epochAnchorBlock }, observedHeadNum] = await Promise.all([
       this._fetchEpochBoundaryConfig(clientAddress),
@@ -160,7 +162,7 @@ export class DriftSettler {
     }
 
     if (roles.length === 0) {
-      throw new Error(`DRIFT SDK: No reputation claims found for node ${node} at epoch ${epoch}`);
+      throw new DriftNotFoundError(`DRIFT SDK: No reputation claims found for node ${node} at epoch ${epoch}`);
     }
 
     return { roles, scores, proofs };
@@ -192,14 +194,14 @@ export class DriftSettler {
       }
     }
 
-    throw new Error(
+    throw new DriftNotFoundError(
       `DRIFT SDK: No leaf found for node ${node} role ${role} at epoch ${epoch} — cannot respond to challenge.`
     );
   }
 
   private async _fetchDomain(contractAddress: string): Promise<TypedDataDomain> {
     const provider = this.signer.provider;
-    if (!provider) throw new Error('DRIFT SDK: Signer must have a provider to fetch EIP-712 domain.');
+    if (!provider) throw new DriftConfigError('DRIFT SDK: Signer must have a provider to fetch EIP-712 domain.');
 
     const contract = new Contract(contractAddress, EIP712_ABI, provider);
     const d = await contract.eip712Domain();

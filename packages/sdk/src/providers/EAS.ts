@@ -1,5 +1,6 @@
 import type { IAttestationProvider } from './IAttestationProvider.js';
 import type { AttestationRecord } from '../types.js';
+import { DriftProviderError } from '../errors.js';
 
 const USER_QUERY = `
   query GetAttestations($recipient: String!, $schema: String!) {
@@ -21,6 +22,21 @@ const USER_QUERY = `
   }
 `;
 
+interface EasGraphQLAttestation {
+  id: string;
+  schemaId: string;
+  attester: string;
+  recipient: string;
+  timeCreated: number | string;
+  revocationTime: number | string;
+  data: string;
+}
+
+interface EasGraphQLResponse {
+  errors?: unknown;
+  data?: { attestations?: EasGraphQLAttestation[] };
+}
+
 export class EASProvider implements IAttestationProvider {
   constructor(
     private readonly graphqlEndpoint: string,
@@ -37,17 +53,17 @@ export class EASProvider implements IAttestationProvider {
       })
     });
 
-    const json = await res.json();
+    const json = (await res.json()) as EasGraphQLResponse;
     if (json.errors) {
-      throw new Error(`EAS GraphQL error: ${JSON.stringify(json.errors)}`);
+      throw new DriftProviderError(`DRIFT SDK: EAS GraphQL error: ${JSON.stringify(json.errors)}`);
     }
-    return this._normalize(json.data.attestations);
+    return this._normalize(json.data?.attestations);
   }
 
-  private _normalize(attestations: any[]): AttestationRecord[] {
+  private _normalize(attestations?: EasGraphQLAttestation[]): AttestationRecord[] {
     if (!attestations) return [];
     return attestations.map(
-      (a: any): AttestationRecord => ({
+      (a): AttestationRecord => ({
         uid: a.id,
         schemaUID: a.schemaId,
         attester: a.attester,
