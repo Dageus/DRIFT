@@ -57,6 +57,8 @@ describe('DRIFT Scaling & Latency Benchmarks', () => {
       initData,
       id('salt10')
     );
+    // reward() requires the role already be assigned.
+    await drift.governance.assignRole(clientAddress, aliceAddr, role);
     const repContract = new Contract(clientAddress, SettlerArtifact.abi, alice);
 
     const scores = await generateMockScores(1023);
@@ -106,6 +108,8 @@ describe('DRIFT Scaling & Latency Benchmarks', () => {
       initData,
       id('salt20')
     );
+    // reward() requires the role already be assigned.
+    await drift.governance.assignRole(clientAddress, aliceAddr, role);
     const repContract = new Contract(clientAddress, SettlerArtifact.abi, alice);
 
     const scores = await generateMockScores(999999);

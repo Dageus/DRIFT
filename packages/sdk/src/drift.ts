@@ -17,7 +17,8 @@ import type {
   GlobalReputationResult,
   LocalReputationOptions,
   LocalReputationResult,
-  VotingPowerOptions
+  VotingPowerOptions,
+  AttestationRecord
 } from './types.js';
 import { REPUTATION_ENGINES } from './engines/EnginesMapping.js';
 import { isSigner, errorMessage } from './utils.js';
@@ -162,7 +163,8 @@ export class Drift {
       return { score: 0n, attestationsUsed: 0, engine: engine.constructor.name };
     }
 
-    const filtered = records.filter((r) => r.schemaUID === options.schemaUID);
+    const bySchema = records.filter((r) => r.schemaUID === options.schemaUID);
+    const filtered = await this._dropPreJoinAttestations(options.context, subject, bySchema);
     const score = engine.calculateScore(filtered);
 
     return {
@@ -170,6 +172,31 @@ export class Drift {
       attestationsUsed: filtered.length,
       engine: engine.constructor.name
     };
+  }
+
+  /**
+   * Mirrors DRIFTCore.verifyAttestation's on-chain join-time filter off-chain: a record predating
+   * either party's most recent registration in `contextUID` must not count, or leaving and
+   * rejoining a context would let a node keep the reputation history of its earlier membership.
+   */
+  private async _dropPreJoinAttestations(
+    contextUID: string,
+    subject: string,
+    records: AttestationRecord[]
+  ): Promise<AttestationRecord[]> {
+    const attesters = [...new Set(records.map((r) => r.attester.toLowerCase()))];
+    const [subjectJoinedAt, attesterJoinedAtEntries] = await Promise.all([
+      this.core.getNodeRegisteredAt(contextUID, subject),
+      Promise.all(
+        attesters.map(async (a): Promise<[string, bigint]> => [a, await this.core.getNodeRegisteredAt(contextUID, a)])
+      )
+    ]);
+    const attesterJoinedAt = new Map(attesterJoinedAtEntries);
+
+    return records.filter((r) => {
+      const ts = BigInt(r.timestamp);
+      return ts >= subjectJoinedAt && ts >= (attesterJoinedAt.get(r.attester.toLowerCase()) ?? 0n);
+    });
   }
 
   // Voting Power ==============================================================

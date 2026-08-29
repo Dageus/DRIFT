@@ -20,6 +20,21 @@ contract NaiveBatchSettler {
         core = IDRIFTCore(_core);
     }
 
+    /// @notice Assigns `role` to each of `nodes`, one on-chain call per node. Not part of the
+    ///         measured settlement cost — reward() now requires the role already be held (see
+    ///         DRIFTCore's explicit role-assignment model), so this must run before settleBatch's
+    ///         gas is snapshotted, not folded into it.
+    function assignBatch(
+        bytes32 contextUID,
+        bytes32 role,
+        address[] calldata nodes
+    ) external {
+        uint256 len = nodes.length;
+        for (uint256 i = 0; i < len; i++) {
+            core.assignRole(contextUID, nodes[i], role);
+        }
+    }
+
     /// @notice Mints `scores[i]` reputation for `nodes[i]` under `role`, one on-chain call per
     ///         node — the O(N) alternative to a single O(1) `postEpochRoot` + O(log N) claims.
     function settleBatch(

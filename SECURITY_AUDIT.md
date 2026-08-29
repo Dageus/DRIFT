@@ -105,6 +105,18 @@ only one extra cold `SLOAD` to check the flag. `deregisterNode` itself now costs
 O(distinct roles ever earned in that context) instead of O(1) — see the Residual Risk section
 below for the bound on this.
 
+**Update (post-audit):** `_nodeHasEarnedRole`/`_nodeEarnedRoles` were later replaced by a single
+`EnumerableSet.Bytes32Set` (`_nodeRoles`) — same burn-on-deregister guarantee, one structure
+instead of two kept in sync by hand. Separately, role membership stopped being an implicit
+side-effect of `reward()` at all: `assignRole`/`revokeRole` are now the only way a node's role set
+changes, and `reward()` requires the role already be held (`RoleNotHeld` otherwise). This closes a
+related gap this audit didn't originally scope: previously a compromised settler proving an
+inflated score for *any* role name could mint that role's governance weight as a side effect;
+now minting requires a separately-authorized `assignRole` call first. The gas figures above and
+the O(distinct roles) bound in Residual Risk item 1 still hold — `_nodeRoles` is enumerated and
+cleared in `deregisterNode` exactly as `_nodeEarnedRoles` was — but the roles counted are now
+"ever assigned," not "ever rewarded."
+
 ### F3 — `setContextClient` had no defense-in-depth against the calling factory's own bugs (Low)
 
 **Already self-flagged by the original developer** (`// WARNING: shouldn't the factory be the

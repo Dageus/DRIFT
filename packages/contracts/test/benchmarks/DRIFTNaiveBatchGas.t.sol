@@ -163,6 +163,8 @@ contract DRIFTNaiveBatchGasTest is Test {
             scores[i] = 100;
         }
 
+        naiveSettler.assignBatch(contextUID, ROLE, nodes);
+
         vm.startSnapshotGas(snapshotName);
         naiveSettler.settleBatch(contextUID, ROLE, nodes, scores);
         vm.stopSnapshotGas();

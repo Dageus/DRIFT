@@ -106,6 +106,12 @@ export interface WeightedGovernanceClientContract extends BaseContract {
     ): Promise<bigint>;
   };
 
-  // Client-specific (not on any interface) ====================================
+  // Client-specific ===========================================================
   getActiveRoles(): Promise<string[]>;
+
+  // Role membership ===========================================================
+  assignRole(node: string, role: string): Promise<ContractTransactionResponse>;
+  revokeRole(node: string, role: string): Promise<ContractTransactionResponse>;
+  hasNodeRole(node: string, role: string): Promise<boolean>;
+  getNodeRoles(node: string): Promise<string[]>;
 }

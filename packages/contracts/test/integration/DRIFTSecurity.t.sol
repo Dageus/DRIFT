@@ -87,6 +87,7 @@ contract DRIFTSecurityTest is Test {
         vm.startPrank(admin);
         core.grantRole(core.FACTORY_ROLE(), admin);
         core.setContextClient(contextUID, admin, admin);
+        core.assignRole(contextUID, node, ROLE_PROFESSOR);
         core.reward(contextUID, ROLE_PROFESSOR, node, 50);
         core.setContextClient(contextUID, address(client), admin);
         vm.stopPrank();
@@ -104,6 +105,7 @@ contract DRIFTSecurityTest is Test {
         vm.startPrank(admin);
         core.grantRole(core.FACTORY_ROLE(), admin);
         core.setContextClient(contextUID, admin, admin);
+        core.assignRole(contextUID, node, ROLE_PROFESSOR);
         core.reward(contextUID, ROLE_PROFESSOR, node, 50);
         core.setContextClient(contextUID, address(client), admin);
         vm.stopPrank();

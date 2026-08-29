@@ -76,6 +76,8 @@ contract DRIFTMerkleGasTest is Test {
 
         vm.prank(node);
         core.registerNode(contextUID, "0x");
+        vm.prank(admin);
+        client.assignRole(node, ROLE);
     }
 
     // B1 test cadence: epochLength must exceed disputeWindow + responseWindow.
@@ -137,7 +139,7 @@ contract DRIFTMerkleGasTest is Test {
         bytes32 digest = MessageHashUtils.toTypedDataHash(domainSeparator, structHash);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(settlerPk, digest);
 
-        vm.roll(client.epochAnchorBlock() + client.epochLength());
+        vm.warp(client.epochAnchorTimestamp() + client.epochLength());
         vm.startSnapshotGas("PostRoot_O1_Cost");
         client.postEpochRoot{ value: SETTLEMENT_BOND }(1, root, "", abi.encodePacked(r, s, v));
         vm.stopSnapshotGas();
@@ -207,11 +209,11 @@ contract DRIFTMerkleGasTest is Test {
             bytes32 digest = MessageHashUtils.toTypedDataHash(domainSeparator, structHash);
 
             (uint8 v, bytes32 r, bytes32 s) = vm.sign(settlerPk, digest);
-            vm.roll(client.epochAnchorBlock() + client.epochLength() * epoch);
+            vm.warp(client.epochAnchorTimestamp() + client.epochLength() * epoch);
             client.postEpochRoot{ value: SETTLEMENT_BOND }(
                 epoch, calculatedRoot, "", abi.encodePacked(r, s, v)
             );
-            vm.roll(block.number + client.disputeWindow() + client.responseWindow() + 1);
+            vm.warp(block.timestamp + client.disputeWindow() + client.responseWindow() + 1);
         }
 
         vm.startSnapshotGas(snapshotName);

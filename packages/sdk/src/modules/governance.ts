@@ -219,6 +219,46 @@ export class GovernanceModule {
     }
   }
 
+  // Role Membership ===========================================================
+
+  /** Assigns `role` to `node`. Reward for that role is rejected on-chain until this is called. */
+  public async assignRole(clientAddress: string, node: string, role: string): Promise<void> {
+    try {
+      const gc = this._governanceClient(clientAddress).connect(this._requireSigner()) as WeightedGovernanceClientContract;
+      const tx = await gc.assignRole(node, role);
+      await tx.wait();
+    } catch (err) {
+      handleContractError(err, this._interface);
+    }
+  }
+
+  /** Revokes `role` from `node` and burns their full balance for it. */
+  public async revokeRole(clientAddress: string, node: string, role: string): Promise<void> {
+    try {
+      const gc = this._governanceClient(clientAddress).connect(this._requireSigner()) as WeightedGovernanceClientContract;
+      const tx = await gc.revokeRole(node, role);
+      await tx.wait();
+    } catch (err) {
+      handleContractError(err, this._interface);
+    }
+  }
+
+  public async hasNodeRole(clientAddress: string, node: string, role: string): Promise<boolean> {
+    try {
+      return await this._governanceClient(clientAddress).hasNodeRole(node, role);
+    } catch (err) {
+      handleContractError(err, this._interface);
+    }
+  }
+
+  public async getNodeRoles(clientAddress: string, node: string): Promise<string[]> {
+    try {
+      return await this._governanceClient(clientAddress).getNodeRoles(node);
+    } catch (err) {
+      handleContractError(err, this._interface);
+    }
+  }
+
   // Internal ==================================================================
 
   private _validatePayload(payload: ProofOfStatePayload): void {

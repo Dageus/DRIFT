@@ -82,6 +82,11 @@ describe('End-to-End Latency and Calldata Bounds ($N = 10^6$)', () => {
     );
 
     console.log('Client deployed');
+
+    // reward() requires the role already be assigned — the only entry actually claimed below is
+    // managedSignerAddr's, so only its role needs assigning.
+    await drift.governance.assignRole(clientAddress, managedSignerAddr, role);
+
     console.log('Generating nodes...');
 
     const scores: ScoreEntry[] = [];

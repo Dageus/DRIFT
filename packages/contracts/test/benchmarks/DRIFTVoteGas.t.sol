@@ -166,11 +166,11 @@ contract DRIFTVoteGasTest is Test {
             bytes32 digest = MessageHashUtils.toTypedDataHash(domainSeparator, structHash);
 
             (uint8 v, bytes32 r, bytes32 s) = vm.sign(settlerPk, digest);
-            vm.roll(client.epochAnchorBlock() + client.epochLength() * epoch);
+            vm.warp(client.epochAnchorTimestamp() + client.epochLength() * epoch);
             client.postEpochRoot{ value: SETTLEMENT_BOND }(
                 epoch, calculatedRoot, "", abi.encodePacked(r, s, v)
             );
-            vm.roll(block.number + client.disputeWindow() + client.responseWindow() + 1);
+            vm.warp(block.timestamp + client.disputeWindow() + client.responseWindow() + 1);
         }
 
         // Create Proposal

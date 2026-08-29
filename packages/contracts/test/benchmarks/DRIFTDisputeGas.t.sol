@@ -97,7 +97,7 @@ contract DRIFTDisputeGasTest is DRIFTTestHelper {
         uint256 epoch,
         bytes32 root
     ) internal {
-        vm.roll(client.epochAnchorBlock() + client.epochLength() * epoch);
+        vm.warp(client.epochAnchorTimestamp() + client.epochLength() * epoch);
         bytes memory sig = _signEpochRoot(settlerPk, contextUID, epoch, root, address(client));
         client.postEpochRoot{ value: SETTLEMENT_BOND }(epoch, root, "", sig);
     }
@@ -224,7 +224,7 @@ contract DRIFTDisputeGasTest is DRIFTTestHelper {
         vm.prank(challenger);
         client.challengeOmission{ value: CHALLENGE_BOND }(epoch, missingNode);
 
-        vm.roll(block.number + RESPONSE_WINDOW + 1);
+        vm.warp(block.timestamp + RESPONSE_WINDOW + 1);
 
         vm.startSnapshotGas("ClaimUnansweredChallenge");
         client.claimUnansweredChallenge(epoch, missingNode);
@@ -261,7 +261,7 @@ contract DRIFTDisputeGasTest is DRIFTTestHelper {
         vm.prank(challengerMissing);
         client.challengeOmission{ value: CHALLENGE_BOND }(epoch, missingNode);
 
-        vm.roll(block.number + RESPONSE_WINDOW + 1);
+        vm.warp(block.timestamp + RESPONSE_WINDOW + 1);
         client.claimUnansweredChallenge(epoch, missingNode);
 
         vm.startSnapshotGas("ReclaimMootChallenge");
@@ -284,7 +284,7 @@ contract DRIFTDisputeGasTest is DRIFTTestHelper {
 
         uint256 epoch = 1;
         _postEpoch(epoch, _leaf(nodeA, 100, epoch));
-        vm.roll(block.number + DISPUTE_WINDOW + RESPONSE_WINDOW + 1);
+        vm.warp(block.timestamp + DISPUTE_WINDOW + RESPONSE_WINDOW + 1);
 
         vm.startSnapshotGas("WithdrawSettlementBond");
         client.withdrawSettlementBond(epoch);

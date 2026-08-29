@@ -1,5 +1,3 @@
-// Framework-agnostic core: the Drift client, epoch settlement, shared types. Engines, providers,
-// and trust/Merkle storage live at their own subpaths instead — see README (Package Layout):
 //   @drift-network/sdk/engines | /providers | /trust | /merkle
 export { Drift } from './drift.js';
 export type { DriftConfig } from './drift.js';

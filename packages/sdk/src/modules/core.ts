@@ -151,4 +151,13 @@ export class CoreModule {
       handleContractError(err, this._interface);
     }
   }
+
+  /** Unix timestamp `node` was (most recently) registered in `contextUID`, or 0n if never. */
+  public async getNodeRegisteredAt(contextUID: string, node: string): Promise<bigint> {
+    try {
+      return await this.contract.nodeRegisteredAt(contextUID, node);
+    } catch (err) {
+      handleContractError(err, this._interface);
+    }
+  }
 }

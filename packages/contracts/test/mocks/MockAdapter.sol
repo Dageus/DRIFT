@@ -19,7 +19,9 @@ contract MockAdapter is IAttestationProvider {
     function isValid(
         bytes32,
         bytes32,
-        address
+        address,
+        uint256,
+        uint256
     ) external view returns (bool) {
         return shouldPass;
     }

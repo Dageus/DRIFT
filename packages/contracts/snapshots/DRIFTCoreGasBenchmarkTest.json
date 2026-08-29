@@ -1,8 +1,11 @@
 {
-  "AddSchema": "65768",
-  "DeployClientClone": "377059",
-  "DeployClientFull": "3951582",
-  "RegisterContext": "130086",
-  "RegisterNode": "63742",
-  "VerifyAttestation": "3724"
+  "AddSchema": "65856",
+  "AssignRole": "71152",
+  "DeployClientClone": "377301",
+  "DeployClientFull": "4200514",
+  "RegisterContext": "130108",
+  "RegisterNode": "63808",
+  "RevokeRole": "11047",
+  "Reward": "37950",
+  "VerifyAttestation": "4283"
 }

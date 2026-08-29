@@ -40,7 +40,7 @@ contract DRIFTSecurityBoundaryTest is Test {
     function _rollPastFinalization(
         WeightedGovernanceClient c
     ) internal {
-        vm.roll(block.number + c.disputeWindow() + c.responseWindow() + 1);
+        vm.warp(block.timestamp + c.disputeWindow() + c.responseWindow() + 1);
     }
 
     // SETUP ===================================================================
@@ -124,7 +124,7 @@ contract DRIFTSecurityBoundaryTest is Test {
         bytes32 digest = MessageHashUtils.toTypedDataHash(domainSeparator, structHash);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(settlerPk, digest);
 
-        vm.roll(client.epochAnchorBlock() + client.epochLength() * epoch);
+        vm.warp(client.epochAnchorTimestamp() + client.epochLength() * epoch);
         client.postEpochRoot{ value: SETTLEMENT_BOND }(
             epoch, setupLeaf, "", abi.encodePacked(r, s, v)
         );
@@ -236,7 +236,7 @@ contract DRIFTSecurityBoundaryTest is Test {
         bytes32 digest = MessageHashUtils.toTypedDataHash(domainSeparator, structHash);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(settlerPk, digest);
 
-        vm.roll(client.epochAnchorBlock() + client.epochLength() * epoch);
+        vm.warp(client.epochAnchorTimestamp() + client.epochLength() * epoch);
         client.postEpochRoot{ value: SETTLEMENT_BOND }(epoch, root, "", abi.encodePacked(r, s, v));
         _rollPastFinalization(client);
 
@@ -310,7 +310,7 @@ contract DRIFTSecurityBoundaryTest is Test {
         bytes32 digest = MessageHashUtils.toTypedDataHash(domainSeparator, structHash);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(settlerPk, digest);
 
-        vm.roll(client.epochAnchorBlock() + client.epochLength() * epoch2);
+        vm.warp(client.epochAnchorTimestamp() + client.epochLength() * epoch2);
         client.postEpochRoot{ value: SETTLEMENT_BOND }(
             epoch2, aliceLeaf, "", abi.encodePacked(r, s, v)
         );
@@ -366,7 +366,7 @@ contract DRIFTSecurityBoundaryTest is Test {
         bytes32 digestB = MessageHashUtils.toTypedDataHash(domainSeparatorB, structHashB);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(settlerPk, digestB);
 
-        vm.roll(clientB.epochAnchorBlock() + clientB.epochLength() * epoch);
+        vm.warp(clientB.epochAnchorTimestamp() + clientB.epochLength() * epoch);
         clientB.postEpochRoot{ value: SETTLEMENT_BOND }(
             epoch, leafFromContext1, "", abi.encodePacked(r, s, v)
         );
@@ -437,7 +437,7 @@ contract DRIFTSecurityBoundaryTest is Test {
         bytes32 digest = MessageHashUtils.toTypedDataHash(domainSeparator, structHash);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(settlerPk, digest);
 
-        vm.roll(client.epochAnchorBlock() + client.epochLength() * epoch2);
+        vm.warp(client.epochAnchorTimestamp() + client.epochLength() * epoch2);
         client.postEpochRoot{ value: SETTLEMENT_BOND }(
             epoch2, futureLeaf, "", abi.encodePacked(r, s, v)
         );
@@ -523,7 +523,7 @@ contract DRIFTSecurityBoundaryTest is Test {
         bytes32 digestB = MessageHashUtils.toTypedDataHash(domainSeparatorB, structHashB);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(settlerPk, digestB);
 
-        vm.roll(clientB.epochAnchorBlock() + clientB.epochLength() * epoch);
+        vm.warp(clientB.epochAnchorTimestamp() + clientB.epochLength() * epoch);
         clientB.postEpochRoot{ value: SETTLEMENT_BOND }(
             epoch, leafFromContext1, "", abi.encodePacked(r, s, v)
         );

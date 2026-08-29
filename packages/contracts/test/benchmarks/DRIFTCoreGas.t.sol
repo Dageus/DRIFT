@@ -109,6 +109,65 @@ contract DRIFTCoreGasBenchmarkTest is Test {
         vm.stopSnapshotGas();
     }
 
+    // ROLE MANAGEMENT BENCHMARKS ==============================================
+
+    bytes32 constant BENCH_ROLE = keccak256("BENCH_ROLE");
+
+    /// @dev Registers a fresh node and sets `admin` as this context's client (onlyContextClient
+    ///      gate), self-contained so each benchmark below measures exactly one call in isolation.
+    function _freshRoleBenchNode() internal returns (address benchNode) {
+        benchNode = makeAddr("roleBenchNode");
+        vm.startPrank(admin);
+        if (!core.hasRole(core.FACTORY_ROLE(), admin)) {
+            core.grantRole(core.FACTORY_ROLE(), admin);
+        }
+        core.setContextClient(contextUID, admin, admin);
+        vm.stopPrank();
+        vm.prank(benchNode);
+        core.registerNode(contextUID, "0x");
+    }
+
+    /// @notice Measures the gas cost of assigning a role to an already-registered node — a fresh
+    ///         EnumerableSet.add (2 cold SSTOREs: array push + positions-mapping write).
+    function test_Benchmark_AssignRole() public {
+        address benchNode = _freshRoleBenchNode();
+
+        vm.prank(admin);
+        vm.startSnapshotGas("AssignRole");
+        core.assignRole(contextUID, benchNode, BENCH_ROLE);
+        vm.stopSnapshotGas();
+    }
+
+    /// @notice Measures reward() now that it only reads role membership (one SLOAD via
+    ///         EnumerableSet.contains) instead of writing it — the direct efficiency comparison
+    ///         point against the pre-explicit-assignment implementation.
+    function test_Benchmark_Reward() public {
+        address benchNode = _freshRoleBenchNode();
+        vm.prank(admin);
+        core.assignRole(contextUID, benchNode, BENCH_ROLE);
+
+        vm.prank(admin);
+        vm.startSnapshotGas("Reward");
+        core.reward(contextUID, BENCH_ROLE, benchNode, 100);
+        vm.stopSnapshotGas();
+    }
+
+    /// @notice Measures the gas cost of revoking a held role and burning the node's full balance
+    ///         for it (EnumerableSet.remove — swap-and-pop, 2 SSTOREs — plus one conditional
+    ///         external burn call).
+    function test_Benchmark_RevokeRole() public {
+        address benchNode = _freshRoleBenchNode();
+        vm.startPrank(admin);
+        core.assignRole(contextUID, benchNode, BENCH_ROLE);
+        core.reward(contextUID, BENCH_ROLE, benchNode, 100);
+        vm.stopPrank();
+
+        vm.prank(admin);
+        vm.startSnapshotGas("RevokeRole");
+        core.revokeRole(contextUID, benchNode, BENCH_ROLE);
+        vm.stopSnapshotGas();
+    }
+
     // ATTESTATION BENCHMARKS ==================================================
 
     /// @notice Measures the gas cost of verifying an external attestation through the adapter

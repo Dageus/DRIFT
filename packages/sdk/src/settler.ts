@@ -1,6 +1,6 @@
 import { Signer, Contract, TypedDataDomain } from 'ethers';
 import { StandardMerkleTree } from '@openzeppelin/merkle-tree';
-import { DriftError, DriftConfigError, DriftNotFoundError } from './errors.js';
+import { DriftError, DriftConfigError, DriftNotFoundError, DriftValidationError } from './errors.js';
 
 const EIP712_ABI = [
   'function eip712Domain() external view returns (bytes1 fields, string name, string version, uint256 chainId, address verifyingContract, bytes32 salt, uint256[] extensions)'
@@ -8,21 +8,27 @@ const EIP712_ABI = [
 
 const EPOCH_BOUNDARY_ABI = [
   'function epochLength() external view returns (uint256)',
-  'function epochAnchorBlock() external view returns (uint256)'
+  'function epochAnchorTimestamp() external view returns (uint256)'
 ];
+
+const HAS_NODE_ROLE_ABI = ['function hasNodeRole(address node, bytes32 role) external view returns (bool)'];
 
 /**
  * Thrown by assertSynchronizedForEpoch when the connected provider's observed chain head has not
- * yet reached the epoch's on-chain boundary block (h_0 + beta * epoch). Settlement must be
+ * yet reached the epoch's on-chain boundary timestamp (t_0 + beta * epoch). Settlement must be
  * deferred, not retried against stale/incomplete data (O1).
+ *
+ * Timestamps, not block numbers: block.number is not portable across the chains this protocol
+ * targets (Arbitrum reflects L1 block numbers with irregular L2 spacing; Polygon produces blocks
+ * at a different rate again), while block.timestamp is seconds everywhere.
  */
 export class EpochNotSynchronizedError extends DriftError {
   constructor(
     public readonly observedHead: bigint,
-    public readonly boundaryBlock: bigint
+    public readonly boundaryTimestamp: bigint
   ) {
     super(
-      `DRIFT SDK: observed chain head (block ${observedHead}) has not reached the epoch boundary block ${boundaryBlock} yet — defer settlement.`
+      `DRIFT SDK: observed chain head (timestamp ${observedHead}) has not reached the epoch boundary timestamp ${boundaryTimestamp} yet — defer settlement.`
     );
   }
 }
@@ -56,8 +62,8 @@ export class DriftSettler {
   }
 
   /**
-   * O1 synchronization check: computes the on-chain boundary block for `epoch`
-   * (epochAnchorBlock + epochLength * epoch) and compares it to the connected provider's
+   * O1 synchronization check: computes the on-chain boundary timestamp for `epoch`
+   * (epochAnchorTimestamp + epochLength * epoch) and compares it to the connected provider's
    * currently observed chain head. This repo does not yet ship a dedicated indexer/subgraph
    * (see TODO.md), so the RPC provider's head is used as an interim proxy for "the indexer's
    * observed head" the thesis's O1 assumption describes.
@@ -70,32 +76,35 @@ export class DriftSettler {
   public async isSynchronizedForEpoch(
     clientAddress: string,
     epoch: bigint
-  ): Promise<{ synced: boolean; observedHead: bigint; boundaryBlock: bigint }> {
+  ): Promise<{ synced: boolean; observedHead: bigint; boundaryTimestamp: bigint }> {
     const provider = this.signer.provider;
     if (!provider) {
       throw new DriftConfigError('DRIFT SDK: Signer must have a provider to check epoch synchronization.');
     }
 
-    const [{ epochLength, epochAnchorBlock }, observedHeadNum] = await Promise.all([
+    const [{ epochLength, epochAnchorTimestamp }, latestBlock] = await Promise.all([
       this._fetchEpochBoundaryConfig(clientAddress),
-      provider.getBlockNumber()
+      provider.getBlock('latest')
     ]);
+    if (!latestBlock) {
+      throw new DriftConfigError('DRIFT SDK: Provider returned no latest block.');
+    }
 
-    const boundaryBlock = epochAnchorBlock + epochLength * epoch;
-    const observedHead = BigInt(observedHeadNum);
+    const boundaryTimestamp = epochAnchorTimestamp + epochLength * epoch;
+    const observedHead = BigInt(latestBlock.timestamp);
 
-    return { synced: observedHead >= boundaryBlock, observedHead, boundaryBlock };
+    return { synced: observedHead >= boundaryTimestamp, observedHead, boundaryTimestamp };
   }
 
   private async _fetchEpochBoundaryConfig(
     clientAddress: string
-  ): Promise<{ epochLength: bigint; epochAnchorBlock: bigint }> {
+  ): Promise<{ epochLength: bigint; epochAnchorTimestamp: bigint }> {
     const contract = new Contract(clientAddress, EPOCH_BOUNDARY_ABI, this.signer.provider);
-    const [epochLength, epochAnchorBlock] = await Promise.all([
+    const [epochLength, epochAnchorTimestamp] = await Promise.all([
       contract.epochLength(),
-      contract.epochAnchorBlock()
+      contract.epochAnchorTimestamp()
     ]);
-    return { epochLength: BigInt(epochLength), epochAnchorBlock: BigInt(epochAnchorBlock) };
+    return { epochLength: BigInt(epochLength), epochAnchorTimestamp: BigInt(epochAnchorTimestamp) };
   }
 
   /**
@@ -103,8 +112,45 @@ export class DriftSettler {
    * instead of returning a boolean — for callers that want to fail fast rather than branch.
    */
   public async assertSynchronizedForEpoch(clientAddress: string, epoch: bigint): Promise<void> {
-    const { synced, observedHead, boundaryBlock } = await this.isSynchronizedForEpoch(clientAddress, epoch);
-    if (!synced) throw new EpochNotSynchronizedError(observedHead, boundaryBlock);
+    const { synced, observedHead, boundaryTimestamp } = await this.isSynchronizedForEpoch(clientAddress, epoch);
+    if (!synced) throw new EpochNotSynchronizedError(observedHead, boundaryTimestamp);
+  }
+
+  /**
+   * Checks, for every unique (node, role) pair in `scores`, that DRIFTCore already has that role
+   * assigned to that node — reward() rejects an unassigned role on-chain, so a settlement built
+   * for a node/role no one called assignRole on would fail only once posted, mid-batch, after the
+   * settler has already spent the gas and revealed the (rejected) score. Throws
+   * DriftValidationError naming the first missing pair instead. Callers computing Phi_c for
+   * `epoch` MUST check this (or use buildAndSignEpochRoot after) — this intentionally does not
+   * gate buildAndSignEpochRoot itself, so tree-building/signing stays unit-testable against an
+   * offline signer with no provider attached, matching isSynchronizedForEpoch's convention.
+   */
+  public async assertRolesAssigned(clientAddress: string, scores: ScoreEntry[]): Promise<void> {
+    if (!this.signer.provider) {
+      throw new DriftConfigError('DRIFT SDK: Signer must have a provider to check role assignment.');
+    }
+
+    const seen = new Set<string>();
+    const pairs = scores.filter((s) => {
+      const key = `${s.node.toLowerCase()}:${s.role}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+    const results = await Promise.all(pairs.map((s) => this._fetchHasNodeRole(clientAddress, s.node, s.role)));
+    const missing = pairs.find((_, i) => !results[i]);
+    if (missing) {
+      throw new DriftValidationError(
+        `DRIFT SDK: node ${missing.node} does not hold role ${missing.role} in context at ${clientAddress} — call assignRole first.`
+      );
+    }
+  }
+
+  private async _fetchHasNodeRole(clientAddress: string, node: string, role: string): Promise<boolean> {
+    const contract = new Contract(clientAddress, HAS_NODE_ROLE_ABI, this.signer.provider);
+    return await contract.hasNodeRole(node, role);
   }
 
   /**
@@ -113,7 +159,8 @@ export class DriftSettler {
    *
    * Does NOT perform the O1 synchronization check itself — call
    * isSynchronizedForEpoch/assertSynchronizedForEpoch before computing Phi_c for `epoch` and
-   * invoking this method.
+   * invoking this method. Nor does it check role assignment itself — call assertRolesAssigned
+   * first if any `scores` entries may name a role the settler hasn't confirmed is assigned.
    */
   public async buildAndSignEpochRoot(
     clientAddress: string,

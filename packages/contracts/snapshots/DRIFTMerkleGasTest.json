@@ -1,9 +1,9 @@
 {
-  "Claim_Depth_10_Users_1024": "158823",
-  "Claim_Depth_15_Users_32768": "160470",
-  "Claim_Depth_1_Users_2": "155843",
-  "Claim_Depth_20_Users_1M": "162105",
-  "Claim_Depth_25_Users_33M": "163773",
-  "Claim_Depth_5_Users_32": "157164",
-  "PostRoot_O1_Cost": "129582"
+  "Claim_Depth_10_Users_1024": "94104",
+  "Claim_Depth_15_Users_32768": "95751",
+  "Claim_Depth_1_Users_2": "91124",
+  "Claim_Depth_20_Users_1M": "97386",
+  "Claim_Depth_25_Users_33M": "99054",
+  "Claim_Depth_5_Users_32": "92445",
+  "PostRoot_O1_Cost": "129670"
 }

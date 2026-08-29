@@ -35,7 +35,9 @@ contract EASAdapter is IAttestationProvider {
     function isValid(
         bytes32 uid,
         bytes32 schemaUID,
-        address subject
+        address subject,
+        uint256 subjectJoinedAt,
+        uint256 attesterJoinedAt
     ) external view returns (bool) {
         IEAS.Attestation memory a = eas.getAttestation(uid);
 
@@ -43,7 +45,8 @@ contract EASAdapter is IAttestationProvider {
             && a.schema == schemaUID // correct schema
             && a.recipient == subject // correct subject
             && a.revocationTime == 0 // not revoked
-            && (a.expirationTime == 0 // not expired
-                || a.expirationTime > block.timestamp);
+            && (a.expirationTime == 0 || a.expirationTime > block.timestamp) // not expired
+            && a.time >= subjectJoinedAt // not from before subject's current membership
+            && a.time >= attesterJoinedAt; // not from before attester's current membership
     }
 }

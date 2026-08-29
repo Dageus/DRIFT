@@ -25,4 +25,6 @@ export interface DRIFTCoreContract extends BaseContract {
     attester: string
   ): Promise<boolean>;
   driftToken(): Promise<string>;
+  nodeRegisteredAt(contextUID: string, node: string): Promise<bigint>;
+  nodeBannedAt(contextUID: string, node: string): Promise<bigint>;
 }

@@ -37,6 +37,12 @@ interface IDRIFTCore is IAccessControl {
     /// @notice Emitted when a node gets rewarded.
     event NodeRewarded(bytes32 indexed contextUID, address indexed node);
 
+    /// @notice Emitted when a role is assigned to a node.
+    event RoleAssigned(bytes32 indexed contextUID, address indexed node, bytes32 role);
+
+    /// @notice Emitted when a role is revoked from a node.
+    event RoleRevoked(bytes32 indexed contextUID, address indexed node, bytes32 role);
+
     /// @notice Emitted when a node's status changes.
     event NodeStatusUpdated(bytes32 indexed contextUID, address indexed node, NodeStatus status);
 
@@ -80,6 +86,11 @@ interface IDRIFTCore is IAccessControl {
 
     /// @notice Error thrown when a token has already been set for the context
     error TokenAlreadySet();
+
+    /// @notice Error thrown when assigning a role a node already holds
+    error RoleAlreadyHeld(bytes32 contextUID, address node, bytes32 role);
+    /// @notice Error thrown when revoking or rewarding a role a node does not hold
+    error RoleNotHeld(bytes32 contextUID, address node, bytes32 role);
 
     // Context management ======================================================
 
@@ -189,14 +200,51 @@ interface IDRIFTCore is IAccessControl {
         uint256 penaltyAmount
     ) external;
 
-    /// @notice Rewards a node (placeholder for MVP).
-    ///         Only callable by the context administrator.
+    /// @notice Rewards a node (placeholder for MVP). Reverts if the node does not already hold
+    ///         `role` — role membership must be granted explicitly via `assignRole` first, so a
+    ///         compromised settler proving an inflated score for a node cannot also manufacture
+    ///         that node's governance-role membership as a side effect.
+    ///         Only callable by the context's client contract.
     function reward(
         bytes32 contextUID,
         bytes32 role,
         address node,
         uint256 reputationAmount
     ) external;
+
+    // Role management =========================================================
+
+    /// @notice Assign a role to a registered node. Node must be registered.
+    ///         Reverts if the node already holds the role.
+    ///         Only callable by the context's client contract.
+    function assignRole(
+        bytes32 contextUID,
+        address node,
+        bytes32 role
+    ) external;
+
+    /// @notice Revoke a role and burn the node's entire balance for that role.
+    ///         Reverts if the node does not hold the role.
+    ///         Only callable by the context's client contract.
+    function revokeRole(
+        bytes32 contextUID,
+        address node,
+        bytes32 role
+    ) external;
+
+    /// @notice Returns true if the node currently holds the role in this context. Public so
+    ///         external contracts can gate their own functions on DRIFT role membership.
+    function hasNodeRole(
+        bytes32 contextUID,
+        address node,
+        bytes32 role
+    ) external view returns (bool);
+
+    /// @notice Returns all roles the node currently holds in this context.
+    function getNodeRoles(
+        bytes32 contextUID,
+        address node
+    ) external view returns (bytes32[] memory);
 
     // Views ===================================================================
 
@@ -227,16 +275,19 @@ interface IDRIFTCore is IAccessControl {
         bytes32 uid
     ) external view returns (bool);
 
-    /// @notice Block at which `node` was (most recently) registered in `contextUID`, or 0 if never.
-    ///         Used by B1 non-inclusion disputes to evaluate eligibility as of a past epoch
-    ///         boundary rather than current status.
-    function nodeRegisteredAtBlock(
+    /// @notice Unix timestamp at which `node` was (most recently) registered in `contextUID`, or 0
+    ///         if never. Used both for B1 non-inclusion dispute eligibility (as of a past epoch
+    ///         boundary rather than current status) and as the join-time floor in
+    ///         verifyAttestation, so an attestation predating a node's latest registration can't
+    ///         count — otherwise leaving and rejoining a context would carry over reputation
+    ///         history earned under the prior membership.
+    function nodeRegisteredAt(
         bytes32 contextUID,
         address node
     ) external view returns (uint256);
 
-    /// @notice Block at which `node` was banned in `contextUID`, or 0 if never banned.
-    function nodeBannedAtBlock(
+    /// @notice Unix timestamp at which `node` was banned in `contextUID`, or 0 if never banned.
+    function nodeBannedAt(
         bytes32 contextUID,
         address node
     ) external view returns (uint256);

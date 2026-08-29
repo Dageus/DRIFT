@@ -124,9 +124,9 @@ contract UniversityScenarioTest is Test {
             ? keccak256(abi.encodePacked(leafBob, leafAlice))
             : keccak256(abi.encodePacked(leafAlice, leafBob));
 
-        vm.roll(client.epochAnchorBlock() + client.epochLength() * epoch);
+        vm.warp(client.epochAnchorTimestamp() + client.epochLength() * epoch);
         client.postEpochRoot{ value: SETTLEMENT_BOND }(epoch, root, "", _signRoot(epoch, root));
-        vm.roll(block.number + client.disputeWindow() + client.responseWindow() + 1);
+        vm.warp(block.timestamp + client.disputeWindow() + client.responseWindow() + 1);
 
         bytes32 gradingSchemaUID = keccak256("schema.grading");
         bytes memory addSchemaPayload = abi.encodeWithSelector(

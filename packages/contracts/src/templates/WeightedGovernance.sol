@@ -41,7 +41,7 @@ contract WeightedGovernanceClient is
     error EpochLengthAlreadySet();
     error InvalidEpochLength();
     error EpochLengthNotConfigured();
-    error EpochNotYetElapsed(uint256 requiredBlock, uint256 currentBlock);
+    error EpochNotYetElapsed(uint256 requiredTimestamp, uint256 currentTimestamp);
     error WeightsNotNormalized(uint256 sum, uint256 expected);
 
     // State Variables
@@ -54,10 +54,14 @@ contract WeightedGovernanceClient is
     uint256 public currentEpoch;
     uint256 public quorumThreshold;
 
-    /// @notice Epoch length in blocks (β). Fixed once via `setEpochLength`; 0 means unconfigured.
+    /// @notice Epoch length in seconds (β). Fixed once via `setEpochLength`; 0 means unconfigured.
+    ///         Seconds, not blocks: block.number is not portable across the chains this protocol
+    ///         targets (Arbitrum reflects L1 block numbers with irregular L2 spacing; Polygon
+    ///         produces blocks at a different rate again), while block.timestamp is seconds
+    ///         everywhere.
     uint256 public epochLength;
-    /// @notice Block height epoch boundaries are anchored to (h_0). Set alongside epochLength.
-    uint256 public epochAnchorBlock;
+    /// @notice Unix timestamp epoch boundaries are anchored to (t_0). Set alongside epochLength.
+    uint256 public epochAnchorTimestamp;
 
     bytes32 public constant SETTLE_ROOT_TYPEHASH = keccak256(
         "SettleRoot(bytes32 contextUID,uint256 epoch,bytes32 merkleRoot,string treeURI)"
@@ -78,15 +82,15 @@ contract WeightedGovernanceClient is
     uint256 public settlementBond;
     /// @notice Wei a challenger must escrow to open a non-inclusion challenge.
     uint256 public challengeBond;
-    /// @notice Blocks after posting during which a non-inclusion challenge may be opened.
+    /// @notice Seconds after posting during which a non-inclusion challenge may be opened.
     ///         One-time set via `setDisputeWindow`; 0 means unconfigured.
     uint256 public disputeWindow;
-    /// @notice Blocks an open challenge has for a rebuttal before it can be claimed unanswered.
+    /// @notice Seconds an open challenge has for a rebuttal before it can be claimed unanswered.
     ///         One-time set via `setResponseWindow`; 0 means unconfigured.
     uint256 public responseWindow;
 
-    /// @notice Block at which each epoch's root was posted.
-    mapping(uint256 => uint256) public epochPostedAtBlock;
+    /// @notice Unix timestamp at which each epoch's root was posted.
+    mapping(uint256 => uint256) public epochPostedAtTimestamp;
     /// @notice The settler's escrowed bond for each epoch (zeroed once withdrawn or forfeited).
     mapping(uint256 => uint256) public epochBondAmount;
     /// @notice Count of unresolved challenges currently open against each epoch.
@@ -97,7 +101,7 @@ contract WeightedGovernanceClient is
     uint256 public consecutiveFailedEpochs;
 
     struct Challenge {
-        uint256 openedAtBlock;
+        uint256 openedAtTimestamp;
         uint256 bond;
         address challenger;
         bool resolved;
@@ -125,7 +129,7 @@ contract WeightedGovernanceClient is
 
     // Events
     event RoleWeightsUpdated(uint32 indexed configVersion);
-    event EpochLengthConfigured(uint256 epochLength, uint256 epochAnchorBlock);
+    event EpochLengthConfigured(uint256 epochLength, uint256 epochAnchorTimestamp);
 
     /// @notice Struct representing a versioned weight configuration snapshot
     struct WeightConfig {
@@ -264,40 +268,40 @@ contract WeightedGovernanceClient is
         emit RoleWeightsUpdated(currentConfigVersion);
     }
 
-    /// @notice Fixes the epoch length (β, in blocks) and anchors epoch boundaries to the current
-    ///         block (h_0). Callable exactly once — boundaries are immutable thereafter, so the
+    /// @notice Fixes the epoch length (β, in seconds) and anchors epoch boundaries to the current
+    ///         timestamp (t_0). Callable exactly once — boundaries are immutable thereafter, so the
     ///         settler cannot choose epoch windows after the fact.
-    /// @param blocks_ Number of blocks per epoch. Must be non-zero.
+    /// @param seconds_ Number of seconds per epoch. Must be non-zero.
     function setEpochLength(
-        uint256 blocks_
+        uint256 seconds_
     ) external onlyContextAdmin {
         if (epochLength != 0) revert EpochLengthAlreadySet();
-        if (blocks_ == 0) revert InvalidEpochLength();
+        if (seconds_ == 0) revert InvalidEpochLength();
 
-        epochLength = blocks_;
-        epochAnchorBlock = block.number;
+        epochLength = seconds_;
+        epochAnchorTimestamp = block.timestamp;
 
-        emit EpochLengthConfigured(blocks_, block.number);
+        emit EpochLengthConfigured(seconds_, block.timestamp);
     }
 
-    /// @notice Fixes the non-inclusion challenge window (in blocks). Callable exactly once, same
+    /// @notice Fixes the non-inclusion challenge window (in seconds). Callable exactly once, same
     ///         pattern as `setEpochLength`. Required before `postEpochRoot` will accept a root.
     function setDisputeWindow(
-        uint256 blocks_
+        uint256 seconds_
     ) external onlyContextAdmin {
         if (disputeWindow != 0) revert DisputeWindowAlreadySet();
-        if (blocks_ == 0) revert InvalidDisputeWindow();
-        disputeWindow = blocks_;
+        if (seconds_ == 0) revert InvalidDisputeWindow();
+        disputeWindow = seconds_;
     }
 
-    /// @notice Fixes the challenge response window (in blocks). Callable exactly once. Required
+    /// @notice Fixes the challenge response window (in seconds). Callable exactly once. Required
     ///         before `postEpochRoot` will accept a root.
     function setResponseWindow(
-        uint256 blocks_
+        uint256 seconds_
     ) external onlyContextAdmin {
         if (responseWindow != 0) revert ResponseWindowAlreadySet();
-        if (blocks_ == 0) revert InvalidResponseWindow();
-        responseWindow = blocks_;
+        if (seconds_ == 0) revert InvalidResponseWindow();
+        responseWindow = seconds_;
     }
 
     /// @notice Sets the settler's per-epoch settlement bond. Enforced >= MIN_SETTLEMENT_BOND
@@ -343,6 +347,41 @@ contract WeightedGovernanceClient is
         uint256 threshold
     ) external onlyContextAdmin {
         quorumThreshold = threshold;
+    }
+
+    // ROLE MEMBERSHIP ==========================================================
+
+    /// @notice Grants `node` a role in this context. `DRIFTCore.assignRole` is
+    ///         `onlyContextClient` — this pass-through is the only production entry point that can
+    ///         call it, since a context admin's EOA is never the client contract itself.
+    function assignRole(
+        address node,
+        bytes32 role
+    ) external onlyContextAdmin {
+        core.assignRole(contextUID, node, role);
+    }
+
+    /// @notice Revokes `node`'s role in this context and burns their full balance for it.
+    function revokeRole(
+        address node,
+        bytes32 role
+    ) external onlyContextAdmin {
+        core.revokeRole(contextUID, node, role);
+    }
+
+    /// @notice Returns true if `node` currently holds `role` in this context.
+    function hasNodeRole(
+        address node,
+        bytes32 role
+    ) external view returns (bool) {
+        return core.hasNodeRole(contextUID, node, role);
+    }
+
+    /// @notice Returns all roles `node` currently holds in this context.
+    function getNodeRoles(
+        address node
+    ) external view returns (bytes32[] memory) {
+        return core.getNodeRoles(contextUID, node);
     }
 
     /// @notice Retrieves a specific weight configuration version
@@ -403,9 +442,9 @@ contract WeightedGovernanceClient is
             consecutiveFailedEpochs = 0;
         }
 
-        uint256 boundaryBlock = _boundaryBlockFor(epoch);
-        if (block.number < boundaryBlock) {
-            revert EpochNotYetElapsed(boundaryBlock, block.number);
+        uint256 boundaryTimestamp = _boundaryTimestampFor(epoch);
+        if (block.timestamp < boundaryTimestamp) {
+            revert EpochNotYetElapsed(boundaryTimestamp, block.timestamp);
         }
 
         bytes32 structHash = keccak256(
@@ -421,7 +460,7 @@ contract WeightedGovernanceClient is
         currentEpoch = epoch;
         epochRoots[epoch] = merkleRoot;
         epochConfigVersion[epoch] = currentConfigVersion;
-        epochPostedAtBlock[epoch] = block.number;
+        epochPostedAtTimestamp[epoch] = block.timestamp;
         epochBondAmount[epoch] = msg.value;
 
         emit EpochRootPosted(contextUID, epoch, merkleRoot, treeURI);
@@ -492,11 +531,11 @@ contract WeightedGovernanceClient is
         address missingNode
     ) external payable {
         if (epoch != currentEpoch) revert EpochNotFound(epoch);
-        if (block.number > epochPostedAtBlock[epoch] + disputeWindow) {
+        if (block.timestamp > epochPostedAtTimestamp[epoch] + disputeWindow) {
             revert DisputeWindowClosed(epoch);
         }
         if (
-            challenges[epoch][missingNode].openedAtBlock != 0
+            challenges[epoch][missingNode].openedAtTimestamp != 0
                 && !challenges[epoch][missingNode].resolved
         ) {
             // A resolved (or never-opened) slot can be reused: this matters after a rollback and
@@ -504,7 +543,7 @@ contract WeightedGovernanceClient is
             // be possible if the corrected root still omits them.
             revert ChallengeAlreadyOpen(epoch, missingNode);
         }
-        if (!_disputeEligible(missingNode, _boundaryBlockFor(epoch))) {
+        if (!_disputeEligible(missingNode, _boundaryTimestampFor(epoch))) {
             revert NodeNotEligibleForDispute(missingNode);
         }
         if (challengeBond < MIN_CHALLENGE_BOND) {
@@ -513,7 +552,10 @@ contract WeightedGovernanceClient is
         if (msg.value != challengeBond) revert InsufficientBond(msg.value, challengeBond);
 
         challenges[epoch][missingNode] = Challenge({
-            openedAtBlock: block.number, bond: msg.value, challenger: msg.sender, resolved: false
+            openedAtTimestamp: block.timestamp,
+            bond: msg.value,
+            challenger: msg.sender,
+            resolved: false
         });
         openChallengeCount[epoch]++;
 
@@ -529,10 +571,10 @@ contract WeightedGovernanceClient is
         bytes32[] calldata merkleProof
     ) external {
         Challenge storage c = challenges[epoch][node];
-        if (c.openedAtBlock == 0) revert ChallengeNotFound(epoch, node);
+        if (c.openedAtTimestamp == 0) revert ChallengeNotFound(epoch, node);
         if (c.resolved) revert ChallengeAlreadyResolved(epoch, node);
         if (epochRoots[epoch] == bytes32(0)) revert EpochAlreadyInvalidated(epoch);
-        if (block.number > c.openedAtBlock + responseWindow) {
+        if (block.timestamp > c.openedAtTimestamp + responseWindow) {
             revert ResponseWindowClosed(epoch, node);
         }
 
@@ -558,10 +600,10 @@ contract WeightedGovernanceClient is
         address node
     ) external {
         Challenge storage c = challenges[epoch][node];
-        if (c.openedAtBlock == 0) revert ChallengeNotFound(epoch, node);
+        if (c.openedAtTimestamp == 0) revert ChallengeNotFound(epoch, node);
         if (c.resolved) revert ChallengeAlreadyResolved(epoch, node);
         if (epochRoots[epoch] == bytes32(0)) revert EpochAlreadyInvalidated(epoch);
-        if (block.number <= c.openedAtBlock + responseWindow) {
+        if (block.timestamp <= c.openedAtTimestamp + responseWindow) {
             revert ResponseWindowStillOpen(epoch, node);
         }
 
@@ -571,7 +613,7 @@ contract WeightedGovernanceClient is
         uint256 bond = epochBondAmount[epoch];
         epochBondAmount[epoch] = 0;
         epochRoots[epoch] = bytes32(0);
-        epochPostedAtBlock[epoch] = 0;
+        epochPostedAtTimestamp[epoch] = 0;
         currentEpoch = epoch - 1;
 
         consecutiveFailedEpochs++;
@@ -590,7 +632,7 @@ contract WeightedGovernanceClient is
         address node
     ) external {
         Challenge storage c = challenges[epoch][node];
-        if (c.openedAtBlock == 0) revert ChallengeNotFound(epoch, node);
+        if (c.openedAtTimestamp == 0) revert ChallengeNotFound(epoch, node);
         if (c.resolved) revert ChallengeAlreadyResolved(epoch, node);
         if (epochRoots[epoch] != bytes32(0)) revert EpochNotInvalidated(epoch);
 
@@ -938,25 +980,25 @@ contract WeightedGovernanceClient is
         return keccak256(bytes.concat(keccak256(abi.encode(contextUID, node, role, score, epoch))));
     }
 
-    /// @notice The on-chain boundary block for `epoch`: h_0 + beta * epoch.
-    function _boundaryBlockFor(
+    /// @notice The on-chain boundary timestamp for `epoch`: t_0 + beta * epoch.
+    function _boundaryTimestampFor(
         uint256 epoch
     ) internal view returns (uint256) {
-        return epochAnchorBlock + (epochLength * epoch);
+        return epochAnchorTimestamp + (epochLength * epoch);
     }
 
     /// @notice B1 dispute eligibility: `node` must have been registered at-or-before `boundary`
     ///         and not yet banned as of `boundary` — evaluated against registry state *as of the
-    ///         boundary block*, not current status, so a ban applied after the fact can't strip a
-    ///         legitimately-omitted node's standing to dispute (see DRIFTCoreStorage).
+    ///         boundary timestamp*, not current status, so a ban applied after the fact can't
+    ///         strip a legitimately-omitted node's standing to dispute (see DRIFTCoreStorage).
     function _disputeEligible(
         address node,
         uint256 boundary
     ) internal view returns (bool) {
-        uint256 registeredAt = core.nodeRegisteredAtBlock(contextUID, node);
+        uint256 registeredAt = core.nodeRegisteredAt(contextUID, node);
         if (registeredAt == 0 || registeredAt > boundary) return false;
 
-        uint256 bannedAt = core.nodeBannedAtBlock(contextUID, node);
+        uint256 bannedAt = core.nodeBannedAt(contextUID, node);
         if (bannedAt != 0 && bannedAt <= boundary) return false;
 
         return true;
@@ -970,7 +1012,7 @@ contract WeightedGovernanceClient is
         uint256 epoch
     ) internal view returns (bool) {
         return epochRoots[epoch] != bytes32(0)
-            && block.number > epochPostedAtBlock[epoch] + disputeWindow + responseWindow
+            && block.timestamp > epochPostedAtTimestamp[epoch] + disputeWindow + responseWindow
             && openChallengeCount[epoch] == 0;
     }
 }

@@ -201,8 +201,10 @@ contract DRIFTCoreTest is Test {
         core.setContextClient(uid, creator, creator);
         vm.stopPrank();
 
-        vm.prank(creator);
+        vm.startPrank(creator);
+        core.assignRole(uid, node, bytes32(0));
         core.reward(uid, bytes32(0), node, 50);
+        vm.stopPrank();
 
         uint256 expectedTokenId = uint256(keccak256(abi.encode(uid, bytes32(0))));
         assertEq(driftToken.balanceOf(node, expectedTokenId), 50);
@@ -220,8 +222,10 @@ contract DRIFTCoreTest is Test {
         core.setContextClient(uid, creator, creator);
         vm.stopPrank();
 
-        vm.prank(creator);
+        vm.startPrank(creator);
+        core.assignRole(uid, node, bytes32(0));
         core.reward(uid, bytes32(0), node, 100);
+        vm.stopPrank();
 
         vm.prank(creator);
         core.slash(uid, bytes32(0), node, 30);
@@ -243,8 +247,10 @@ contract DRIFTCoreTest is Test {
         core.setContextClient(uid, creator, creator);
         vm.stopPrank();
 
-        vm.prank(creator);
+        vm.startPrank(creator);
+        core.assignRole(uid, node, bytes32(0));
         core.reward(uid, bytes32(0), node, 100);
+        vm.stopPrank();
 
         vm.prank(creator);
         core.slash(uid, bytes32(0), node, 100);
@@ -272,6 +278,8 @@ contract DRIFTCoreTest is Test {
         vm.stopPrank();
 
         vm.startPrank(creator);
+        core.assignRole(uid, node, role);
+        core.assignRole(uid, node, role2);
         core.reward(uid, role, node, 100);
         core.reward(uid, role2, node, 50);
         vm.stopPrank();
@@ -304,17 +312,22 @@ contract DRIFTCoreTest is Test {
 
         vm.prank(node);
         core.registerNode(uid, "0x");
-        vm.prank(creator);
+        vm.startPrank(creator);
+        core.assignRole(uid, node, role);
         core.reward(uid, role, node, 100);
+        vm.stopPrank();
 
         vm.prank(node);
         core.deregisterNode(uid);
         assertEq(driftToken.balanceOf(node, tokenId), 0);
+        assertFalse(core.hasNodeRole(uid, node, role));
 
         vm.prank(node);
         core.registerNode(uid, "0x");
-        vm.prank(creator);
+        vm.startPrank(creator);
+        core.assignRole(uid, node, role);
         core.reward(uid, role, node, 200);
+        vm.stopPrank();
         assertEq(driftToken.balanceOf(node, tokenId), 200);
 
         vm.prank(node);
@@ -334,5 +347,131 @@ contract DRIFTCoreTest is Test {
         vm.expectRevert(abi.encodeWithSelector(IDRIFTCore.UnauthorizedCaller.selector, stranger));
         core.setContextClient(uid, creator, stranger);
         vm.stopPrank();
+    }
+
+    // ROLE MANAGEMENT ==========================================================
+
+    function _registerWithClient() internal returns (bytes32 uid) {
+        uid = _registerContext();
+        vm.prank(node);
+        core.registerNode(uid, "0x");
+        vm.startPrank(admin);
+        core.grantRole(core.FACTORY_ROLE(), admin);
+        core.setContextClient(uid, creator, creator);
+        vm.stopPrank();
+    }
+
+    /// @notice reward() must reject a role the node was never assigned — role acquisition is no
+    /// longer implicit on first mint. A compromised settler proving an inflated score cannot use
+    /// reward() alone to also manufacture the node's governance-role membership.
+    function test_RevertIf_RewardWithoutAssignedRole() public {
+        bytes32 uid = _registerWithClient();
+        bytes32 role = keccak256("ROLE_A");
+
+        vm.prank(creator);
+        vm.expectRevert(abi.encodeWithSelector(IDRIFTCore.RoleNotHeld.selector, uid, node, role));
+        core.reward(uid, role, node, 100);
+    }
+
+    function test_RevertIf_AssignRoleToUnregisteredNode() public {
+        bytes32 uid = _registerContext();
+        bytes32 role = keccak256("ROLE_A");
+
+        vm.startPrank(admin);
+        core.grantRole(core.FACTORY_ROLE(), admin);
+        core.setContextClient(uid, creator, creator);
+        vm.stopPrank();
+
+        vm.prank(creator);
+        vm.expectRevert(abi.encodeWithSelector(IDRIFTCore.NodeNotRegistered.selector, uid, node));
+        core.assignRole(uid, node, role);
+    }
+
+    function test_RevertIf_AssignRoleDuplicate() public {
+        bytes32 uid = _registerWithClient();
+        bytes32 role = keccak256("ROLE_A");
+
+        vm.startPrank(creator);
+        core.assignRole(uid, node, role);
+        vm.expectRevert(
+            abi.encodeWithSelector(IDRIFTCore.RoleAlreadyHeld.selector, uid, node, role)
+        );
+        core.assignRole(uid, node, role);
+        vm.stopPrank();
+    }
+
+    function test_RevokeRoleBurnsFullBalance() public {
+        bytes32 uid = _registerWithClient();
+        bytes32 role = keccak256("ROLE_A");
+        uint256 tokenId = uint256(keccak256(abi.encode(uid, role)));
+
+        vm.startPrank(creator);
+        core.assignRole(uid, node, role);
+        core.reward(uid, role, node, 100);
+        assertEq(driftToken.balanceOf(node, tokenId), 100);
+
+        core.revokeRole(uid, node, role);
+        vm.stopPrank();
+
+        assertEq(driftToken.balanceOf(node, tokenId), 0);
+        assertFalse(core.hasNodeRole(uid, node, role));
+    }
+
+    function test_RevertIf_RevokeRoleNotHeld() public {
+        bytes32 uid = _registerWithClient();
+        bytes32 role = keccak256("ROLE_A");
+
+        vm.prank(creator);
+        vm.expectRevert(abi.encodeWithSelector(IDRIFTCore.RoleNotHeld.selector, uid, node, role));
+        core.revokeRole(uid, node, role);
+    }
+
+    function test_RevertIf_AssignRoleCallerNotContextClient() public {
+        bytes32 uid = _registerWithClient();
+        bytes32 role = keccak256("ROLE_A");
+
+        vm.prank(stranger);
+        vm.expectRevert(abi.encodeWithSelector(IDRIFTCore.UnauthorizedCaller.selector, stranger));
+        core.assignRole(uid, node, role);
+    }
+
+    function test_RevertIf_RevokeRoleCallerNotContextClient() public {
+        bytes32 uid = _registerWithClient();
+        bytes32 role = keccak256("ROLE_A");
+
+        vm.prank(creator);
+        core.assignRole(uid, node, role);
+
+        vm.prank(stranger);
+        vm.expectRevert(abi.encodeWithSelector(IDRIFTCore.UnauthorizedCaller.selector, stranger));
+        core.revokeRole(uid, node, role);
+    }
+
+    function test_HasNodeRoleAndGetNodeRoles_ReflectTransitions() public {
+        bytes32 uid = _registerWithClient();
+        bytes32 roleA = keccak256("ROLE_A");
+        bytes32 roleB = keccak256("ROLE_B");
+
+        assertFalse(core.hasNodeRole(uid, node, roleA));
+        assertEq(core.getNodeRoles(uid, node).length, 0);
+
+        vm.startPrank(creator);
+        core.assignRole(uid, node, roleA);
+        core.assignRole(uid, node, roleB);
+        vm.stopPrank();
+
+        assertTrue(core.hasNodeRole(uid, node, roleA));
+        assertTrue(core.hasNodeRole(uid, node, roleB));
+        bytes32[] memory roles = core.getNodeRoles(uid, node);
+        assertEq(roles.length, 2);
+
+        vm.prank(creator);
+        core.revokeRole(uid, node, roleA);
+
+        assertFalse(core.hasNodeRole(uid, node, roleA));
+        assertTrue(core.hasNodeRole(uid, node, roleB));
+        roles = core.getNodeRoles(uid, node);
+        assertEq(roles.length, 1);
+        assertEq(roles[0], roleB);
     }
 }

@@ -19,13 +19,19 @@ interface IAttestationProvider {
     ///         - was made about the expected subject
     ///         - is not revoked
     ///         - is not expired
-    /// @param  uid       Attestation UID to validate.
-    /// @param  schemaUID Expected schema UID.
-    /// @param  subject   Expected recipient/subject address.
-    /// @return           True if all conditions are met.
+    ///         - was made at or after both parties' most recent join time in the context (so
+    ///           leaving and rejoining doesn't carry over attestation history from before)
+    /// @param  uid              Attestation UID to validate.
+    /// @param  schemaUID        Expected schema UID.
+    /// @param  subject          Expected recipient/subject address.
+    /// @param  subjectJoinedAt  DRIFTCore.nodeRegisteredAt(contextUID, subject) — unix timestamp.
+    /// @param  attesterJoinedAt DRIFTCore.nodeRegisteredAt(contextUID, attester) — unix timestamp.
+    /// @return                  True if all conditions are met.
     function isValid(
         bytes32 uid,
         bytes32 schemaUID,
-        address subject
+        address subject,
+        uint256 subjectJoinedAt,
+        uint256 attesterJoinedAt
     ) external view returns (bool);
 }

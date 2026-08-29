@@ -103,6 +103,11 @@ export async function runGovernanceScenario(
     uniqueSalt
   );
 
+  // Reward now requires the role already be assigned (DRIFTCore.reward's explicit role-assignment
+  // precondition) — only testerAddr is actually claimed below (line ~131), so only its role needs
+  // assigning here; alice/bob's payloads are used for voting only, which never mints.
+  await drifttester.governance.assignRole(clientAddress, testerAddr, roles[0]);
+
   const epoch = 1n;
   const scores = [
     { node: testerAddr, role: roles[0], score: 100n },
@@ -121,9 +126,10 @@ export async function runGovernanceScenario(
   // NOTE: this scenario predates the A1/A4/B1 contract changes and is stale beyond this call's
   // signature — the deployed client here never gets setEpochLength/setDisputeWindow/
   // setResponseWindow/setSettlementBond, and `weights` below doesn't sum to WEIGHT_SCALE, so this
-  // will still revert against current contracts even with the bond param added. Flagging rather
-  // than silently leaving broken; needs a full e2e-fixture pass against a live chain to fix for
-  // real (see packages/sdk/TODO.md).
+  // will still revert against current contracts even with the bond param added (assignRole above
+  // is now correct, but doesn't fix these other gaps). Flagging rather than silently leaving
+  // broken; needs a full e2e-fixture pass against a live chain to fix for real (see
+  // packages/sdk/TODO.md).
   await drifttester.reputation.postEpochRoot(clientAddress, epoch, root, '', signature, 0n);
 
   const testerPayload = drifttester.settler!.generateProofOfStatePayload(tree, contextUID, testerAddr, epoch);

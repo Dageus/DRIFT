@@ -8,6 +8,7 @@ import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/I
 import {
     UUPSUpgradeable
 } from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import { EnumerableSet } from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 
 import { DRIFTTypes } from "../Common.sol";
 import { IPolicy, NodeStatus } from "../policies/IPolicy.sol";
@@ -26,6 +27,8 @@ contract DRIFTCore is
     UUPSUpgradeable,
     IDRIFTCore
 {
+    using EnumerableSet for EnumerableSet.Bytes32Set;
+
     // Token Management ========================================================
 
     address public constant BURN_ADDRESS = 0x000000000000000000000000000000000000dEaD;
@@ -199,7 +202,7 @@ contract DRIFTCore is
         }
 
         nodeStatus[contextUID][msg.sender] = status;
-        _nodeRegisteredAtBlock[contextUID][msg.sender] = block.number;
+        _nodeRegisteredAt[contextUID][msg.sender] = block.timestamp;
 
         emit NodeRegistered(contextUID, msg.sender);
     }
@@ -217,25 +220,19 @@ contract DRIFTCore is
 
         delete nodeStatus[contextUID][msg.sender];
 
-        // Burn every reputation token this node holds in this context. Without this, balanceOf
-        // would keep reporting a non-zero balance for a node that isRegistered() now says has
-        // left — a stale, misleading signal for any external integration that trusts balanceOf as
-        // a membership proxy instead of (or in addition to) isRegistered(). Clearing
-        // _nodeHasEarnedRole per role, not just deleting the array, matters: it lets a future
-        // re-registration + re-earning of the same role push it back into a fresh
-        // _nodeEarnedRoles entry for the *next* deregistration to find.
-        bytes32[] storage earnedRoles = _nodeEarnedRoles[contextUID][msg.sender];
-        uint256 earnedRolesLength = earnedRoles.length;
-        for (uint256 i = 0; i < earnedRolesLength; i++) {
+        // Burn every reputation token this node holds in this context. EnumerableSet.values() is
+        // read into memory first because the loop body removes from the same set.
+        EnumerableSet.Bytes32Set storage roles = _nodeRoles[contextUID][msg.sender];
+        bytes32[] memory earnedRoles = roles.values();
+        for (uint256 i = 0; i < earnedRoles.length; i++) {
             bytes32 role = earnedRoles[i];
             uint256 tokenId = uint256(keccak256(abi.encode(contextUID, role)));
             uint256 balance = driftToken.balanceOf(msg.sender, tokenId);
             if (balance > 0) {
                 driftToken.slashReputation(msg.sender, tokenId, balance);
             }
-            _nodeHasEarnedRole[contextUID][msg.sender][role] = false;
+            roles.remove(role);
         }
-        delete _nodeEarnedRoles[contextUID][msg.sender];
 
         emit NodeDeregistered(contextUID, msg.sender);
     }
@@ -248,7 +245,7 @@ contract DRIFTCore is
         if (nodeStatus[contextUID][node] == NodeStatus.BANNED) revert CannotUnbanViaStatusUpdate();
         nodeStatus[contextUID][node] = newStatus;
         if (newStatus == NodeStatus.BANNED) {
-            _nodeBannedAtBlock[contextUID][node] = block.number;
+            _nodeBannedAt[contextUID][node] = block.timestamp;
         }
         // Emit custom status transition event
         emit NodeStatusUpdated(contextUID, node, newStatus);
@@ -278,7 +275,14 @@ contract DRIFTCore is
 
         address adapter = _schemaAdapters[contextUID][schemaUID];
         if (adapter == address(0)) return false;
-        return IAttestationProvider(adapter).isValid(attestationUID, schemaUID, subject);
+        return IAttestationProvider(adapter)
+            .isValid(
+                attestationUID,
+                schemaUID,
+                subject,
+                _nodeRegisteredAt[contextUID][subject],
+                _nodeRegisteredAt[contextUID][attester]
+            );
     }
 
     // Cryptoeconomic enforcement ==============================================
@@ -313,9 +317,11 @@ contract DRIFTCore is
             revert NodeNotRegistered(contextUID, node);
         }
 
-        if (!_nodeHasEarnedRole[contextUID][node][role]) {
-            _nodeHasEarnedRole[contextUID][node][role] = true;
-            _nodeEarnedRoles[contextUID][node].push(role);
+        // Role membership must be granted explicitly via assignRole first — reward() no longer
+        // grants it implicitly, so a compromised settler proving an inflated score cannot also
+        // manufacture the node's governance-role membership as a side effect.
+        if (!_nodeRoles[contextUID][node].contains(role)) {
+            revert RoleNotHeld(contextUID, node, role);
         }
 
         // Cast Context UID to Token ID
@@ -325,6 +331,61 @@ contract DRIFTCore is
         driftToken.rewardReputation(node, tokenId, reputationAmount);
 
         emit NodeRewarded(contextUID, node);
+    }
+
+    // Role management =========================================================
+
+    /// @inheritdoc IDRIFTCore
+    function assignRole(
+        bytes32 contextUID,
+        address node,
+        bytes32 role
+    ) external onlyContextClient(contextUID) {
+        NodeStatus status = nodeStatus[contextUID][node];
+        if (status == NodeStatus.NONE || status == NodeStatus.BANNED) {
+            revert NodeNotRegistered(contextUID, node);
+        }
+        if (!_nodeRoles[contextUID][node].add(role)) {
+            revert RoleAlreadyHeld(contextUID, node, role);
+        }
+
+        emit RoleAssigned(contextUID, node, role);
+    }
+
+    /// @inheritdoc IDRIFTCore
+    function revokeRole(
+        bytes32 contextUID,
+        address node,
+        bytes32 role
+    ) external onlyContextClient(contextUID) {
+        if (!_nodeRoles[contextUID][node].remove(role)) {
+            revert RoleNotHeld(contextUID, node, role);
+        }
+
+        uint256 tokenId = uint256(keccak256(abi.encode(contextUID, role)));
+        uint256 balance = driftToken.balanceOf(node, tokenId);
+        if (balance > 0) {
+            driftToken.slashReputation(node, tokenId, balance);
+        }
+
+        emit RoleRevoked(contextUID, node, role);
+    }
+
+    /// @inheritdoc IDRIFTCore
+    function hasNodeRole(
+        bytes32 contextUID,
+        address node,
+        bytes32 role
+    ) external view returns (bool) {
+        return _nodeRoles[contextUID][node].contains(role);
+    }
+
+    /// @inheritdoc IDRIFTCore
+    function getNodeRoles(
+        bytes32 contextUID,
+        address node
+    ) external view returns (bytes32[] memory) {
+        return _nodeRoles[contextUID][node].values();
     }
 
     // Views ===================================================================
@@ -371,19 +432,19 @@ contract DRIFTCore is
     }
 
     /// @inheritdoc IDRIFTCore
-    function nodeRegisteredAtBlock(
+    function nodeRegisteredAt(
         bytes32 contextUID,
         address node
     ) external view returns (uint256) {
-        return _nodeRegisteredAtBlock[contextUID][node];
+        return _nodeRegisteredAt[contextUID][node];
     }
 
     /// @inheritdoc IDRIFTCore
-    function nodeBannedAtBlock(
+    function nodeBannedAt(
         bytes32 contextUID,
         address node
     ) external view returns (uint256) {
-        return _nodeBannedAtBlock[contextUID][node];
+        return _nodeBannedAt[contextUID][node];
     }
 
     // Modifiers ===============================================================
