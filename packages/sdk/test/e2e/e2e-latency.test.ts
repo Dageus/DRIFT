@@ -1,11 +1,11 @@
 import { describe, test, expect, beforeAll } from 'vitest';
 import { id, Interface, Contract, Wallet, JsonRpcProvider, NonceManager } from 'ethers';
 import { performance } from 'perf_hooks';
-import { Drift } from '../../src/drift';
-import { EASProvider } from '../../src/providers/EAS';
-import { DriftSettler, ScoreEntry } from '../../src/settler';
-import { ADDRESSES, SCHEMAS } from '../scenarios/_shared';
-import SettlerArtifact from '../../../contracts/out/IDRIFTSettler.sol/IDRIFTSettler.json';
+import { Drift } from '../../src/drift.js';
+import { EASProvider } from '../../src/providers/EAS.js';
+import { DriftSettler, ScoreEntry } from '../../src/settler.js';
+import { ADDRESSES, SCHEMAS } from '../scenarios/_shared.js';
+import SettlerArtifact from '../../../contracts/out/IDRIFTSettler.sol/IDRIFTSettler.json' with { type: 'json' };
 import { StandardMerkleTree } from '@openzeppelin/merkle-tree';
 
 describe('End-to-End Latency and Calldata Bounds ($N = 10^6$)', () => {
@@ -13,7 +13,7 @@ describe('End-to-End Latency and Calldata Bounds ($N = 10^6$)', () => {
   let settler: DriftSettler;
   const role = id('MEMBER_ROLE');
 
-  let globalTree: any;
+  let globalTree: StandardMerkleTree<string[]>;
   let clientAddress: string;
   const contextName = 'Benchmark.E2E.' + Date.now();
   const contextUID = id(contextName);
@@ -98,7 +98,7 @@ describe('End-to-End Latency and Calldata Bounds ($N = 10^6$)', () => {
     }
     scores.push({ node: managedSignerAddr, role, score: 100n });
 
-    const mockUploader = async (tree: StandardMerkleTree<string[]>) => {
+    const mockUploader = async (_tree: StandardMerkleTree<string[]>) => {
       await new Promise((resolve) => setTimeout(resolve, 50));
       return `arweave://mock-hash-${Date.now()}`;
     };

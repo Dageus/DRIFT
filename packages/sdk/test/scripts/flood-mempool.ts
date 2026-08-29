@@ -1,12 +1,12 @@
 import { Contract, Wallet, id, Interface } from 'ethers';
 import { performance } from 'perf_hooks';
 import * as fs from 'fs';
-import IGovArtifact from '../../../contracts/out/IDRIFTGovernanceProofOfState.sol/IDRIFTGovernanceProofOfState.json';
-import { DriftSettler } from '../../src/settler';
-import { Drift } from '../../src/drift';
-import { EASProvider } from '../../src/providers/EAS';
+import IGovArtifact from '../../../contracts/out/IDRIFTGovernanceProofOfState.sol/IDRIFTGovernanceProofOfState.json' with { type: 'json' };
+import { DriftSettler } from '../../src/settler.js';
+import { Drift } from '../../src/drift.js';
+import { EASProvider } from '../../src/providers/EAS.js';
 
-import { provider, ADDRESSES, deployer, SCHEMAS } from '../fixtures/anvil.config';
+import { provider, ADDRESSES, deployer, SCHEMAS } from '../fixtures/anvil.config.js';
 
 async function floodBlock() {
   const settler = new DriftSettler(deployer);

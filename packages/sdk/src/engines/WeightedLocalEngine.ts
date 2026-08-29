@@ -31,7 +31,7 @@ export class WeightedLocalEngine implements IReputationEngine {
     this.peerWeights = config.peerWeights;
     this.defaultWeight = config.defaultWeight ?? 5n;
     const schema = config.schemaDefinition ?? 'uint256 score';
-    this.types = schema.split(',').map((f) => f.trim().split(' ')[0]);
+    this.types = schema.split(',').map((f) => f.trim().split(' ')[0]!);
   }
 
   calculateScore(records: AttestationRecord[]): bigint {

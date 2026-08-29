@@ -1,13 +1,13 @@
 import { JsonRpcProvider, Contract, Interface, id, Wallet } from 'ethers';
 import * as fs from 'fs';
 import { performance } from 'perf_hooks';
-import IGovArtifact from '../../../contracts/out/IDRIFTGovernanceProofOfState.sol/IDRIFTGovernanceProofOfState.json';
-import SettlerArtifact from '../../../contracts/out/IDRIFTSettler.sol/IDRIFTSettler.json';
-import { DriftSettler, ScoreEntry } from '../../src/settler';
-import { Drift } from '../../src/drift';
-import { EASProvider } from '../../src/providers/EAS';
-import { ADDRESSES, SCHEMAS } from '../fixtures/anvil.config';
-import { mockUploader } from '../scenarios/governance';
+import IGovArtifact from '../../../contracts/out/IDRIFTGovernanceProofOfState.sol/IDRIFTGovernanceProofOfState.json' with { type: 'json' };
+import SettlerArtifact from '../../../contracts/out/IDRIFTSettler.sol/IDRIFTSettler.json' with { type: 'json' };
+import { DriftSettler, ScoreEntry } from '../../src/settler.js';
+import { Drift } from '../../src/drift.js';
+import { EASProvider } from '../../src/providers/EAS.js';
+import { ADDRESSES, SCHEMAS } from '../fixtures/anvil.config.js';
+import { mockUploader } from '../scenarios/governance.js';
 
 const MNEMONIC = process.env.MNEMONIC || 'test test test test test test test test test test test junk';
 
@@ -20,7 +20,9 @@ async function generateTreeAndRunBenchmarks() {
   try {
     await provider.send('anvil_setBalance', [deployer.address, '0x10000000000000000000']);
     await provider.send('anvil_setBalance', [voter.address, '0x10000000000000000000']);
-  } catch (e) {}
+  } catch {
+    // Not every RPC target is anvil (e.g. a real testnet) — funding is best-effort here.
+  }
 
   const role = id('MEMBER_ROLE');
   const epoch = 1n;

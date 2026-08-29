@@ -1,7 +1,7 @@
 import { Signer, Provider, Contract, Interface } from 'ethers';
 import CoreArtifact from '../../../contracts/out/DRIFTCore.sol/DRIFTCore.json' with { type: 'json' };
-import { handleContractError, isSigner } from '../utils.js';
-import { DriftConfigError, DriftNotFoundError } from '../errors.js';
+import { handleContractError, isSigner, requireEventLog } from '../utils.js';
+import { DriftConfigError } from '../errors.js';
 import type { DRIFTCoreContract } from '../contracts/DRIFTCoreContract.js';
 
 export class CoreModule {
@@ -33,17 +33,7 @@ export class CoreModule {
       const tx = await this._connected().registerContext(name);
       const receipt = await tx.wait();
 
-      const log = receipt?.logs
-        .map((l) => {
-          try {
-            return this._interface.parseLog(l);
-          } catch {
-            return null;
-          }
-        })
-        .find((l) => l?.name === 'ContextRegistered');
-
-      if (!log) throw new DriftNotFoundError('DRIFT SDK: ContextRegistered event not found.');
+      const log = requireEventLog(receipt?.logs, this._interface, 'ContextRegistered');
       return log.args.uid as string;
     } catch (err) {
       handleContractError(err, this._interface);

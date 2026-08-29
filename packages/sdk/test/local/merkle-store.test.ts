@@ -4,7 +4,7 @@ import { id } from 'ethers';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { LocalTreeStore } from '../../src/merkle/LocalTreeStore';
+import { LocalTreeStore } from '../../src/merkle/LocalTreeStore.js';
 
 describe('LocalTreeStore', () => {
   let storageDir: string;
@@ -47,7 +47,7 @@ describe('LocalTreeStore', () => {
     await store.saveTree(contextUID, epoch, tree);
 
     const leaf = await store.loadLeaf(contextUID, epoch, nodeA);
-    expect(leaf[1].toLowerCase()).toBe(nodeA.toLowerCase());
+    expect(leaf[1]!.toLowerCase()).toBe(nodeA.toLowerCase());
     expect(leaf[3]).toBe('100');
   });
 

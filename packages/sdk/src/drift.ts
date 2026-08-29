@@ -230,7 +230,8 @@ export class Drift {
       ['function driftToken() external view returns (address)'],
       this._provider
     );
-    this._tokenAddress = await core.driftToken();
+    // Dynamic ABI method access — always present, declared inline above.
+    this._tokenAddress = await core.driftToken!();
     return this._tokenAddress!;
   }
 
@@ -245,7 +246,8 @@ export class Drift {
       ['function reputationAlgorithm() external view returns (string)'],
       this.core.contract.runner
     );
-    const algorithmLabel = await clientContract.reputationAlgorithm();
+    // Dynamic ABI method access — always present, declared inline above.
+    const algorithmLabel = await clientContract.reputationAlgorithm!();
 
     const engineFactory = REPUTATION_ENGINES[algorithmLabel];
     if (!engineFactory) {

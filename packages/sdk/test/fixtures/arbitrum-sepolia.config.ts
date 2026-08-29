@@ -1,11 +1,11 @@
-import { JsonRpcProvider, Wallet } from 'ethers';
+import { JsonRpcProvider, Wallet, TransactionRequest } from 'ethers';
 import {
   loadDeployments,
   deriveWallets,
   getPendingNonceHelper,
   sendWithSyncedNonceHelper,
   DeploymentAddresses
-} from './network.config';
+} from './network.config.js';
 
 export const RPC_URL = 'https://arbitrum-sepolia-rpc.publicnode.com';
 export const provider = new JsonRpcProvider(RPC_URL);
@@ -41,5 +41,5 @@ export function validateConfig(): void {
 }
 
 export const getPendingNonce = (address: string) => getPendingNonceHelper(provider, address);
-export const sendWithSyncedNonce = (wallet: Wallet, tx: Record<string, any>) =>
+export const sendWithSyncedNonce = (wallet: Wallet, tx: TransactionRequest) =>
   sendWithSyncedNonceHelper(provider, wallet, tx);

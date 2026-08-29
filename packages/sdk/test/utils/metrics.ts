@@ -1,9 +1,10 @@
 import * as fs from 'fs';
 import { performance } from 'perf_hooks';
+import type { TransactionReceipt } from 'ethers';
 
 export async function measureAndLogMetric<T>(
   label: string,
-  txReceiptPromise: Promise<any>,
+  txReceiptPromise: Promise<TransactionReceipt | null>,
   computeTask?: () => Promise<T>
 ): Promise<T | void> {
   const start = performance.now();

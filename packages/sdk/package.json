@@ -5,6 +5,15 @@
   "author": "Dageus",
   "license": "MIT",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Dageus/DRIFT.git",
+    "directory": "packages/sdk"
+  },
+  "homepage": "https://github.com/Dageus/DRIFT/tree/main/packages/sdk#readme",
+  "bugs": {
+    "url": "https://github.com/Dageus/DRIFT/issues"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -40,6 +49,7 @@
     "build": "tsc --project tsconfig.json",
     "build:watch": "tsc --project tsconfig.json --watch",
     "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
     "test": "vitest run --config vitest.unit.config.ts",
     "test:coverage": "vitest run --config vitest.unit.config.ts --coverage",
     "test:e2e": "vitest run"
@@ -50,9 +60,12 @@
     "ethers": "^6.16.0"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/node": "^25.9.1",
     "@vitest/coverage-v8": "^4.1.11",
+    "eslint": "^10.9.1",
     "typescript": "^5.8.3",
+    "typescript-eslint": "^8.68.0",
     "vitest": "^4.1.8"
   }
 }

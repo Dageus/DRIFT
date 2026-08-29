@@ -1,7 +1,8 @@
-import { Drift } from '../../src/drift';
-import { EASProvider } from '../../src/providers/EAS';
-import { Wallet, AbiCoder, keccak256, JsonRpcProvider, Interface } from 'ethers';
-import { ADDRESSES, SCHEMAS } from './_shared';
+import { Drift } from '../../src/drift.js';
+import { EASProvider } from '../../src/providers/EAS.js';
+import { Wallet, AbiCoder, keccak256, JsonRpcProvider, Interface, TransactionRequest } from 'ethers';
+import { StandardMerkleTree } from '@openzeppelin/merkle-tree';
+import { ADDRESSES, SCHEMAS } from './_shared.js';
 
 export interface GovernanceResult {
   contextUID: string;
@@ -10,7 +11,8 @@ export interface GovernanceResult {
   votesFor: bigint;
 }
 
-export const mockUploader = async (tree: any): Promise<string> => `arweave://mock-hash-${Date.now()}`;
+export const mockUploader = async (_tree: StandardMerkleTree<string[]>): Promise<string> =>
+  `arweave://mock-hash-${Date.now()}`;
 
 function createStatelessWallet(baseWallet: Wallet): Wallet {
   const provider = baseWallet.provider as JsonRpcProvider;
@@ -18,7 +20,7 @@ function createStatelessWallet(baseWallet: Wallet): Wallet {
   return new Proxy(baseWallet, {
     get(target, prop, receiver) {
       if (prop === 'sendTransaction') {
-        return async (tx: any) => {
+        return async (tx: TransactionRequest) => {
           const address = await target.getAddress();
           const hex = await provider.send('eth_getTransactionCount', [address, 'pending']);
           tx.nonce = parseInt(hex, 16);

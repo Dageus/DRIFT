@@ -28,7 +28,7 @@ export class NodeTrustStore implements ITrustStore {
     const vKey = viewerAddress.toLowerCase();
 
     if (this.cache.has(vKey)) {
-      return new Map(this.cache.get(vKey)!);
+      return new Map(this.cache.get(vKey));
     }
 
     let weights: Record<string, number> = {};

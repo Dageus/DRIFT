@@ -93,11 +93,37 @@ pull in what they use:
 | `@drift-network/sdk/engines` | `EigenTrustEngine`, `TemporalDecayEngine`, `WeightedLocalEngine`, `REPUTATION_ENGINES` |
 | `@drift-network/sdk/providers` | `EASProvider`, `IAttestationProvider` |
 | `@drift-network/sdk/trust` | `LocalTrustStore` (browser), `NodeTrustStore` (Node), `ITrustStore` |
-| `@drift-network/sdk/merkle` | `LocalTreeStore`, `IMerkleStore` — Node-only, settler/oracle-side |
+| `@drift-network/sdk/merkle` | `LocalTreeStore`, `IMerkleStore`; `IPFSTreeTransport`, `ITreeTransport` |
 
 `Drift`'s constructor already picks the right trust store for its environment automatically
 (`LocalTrustStore` in a browser, `NodeTrustStore` under Node) — reach into `/trust` directly only
 for a custom `storageDir` or your own `ITrustStore` implementation.
+
+### `treeURI` — publishing and resolving the settled tree
+
+`postEpochRoot`/`EpochRootPosted` carry a `treeURI` string, but nothing on-chain stores or
+resolves it — the contract's job ends at committing the root; getting from `treeURI` back to a
+tree a claimant can generate a proof from is the SDK's job. `IPFSTreeTransport` is the reference
+implementation (`uploadTree` matches `buildAndSignEpochRoot`'s `uploader` parameter directly;
+`fetchTree` is the missing half — resolving an on-chain-observed `treeURI` back into a tree):
+
+```ts
+import { IPFSTreeTransport } from '@drift-network/sdk/merkle';
+
+const transport = new IPFSTreeTransport({ apiUrl: 'http://127.0.0.1:5001' }); // a local `ipfs daemon`
+
+// Settler side — pass uploadTree directly as buildAndSignEpochRoot's uploader:
+const { root, signature, treeURI } = await settler.buildAndSignEpochRoot(
+  clientAddress, contextUID, epoch, scores, transport.uploadTree.bind(transport)
+);
+
+// Claimant side — resolve the treeURI observed from EpochRootPosted:
+const tree = await transport.fetchTree(observedTreeURI);
+const payload = settler.generateProofOfStatePayload(tree, contextUID, myAddress, epoch);
+```
+
+See `examples/treeuri-ipfs.ts` for a complete, runnable round trip (upload → observe → fetch →
+verify), independent of any live chain — it only needs a reachable IPFS API.
 
 ## Error Handling
 

@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { AbiCoder } from 'ethers';
-import { EigenTrustEngine } from '../../src/engines/EigenTrust';
-import { TemporalDecayEngine } from '../../src/engines/TemporalDecay';
-import type { AttestationRecord } from '../../src/types';
+import { EigenTrustEngine } from '../../src/engines/EigenTrust.js';
+import { TemporalDecayEngine } from '../../src/engines/TemporalDecay.js';
+import type { AttestationRecord } from '../../src/types.js';
 
 describe('Reputation Engines', () => {
   const coder = AbiCoder.defaultAbiCoder();
@@ -67,7 +67,7 @@ describe('Reputation Engines', () => {
       );
 
       // Fixed shuffle distinct from both forward and reverse order.
-      const shuffled = [records[3], records[0], records[5], records[1], records[4], records[2]];
+      const shuffled = [records[3]!, records[0]!, records[5]!, records[1]!, records[4]!, records[2]!];
       const shuffledScore = new EigenTrustEngine({ schemaDefinition: 'uint256 score' }).calculateScore(shuffled);
 
       expect(reversed).toBe(forward);

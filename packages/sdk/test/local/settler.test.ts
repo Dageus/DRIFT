@@ -1,14 +1,29 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { Wallet, id, AbiCoder, keccak256 as ethersKeccak256 } from 'ethers';
+import { Wallet, id, AbiCoder, keccak256 as ethersKeccak256, Provider, HDNodeWallet } from 'ethers';
 import { StandardMerkleTree } from '@openzeppelin/merkle-tree';
-import { DriftSettler, EpochNotSynchronizedError } from '../../src/settler';
-import type { ScoreEntry } from '../../src/settler';
+import { DriftSettler, EpochNotSynchronizedError } from '../../src/settler.js';
+import type { ScoreEntry } from '../../src/settler.js';
 
-const mockUploader = async (tree) => `arweave://mock-hash-${Date.now()}`;
+const mockUploader = async (_tree: StandardMerkleTree<string[]>) => `arweave://mock-hash-${Date.now()}`;
+
+/**
+ * DriftSettler's O1/role-assignment/domain lookups are private (`_fetch*`) — these tests mock
+ * them directly rather than standing up a real provider, so they need a typed escape hatch
+ * narrower than `as any`. Widen this type if a future test needs to mock another private method.
+ */
+type SettlerInternals = {
+  _fetchDomain: () => Promise<{ name: string; version: string; chainId: number; verifyingContract: string }>;
+  _fetchEpochBoundaryConfig: (
+    clientAddress: string
+  ) => Promise<{ epochLength: bigint; epochAnchorTimestamp: bigint }>;
+  _fetchHasNodeRole: (clientAddress: string, node: string, role: string) => Promise<boolean>;
+};
+const mockInternals = (settler: DriftSettler): SettlerInternals => settler as unknown as SettlerInternals;
+const fakeProvider = (impl: Partial<Provider> = {}): Provider => impl as unknown as Provider;
 
 describe('DriftSettler Cryptographic Boundaries', () => {
   let settler: DriftSettler;
-  let signer: Wallet;
+  let signer: HDNodeWallet;
 
   const clientAddress = '0x1234567890123456789012345678901234567890';
   const contextUID = id('university.context');
@@ -21,7 +36,7 @@ describe('DriftSettler Cryptographic Boundaries', () => {
     settler = new DriftSettler(signer);
 
     // Mock the _fetchDomain call since we aren't connected to an RPC
-    (settler as any)._fetchDomain = async () => ({
+    mockInternals(settler)._fetchDomain = async () => ({
       name: 'DRIFT_WeightedGovernance',
       version: '1',
       chainId: 31337,
@@ -115,7 +130,7 @@ describe('DriftSettler Cryptographic Boundaries', () => {
 
     // Each proof should be an array of bytes32 sibling hashes
     expect(Array.isArray(payload.proofs[0])).toBe(true);
-    expect(payload.proofs[0][0]).toMatch(/^0x[a-fA-F0-9]{64}$/);
+    expect(payload.proofs[0]![0]).toMatch(/^0x[a-fA-F0-9]{64}$/);
   });
 
   it('should throw if attempting to generate a payload for an unregistered node/epoch', async () => {
@@ -134,10 +149,10 @@ describe('DriftSettler O1 Synchronization Check', () => {
   const clientAddress = '0x1234567890123456789012345678901234567890';
 
   function makeSettler(observedHead: number, epochLength: bigint, epochAnchorTimestamp: bigint): DriftSettler {
-    const fakeProvider = { getBlock: async () => ({ timestamp: observedHead }) } as any;
-    const signer = Wallet.createRandom().connect(fakeProvider);
+    const getBlock = (async () => ({ timestamp: observedHead })) as unknown as Provider['getBlock'];
+    const signer = Wallet.createRandom().connect(fakeProvider({ getBlock }));
     const settler = new DriftSettler(signer);
-    (settler as any)._fetchEpochBoundaryConfig = async () => ({ epochLength, epochAnchorTimestamp });
+    mockInternals(settler)._fetchEpochBoundaryConfig = async () => ({ epochLength, epochAnchorTimestamp });
     return settler;
   }
 
@@ -188,10 +203,9 @@ describe('DriftSettler role-assignment precondition', () => {
   const nodeB = '0x2222222222222222222222222222222222222222';
 
   function makeSettler(hasRole: Record<string, boolean>): DriftSettler {
-    const fakeProvider = {} as any;
-    const signer = Wallet.createRandom().connect(fakeProvider);
+    const signer = Wallet.createRandom().connect(fakeProvider());
     const settler = new DriftSettler(signer);
-    (settler as any)._fetchHasNodeRole = async (_client: string, node: string, role: string) =>
+    mockInternals(settler)._fetchHasNodeRole = async (_client: string, node: string, role: string) =>
       hasRole[`${node.toLowerCase()}:${role}`] ?? false;
     return settler;
   }
@@ -218,11 +232,11 @@ describe('DriftSettler role-assignment precondition', () => {
 
   it('checks each unique (node, role) pair only once', async () => {
     const settler = makeSettler({ [`${nodeA.toLowerCase()}:${role1}`]: true });
-    const spy = (settler as any)._fetchHasNodeRole;
+    const spy = mockInternals(settler)._fetchHasNodeRole;
     let callCount = 0;
-    (settler as any)._fetchHasNodeRole = async (...args: unknown[]) => {
+    mockInternals(settler)._fetchHasNodeRole = async (clientAddress: string, node: string, role: string) => {
       callCount++;
-      return spy(...args);
+      return spy(clientAddress, node, role);
     };
 
     const duplicated: ScoreEntry[] = [
@@ -250,7 +264,7 @@ describe('DriftSettler B1 — challenge response (leaf encoding unchanged)', () 
 
   beforeEach(() => {
     settler = new DriftSettler(Wallet.createRandom());
-    (settler as any)._fetchDomain = async () => ({
+    mockInternals(settler)._fetchDomain = async () => ({
       name: 'DRIFT_WeightedGovernance',
       version: '1',
       chainId: 31337,

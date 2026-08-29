@@ -32,9 +32,10 @@ export class LocalTreeStore implements IMerkleStore {
     const tree = await this.loadTree(contextUID, epoch);
     const nodeKey = node.toLowerCase();
 
-    // v[0] = contextUID, v[1] = node, v[2] = role, v[3] = score, v[4] = epoch
+    // v[0] = contextUID, v[1] = node, v[2] = role, v[3] = score, v[4] = epoch — always a 5-tuple,
+    // since every leaf is built from that exact shape (settler.ts's buildAndSignEpochRoot).
     for (const [, v] of tree.entries()) {
-      if (v[0] === contextUID && v[1].toLowerCase() === nodeKey) {
+      if (v[0] === contextUID && v[1]!.toLowerCase() === nodeKey) {
         return v;
       }
     }

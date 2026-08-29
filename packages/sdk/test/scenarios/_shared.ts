@@ -1,4 +1,4 @@
-import * as anvil from '../fixtures/anvil.config';
+import * as anvil from '../fixtures/anvil.config.js';
 
 const NETWORK = process.env.NETWORK || 'anvil';
 

@@ -1,8 +1,8 @@
 import { Signer, Provider, Contract, Interface } from 'ethers';
 // Concrete client ABI, not IDRIFTGovernanceProofOfState.json — see WeightedGovernanceClientContract's doc comment.
 import GovernanceArtifact from '../../../contracts/out/WeightedGovernance.sol/WeightedGovernanceClient.json' with { type: 'json' };
-import { handleContractError, isSigner } from '../utils.js';
-import { DriftConfigError, DriftNotFoundError, DriftValidationError } from '../errors.js';
+import { handleContractError, isSigner, requireEventLog } from '../utils.js';
+import { DriftConfigError, DriftValidationError } from '../errors.js';
 import type { ProofOfStatePayload } from '../settler.js';
 import type {
   WeightedGovernanceClientContract,
@@ -76,17 +76,7 @@ export class GovernanceModule {
       );
       const receipt = await tx.wait();
 
-      const log = receipt?.logs
-        .map((l) => {
-          try {
-            return this._interface.parseLog(l);
-          } catch {
-            return null;
-          }
-        })
-        .find((l) => l?.name === 'ProposalCreated');
-
-      if (!log) throw new DriftNotFoundError('DRIFT SDK: ProposalCreated event not found in receipt.');
+      const log = requireEventLog(receipt?.logs, this._interface, 'ProposalCreated', 'in receipt.');
       return BigInt(log.args.proposalId as bigint);
     } catch (err) {
       handleContractError(err, this._interface);

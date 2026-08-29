@@ -100,9 +100,10 @@ export class DriftSettler {
     clientAddress: string
   ): Promise<{ epochLength: bigint; epochAnchorTimestamp: bigint }> {
     const contract = new Contract(clientAddress, EPOCH_BOUNDARY_ABI, this.signer.provider);
+    // Dynamic ABI method access — always present, EPOCH_BOUNDARY_ABI declares both.
     const [epochLength, epochAnchorTimestamp] = await Promise.all([
-      contract.epochLength(),
-      contract.epochAnchorTimestamp()
+      contract.epochLength!(),
+      contract.epochAnchorTimestamp!()
     ]);
     return { epochLength: BigInt(epochLength), epochAnchorTimestamp: BigInt(epochAnchorTimestamp) };
   }
@@ -150,7 +151,7 @@ export class DriftSettler {
 
   private async _fetchHasNodeRole(clientAddress: string, node: string, role: string): Promise<boolean> {
     const contract = new Contract(clientAddress, HAS_NODE_ROLE_ABI, this.signer.provider);
-    return await contract.hasNodeRole(node, role);
+    return await contract.hasNodeRole!(node, role);
   }
 
   /**
@@ -200,10 +201,10 @@ export class DriftSettler {
     const proofs: string[][] = [];
 
     for (const [i, v] of tree.entries()) {
-      // v[0] = contextUID, v[1] = node, v[2] = role, v[3] = score, v[4] = epoch
-      if (v[0] === contextUID && v[1].toLowerCase() === node.toLowerCase() && BigInt(v[4]) === epoch) {
-        roles.push(v[2]);
-        scores.push(BigInt(v[3]));
+      // v[0] = contextUID, v[1] = node, v[2] = role, v[3] = score, v[4] = epoch — always a 5-tuple.
+      if (v[0] === contextUID && v[1]!.toLowerCase() === node.toLowerCase() && BigInt(v[4]!) === epoch) {
+        roles.push(v[2]!);
+        scores.push(BigInt(v[3]!));
         proofs.push(tree.getProof(i));
       }
     }
@@ -230,14 +231,14 @@ export class DriftSettler {
     epoch: bigint
   ): { score: bigint; proof: string[] } {
     for (const [i, v] of tree.entries()) {
-      // v[0] = contextUID, v[1] = node, v[2] = role, v[3] = score, v[4] = epoch
+      // v[0] = contextUID, v[1] = node, v[2] = role, v[3] = score, v[4] = epoch — always a 5-tuple.
       if (
         v[0] === contextUID &&
-        v[1].toLowerCase() === node.toLowerCase() &&
+        v[1]!.toLowerCase() === node.toLowerCase() &&
         v[2] === role &&
-        BigInt(v[4]) === epoch
+        BigInt(v[4]!) === epoch
       ) {
-        return { score: BigInt(v[3]), proof: tree.getProof(i) };
+        return { score: BigInt(v[3]!), proof: tree.getProof(i) };
       }
     }
 
@@ -251,7 +252,8 @@ export class DriftSettler {
     if (!provider) throw new DriftConfigError('DRIFT SDK: Signer must have a provider to fetch EIP-712 domain.');
 
     const contract = new Contract(contractAddress, EIP712_ABI, provider);
-    const d = await contract.eip712Domain();
+    // Dynamic ABI method access — always present, EIP712_ABI declares it.
+    const d = await contract.eip712Domain!();
 
     return {
       name: d.name,

@@ -1,8 +1,8 @@
 import { Signer, Contract, Provider, Interface } from 'ethers';
 import FactoryArtifact from '../../../contracts/out/DRIFTClientFactory.sol/DRIFTClientFactory.json' with { type: 'json' };
 import CoreArtifact from '../../../contracts/out/IDRIFTCore.sol/IDRIFTCore.json' with { type: 'json' };
-import { handleContractError, isSigner } from '../utils.js';
-import { DriftConfigError, DriftNotFoundError } from '../errors.js';
+import { handleContractError, isSigner, requireEventLog } from '../utils.js';
+import { DriftConfigError } from '../errors.js';
 import type { DRIFTClientFactoryContract } from '../contracts/DRIFTClientFactoryContract.js';
 
 export class DriftFactory {
@@ -42,18 +42,7 @@ export class DriftFactory {
       const receipt = await tx.wait();
 
       const coreInterface = new Interface(CoreArtifact.abi);
-
-      const deployedEvent = receipt?.logs
-        .map((log) => {
-          try {
-            return coreInterface.parseLog(log);
-          } catch {
-            return null;
-          }
-        })
-        .find((e) => e?.name === 'ClientUpdated');
-
-      if (!deployedEvent) throw new DriftNotFoundError('DRIFT SDK: ClientUpdated event not found in receipt.');
+      const deployedEvent = requireEventLog(receipt?.logs, coreInterface, 'ClientUpdated', 'in receipt.');
 
       return deployedEvent.args.client as string;
     } catch (err) {

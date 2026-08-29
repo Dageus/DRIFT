@@ -32,7 +32,7 @@ export class TemporalDecayEngine implements IReputationEngine {
 
   constructor(config: TemporalDecayEngineConfig = {}) {
     const schema = config.schemaDefinition ?? 'uint256 score';
-    this.types = schema.split(',').map((f) => f.trim().split(' ')[0]);
+    this.types = schema.split(',').map((f) => f.trim().split(' ')[0]!);
     this.halfLifeMs = config.halfLifeMs ?? 30 * 24 * 60 * 60 * 1000;
     this.decayFloor = config.decayFloor ?? 0.05;
   }

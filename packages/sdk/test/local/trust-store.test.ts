@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { NodeTrustStore } from '../../src/trust/NodeTrustStore';
+import { NodeTrustStore } from '../../src/trust/NodeTrustStore.js';
 
 describe('NodeTrustStore (A7 — Node-compatible trust store fallback)', () => {
   let storageDir: string;

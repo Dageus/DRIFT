@@ -177,7 +177,8 @@ export class ReputationModule {
       );
 
       const tokenId = keccak256(AbiCoder.defaultAbiCoder().encode(['bytes32', 'bytes32'], [contextUID, role]));
-      return BigInt(await token.balanceOf(account, tokenId));
+      // Dynamic ABI method access — always present, the ABI passed to `Contract` above declares it.
+      return BigInt(await token.balanceOf!(account, tokenId));
     } catch (err) {
       handleContractError(err, this._interface);
     }

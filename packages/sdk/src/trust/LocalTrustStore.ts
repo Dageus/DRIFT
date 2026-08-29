@@ -24,7 +24,7 @@ export class LocalTrustStore implements ITrustStore {
 
     // Check memory cache first
     if (this.cache.has(key)) {
-      return new Map(this.cache.get(key)!);
+      return new Map(this.cache.get(key));
     }
 
     // Try localStorage (browser only)
@@ -37,7 +37,10 @@ export class LocalTrustStore implements ITrustStore {
           weights = parsed.weights[key] ?? {};
         }
       }
-    } catch {}
+    } catch {
+      // localStorage unavailable or blocked (private browsing, disabled site data) — fall back
+      // to an empty trust graph for this session rather than throwing.
+    }
 
     const map = new Map(Object.entries(weights));
     this.cache.set(key, map);
@@ -82,7 +85,9 @@ export class LocalTrustStore implements ITrustStore {
     this.cache.delete(vKey);
     try {
       localStorage.removeItem(`${STORAGE_KEY}.${vKey}`);
-    } catch {}
+    } catch {
+      // localStorage unavailable — memory cache is already cleared above, nothing further to do.
+    }
   }
 
   /**

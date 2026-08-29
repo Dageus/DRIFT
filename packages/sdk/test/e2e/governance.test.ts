@@ -1,8 +1,8 @@
 import { describe, test, expect } from 'vitest';
 import { Contract } from 'ethers';
-import { runGovernanceScenario } from '../scenarios/governance';
-import { tester, alice, bob, ADDRESSES } from '../scenarios/_shared';
-import IGovArtifact from '../../../contracts/out/IDRIFTGovernanceProofOfState.sol/IDRIFTGovernanceProofOfState.json';
+import { runGovernanceScenario } from '../scenarios/governance.js';
+import { tester, alice, bob, ADDRESSES } from '../scenarios/_shared.js';
+import IGovArtifact from '../../../contracts/out/IDRIFTGovernanceProofOfState.sol/IDRIFTGovernanceProofOfState.json' with { type: 'json' };
 
 describe('DRIFT Proof-of-State Governance', () => {
   test('full lifecycle: deploy → settle → claim → propose → vote', async () => {

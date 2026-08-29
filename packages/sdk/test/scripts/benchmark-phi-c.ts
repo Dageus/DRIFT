@@ -23,8 +23,8 @@
  */
 import { performance } from 'perf_hooks';
 import { AbiCoder } from 'ethers';
-import { EigenTrustEngine } from '../../src/engines/EigenTrust';
-import type { AttestationRecord } from '../../src/types';
+import { EigenTrustEngine } from '../../src/engines/EigenTrust.js';
+import type { AttestationRecord } from '../../src/types.js';
 
 const SCHEMA = 'uint256 score';
 const coder = AbiCoder.defaultAbiCoder();

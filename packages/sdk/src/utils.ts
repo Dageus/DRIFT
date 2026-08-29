@@ -1,5 +1,5 @@
-import { id, keccak256, AbiCoder, Interface, Signer, Provider } from 'ethers';
-import { DriftContractRevertError, DriftUnknownRevertError } from './errors.js';
+import { id, keccak256, AbiCoder, Interface, Signer, Provider, Log, LogDescription } from 'ethers';
+import { DriftContractRevertError, DriftUnknownRevertError, DriftNotFoundError } from './errors.js';
 
 /** Derives the contextUID from a human-readable name. Matches DRIFTCore. */
 export const contextUID = (name: string): string => id(name);
@@ -27,6 +27,42 @@ export function errorMessage(error: unknown): string {
 }
 
 /**
+ * Parses every log in a transaction receipt against `iface` and returns the first one named
+ * `eventName`, or `undefined` if it isn't present. A log from an unrelated event/contract fails
+ * `parseLog` and is skipped rather than treated as an error — that's expected, not exceptional,
+ * since a receipt commonly carries logs from more than one emitting contract/event.
+ */
+export function findEventLog(
+  logs: readonly Log[] | undefined,
+  iface: Interface,
+  eventName: string
+): LogDescription | undefined {
+  return logs
+    ?.map((log) => {
+      try {
+        return iface.parseLog(log);
+      } catch {
+        return null;
+      }
+    })
+    .find((parsed): parsed is LogDescription => parsed?.name === eventName);
+}
+
+/** Like findEventLog, but throws DriftNotFoundError instead of returning undefined. */
+export function requireEventLog(
+  logs: readonly Log[] | undefined,
+  iface: Interface,
+  eventName: string,
+  context?: string
+): LogDescription {
+  const log = findEventLog(logs, iface, eventName);
+  if (!log) {
+    throw new DriftNotFoundError(`DRIFT SDK: ${eventName} event not found.${context ? ` ${context}` : ''}`);
+  }
+  return log;
+}
+
+/**
  * Every module routes caught contract-call errors through this. Always throws — the `never`
  * return type lets callers write `return handleContractError(...)` from a non-void function.
  * Must never be changed to return normally.
@@ -42,7 +78,7 @@ export function handleContractError(error: unknown, iface: Interface): never {
   const errorData = err?.data ?? err?.error?.data ?? err?.receipt?.data ?? err?.info?.error?.data;
 
   if (errorData && typeof errorData === 'string') {
-    let decoded: ReturnType<Interface['parseError']> = null;
+    let decoded: ReturnType<Interface['parseError']>;
     try {
       decoded = iface.parseError(errorData);
     } catch (parseErr) {

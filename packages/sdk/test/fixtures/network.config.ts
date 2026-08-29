@@ -1,4 +1,4 @@
-import { JsonRpcProvider, Wallet, Mnemonic, HDNodeWallet } from 'ethers';
+import { JsonRpcProvider, Wallet, Mnemonic, HDNodeWallet, TransactionRequest, TransactionResponse } from 'ethers';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -50,8 +50,8 @@ export async function getPendingNonceHelper(provider: JsonRpcProvider, address: 
 export async function sendWithSyncedNonceHelper(
   provider: JsonRpcProvider,
   wallet: Wallet,
-  tx: Record<string, any>
-): Promise<any> {
+  tx: TransactionRequest
+): Promise<TransactionResponse> {
   const nonce = await getPendingNonceHelper(provider, await wallet.getAddress());
   return wallet.sendTransaction({ ...tx, nonce });
 }

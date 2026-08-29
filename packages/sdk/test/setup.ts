@@ -1,12 +1,12 @@
 console.log('Loading setup.ts...');
 import { beforeAll, afterAll } from 'vitest';
-import { provider, deployer, tester, alice, bob, validateConfig, getPendingNonce } from './fixtures/anvil.config';
+import { provider, deployer, tester, alice, bob, validateConfig, getPendingNonce } from './fixtures/anvil.config.js';
 
 beforeAll(async () => {
   validateConfig();
 
   try {
-    const network = await provider.getNetwork();
+    await provider.getNetwork(); // fail fast if the RPC target is unreachable
     const deployerAddr = await deployer.getAddress();
     const deployerBal = await provider.getBalance(deployerAddr);
 

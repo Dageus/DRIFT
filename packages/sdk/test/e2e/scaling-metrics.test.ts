@@ -1,13 +1,14 @@
 import { describe, test, expect, beforeAll } from 'vitest';
 import { Contract, id, Interface } from 'ethers';
-import { DriftSettler, ScoreEntry } from '../../src/settler';
-import { measureAndLogMetric } from '../utils/metrics';
-import { alice, ADDRESSES, SCHEMAS } from '../scenarios/_shared';
-import { Drift } from '../../src';
-import { EASProvider } from '../../src/providers/EAS';
-import SettlerArtifact from '../../../contracts/out/IDRIFTSettler.sol/IDRIFTSettler.json';
+import { StandardMerkleTree } from '@openzeppelin/merkle-tree';
+import { DriftSettler, ScoreEntry } from '../../src/settler.js';
+import { measureAndLogMetric } from '../utils/metrics.js';
+import { alice, ADDRESSES, SCHEMAS } from '../scenarios/_shared.js';
+import { Drift } from '../../src/index.js';
+import { EASProvider } from '../../src/providers/EAS.js';
+import SettlerArtifact from '../../../contracts/out/IDRIFTSettler.sol/IDRIFTSettler.json' with { type: 'json' };
 
-const mockUploader = async (tree: any) => `arweave://mock-hash-${Date.now()}`;
+const mockUploader = async (_tree: StandardMerkleTree<string[]>) => `arweave://mock-hash-${Date.now()}`;
 
 describe('DRIFT Scaling & Latency Benchmarks', () => {
   let drift: Drift;

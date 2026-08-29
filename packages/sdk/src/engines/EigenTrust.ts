@@ -29,7 +29,7 @@ export class EigenTrustEngine implements IReputationEngine {
   private readonly alpha: number;
 
   constructor(config: EigenTrustEngineConfig) {
-    this.types = config.schemaDefinition.split(',').map((f) => f.trim().split(' ')[0]);
+    this.types = config.schemaDefinition.split(',').map((f) => f.trim().split(' ')[0]!);
     this.weightResolver = config.weightResolver ?? (() => 1n);
     this.iterations = config.iterations ?? 10;
     this.epsilon = config.epsilon ?? 0.0001;
@@ -83,7 +83,8 @@ export class EigenTrustEngine implements IReputationEngine {
     // returns records about a single target), so this reduces to that subject regardless of
     // order. For a general multi-subject graph, pick the lexicographically smallest subject
     // deterministically instead of validRecords[0], which tracks caller-supplied array order.
-    const targetSubject = validRecords.map((r) => r.subject.toLowerCase()).sort()[0];
+    // Non-null: validRecords.length > 0 already checked above, so .sort()[0] always exists.
+    const targetSubject = validRecords.map((r) => r.subject.toLowerCase()).sort()[0]!;
     const targetIndex = nodes.indexOf(targetSubject);
     if (targetIndex === -1) return 0n;
 
@@ -112,7 +113,7 @@ export class EigenTrustEngine implements IReputationEngine {
 
     if (totalPWeight > 0n) {
       for (let i = 0; i < numNodes; i++) {
-        pVector[i] = (pWeights[i] * SCALE) / totalPWeight;
+        pVector[i] = (pWeights[i]! * SCALE) / totalPWeight;
       }
     } else {
       const uniform = SCALE / BigInt(numNodes);
@@ -132,9 +133,11 @@ export class EigenTrustEngine implements IReputationEngine {
     for (let iter = 0; iter < this.iterations; iter++) {
       const nextT = new Array<bigint>(numNodes).fill(0n);
 
+      // nodes/t/nextT/pVector are all always length numNodes — every index below is in-bounds
+      // by loop construction (i, j < numNodes).
       for (let i = 0; i < numNodes; i++) {
-        const srcNode = nodes[i];
-        const srcRank = t[i];
+        const srcNode = nodes[i]!;
+        const srcRank = t[i]!;
         if (srcRank === 0n) continue;
 
         const rowSum = rowSums.get(srcNode) ?? 0n;
@@ -142,18 +145,18 @@ export class EigenTrustEngine implements IReputationEngine {
         if (rowSum > 0n) {
           const subjectMap = outboundScores.get(srcNode)!;
           for (let j = 0; j < numNodes; j++) {
-            const targetNode = nodes[j];
+            const targetNode = nodes[j]!;
             const scoreij = subjectMap.get(targetNode) ?? 0n;
 
             const matrixTransition = (scoreij * SCALE) / rowSum;
-            const totalTransition = (oneMinusAlphaScaled * matrixTransition + alphaScaled * pVector[j]) / SCALE;
+            const totalTransition = (oneMinusAlphaScaled * matrixTransition + alphaScaled * pVector[j]!) / SCALE;
 
-            nextT[j] += (srcRank * totalTransition) / SCALE;
+            nextT[j]! += (srcRank * totalTransition) / SCALE;
           }
         } else {
           // Handle dangling nodes (e.g. the subject) by distributing transitions via p
           for (let j = 0; j < numNodes; j++) {
-            nextT[j] += (srcRank * pVector[j]) / SCALE;
+            nextT[j]! += (srcRank * pVector[j]!) / SCALE;
           }
         }
       }
@@ -161,7 +164,7 @@ export class EigenTrustEngine implements IReputationEngine {
       // Evaluate convergence threshold (L1-norm delta)
       let delta = 0n;
       for (let i = 0; i < numNodes; i++) {
-        const diff = nextT[i] - t[i];
+        const diff = nextT[i]! - t[i]!;
         delta += diff > 0n ? diff : -diff;
       }
 
@@ -174,6 +177,6 @@ export class EigenTrustEngine implements IReputationEngine {
 
     // Phase 4: Output the targeted node's score normalized to the MULTIPLIER scale
     // This scales the relative steady-state rank vector back to a legible reputation range.
-    return (t[targetIndex] * MULTIPLIER) / SCALE;
+    return (t[targetIndex]! * MULTIPLIER) / SCALE;
   }
 }
