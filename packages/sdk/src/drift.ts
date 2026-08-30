@@ -157,45 +157,52 @@ export class Drift {
     const engine =
       options.engine ?? (await this._resolveDefaultEngine(options.context, options.viewer, options.schemaDef));
 
-    const records = await this._attestationProvider.fetchUserRecords(options.context, subject);
+    // Always fetch the full context graph, not just `subject`'s incoming edges: a graph-
+    // propagation engine (EigenTrust) needs the whole interaction graph to compute indirect trust
+    // correctly, and a direct-aggregation engine (TemporalDecay, WeightedLocalEngine) simply
+    // filters this back down to `subject`'s edges internally. One fetch path for every engine
+    // keeps this simpler than branching on engine type, at the cost of over-fetching for the
+    // simple engines — acceptable at PoC scale.
+    const records = await this._attestationProvider.fetchAllContextRecords(options.context);
 
     if (records.length === 0) {
       return { score: 0n, attestationsUsed: 0, engine: engine.constructor.name };
     }
 
     const bySchema = records.filter((r) => r.schemaUID === options.schemaUID);
-    const filtered = await this._dropPreJoinAttestations(options.context, subject, bySchema);
-    const score = engine.calculateScore(filtered);
+    const filtered = await this._dropPreJoinAttestations(options.context, bySchema);
+    const score = engine.calculateScore(filtered, subject);
 
+    const targetSubject = subject.toLowerCase();
     return {
       score,
-      attestationsUsed: filtered.length,
+      attestationsUsed: filtered.filter((r) => r.subject.toLowerCase() === targetSubject).length,
       engine: engine.constructor.name
     };
   }
 
   /**
-   * Mirrors DRIFTCore.verifyAttestation's on-chain join-time filter off-chain: a record predating
-   * either party's most recent registration in `contextUID` must not count, or leaving and
-   * rejoining a context would let a node keep the reputation history of its earlier membership.
+   * Mirrors DRIFTCore.verifyAttestation's on-chain join-time filter off-chain, per record: a
+   * record predating either party's most recent registration in `contextUID` must not count, or
+   * leaving and rejoining a context would let a node keep the reputation history of its earlier
+   * membership. Applied per-(subject,attester) pair rather than against one fixed subject, since
+   * `records` may span the whole context graph, not just one node's edges.
    */
   private async _dropPreJoinAttestations(
     contextUID: string,
-    subject: string,
     records: AttestationRecord[]
   ): Promise<AttestationRecord[]> {
-    const attesters = [...new Set(records.map((r) => r.attester.toLowerCase()))];
-    const [subjectJoinedAt, attesterJoinedAtEntries] = await Promise.all([
-      this.core.getNodeRegisteredAt(contextUID, subject),
-      Promise.all(
-        attesters.map(async (a): Promise<[string, bigint]> => [a, await this.core.getNodeRegisteredAt(contextUID, a)])
-      )
-    ]);
-    const attesterJoinedAt = new Map(attesterJoinedAtEntries);
+    const parties = [...new Set(records.flatMap((r) => [r.subject.toLowerCase(), r.attester.toLowerCase()]))];
+    const joinedAtEntries = await Promise.all(
+      parties.map(async (p): Promise<[string, bigint]> => [p, await this.core.getNodeRegisteredAt(contextUID, p)])
+    );
+    const joinedAt = new Map(joinedAtEntries);
 
     return records.filter((r) => {
       const ts = BigInt(r.timestamp);
-      return ts >= subjectJoinedAt && ts >= (attesterJoinedAt.get(r.attester.toLowerCase()) ?? 0n);
+      return (
+        ts >= (joinedAt.get(r.subject.toLowerCase()) ?? 0n) && ts >= (joinedAt.get(r.attester.toLowerCase()) ?? 0n)
+      );
     });
   }
 

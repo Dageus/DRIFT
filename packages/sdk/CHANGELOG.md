@@ -23,6 +23,10 @@ release (still `"private": true`), so everything so far lives under **Unreleased
   via `REPUTATION_ENGINES`.
 - `EASProvider` (`IAttestationProvider` implementation for EAS), with join-time filtering
   mirroring the on-chain rejoin-exploit fix.
+- `IAttestationProvider.fetchAllContextRecords` — fetches the full context attestation graph
+  (schema-scoped, paginated), not just one subject's incoming edges, enabling genuine multi-hop
+  reputation propagation. `Drift._getLocalReputation` now uses it unconditionally; `EigenTrustEngine`
+  computes real indirect trust over the full graph instead of a single-subject star graph.
 - `LocalTrustStore` (browser) / `NodeTrustStore` (filesystem) — environment-appropriate subjective
   trust-weight persistence, picked automatically by `Drift`'s constructor.
 - `LocalTreeStore` — local Merkle tree persistence for settler/oracle-side tooling.
@@ -54,3 +58,5 @@ release (still `"private": true`), so everything so far lives under **Unreleased
 - Settlement flows built for a node/role pair now fail fast client-side
   (`DriftSettler.assertRolesAssigned`) instead of only on-chain, once role assignment became
   explicit rather than implicit-on-reward.
+- `IReputationEngine.calculateScore` now takes a required `subject` parameter — engines previously
+  had no reliable way to know which node's score a multi-subject record set should resolve to.

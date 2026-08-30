@@ -34,14 +34,18 @@ export class WeightedLocalEngine implements IReputationEngine {
     this.types = schema.split(',').map((f) => f.trim().split(' ')[0]!);
   }
 
-  calculateScore(records: AttestationRecord[]): bigint {
-    if (records.length === 0) return 0n;
+  calculateScore(records: AttestationRecord[], subject: string): bigint {
+    const targetSubject = subject.toLowerCase();
+    // Direct-aggregation engine, not a graph-propagation one: `records` may be the full context
+    // graph (IAttestationProvider.fetchAllContextRecords), so only keep edges into `subject`.
+    const subjectRecords = records.filter((r) => r.subject.toLowerCase() === targetSubject);
+    if (subjectRecords.length === 0) return 0n;
 
     let weightedScoreTotal = 0n;
     let totalWeightApplied = 0n;
     let validRecords = 0;
 
-    for (const record of records) {
+    for (const record of subjectRecords) {
       // Skip revoked attestations
       if (record.revoked) continue;
 

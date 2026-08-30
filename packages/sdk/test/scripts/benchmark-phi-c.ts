@@ -91,7 +91,7 @@ async function benchmarkN(n: number, outDegree: number, trials: number): Promise
   const times: number[] = [];
   for (let t = 0; t < trials; t++) {
     const start = performance.now();
-    engine.calculateScore(records);
+    engine.calculateScore(records, addr(0));
     const end = performance.now();
     times.push(end - start);
   }

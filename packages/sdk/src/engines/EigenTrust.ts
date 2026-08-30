@@ -36,12 +36,17 @@ export class EigenTrustEngine implements IReputationEngine {
     this.alpha = config.alpha ?? 0.15;
   }
 
-  calculateScore(records: AttestationRecord[]): bigint {
+  calculateScore(records: AttestationRecord[], subject: string): bigint {
+    const targetSubject = subject.toLowerCase();
     const validRecords = records.filter((r) => !r.revoked);
     if (validRecords.length === 0) return 0n;
 
     // Phase 1: Parse data and map the local interaction graph
     const allNodes = new Set<string>();
+    // Always include the queried subject, even with zero edges in this record set — an isolated
+    // but registered node should still resolve to a defined (pretrust-only) score, not silently
+    // 0n from never appearing in the graph.
+    allNodes.add(targetSubject);
     const outboundScores = new Map<string, Map<string, bigint>>();
 
     for (const record of validRecords) {
@@ -78,15 +83,8 @@ export class EigenTrustEngine implements IReputationEngine {
     const nodes = Array.from(allNodes).sort();
     const numNodes = nodes.length;
 
-    // Detect the targeted subject from the active context. Canonical selection (A3/A5(iii)):
-    // in production every record shares one subject (IAttestationProvider.fetchUserRecords
-    // returns records about a single target), so this reduces to that subject regardless of
-    // order. For a general multi-subject graph, pick the lexicographically smallest subject
-    // deterministically instead of validRecords[0], which tracks caller-supplied array order.
-    // Non-null: validRecords.length > 0 already checked above, so .sort()[0] always exists.
-    const targetSubject = validRecords.map((r) => r.subject.toLowerCase()).sort()[0]!;
+    // targetSubject is unconditionally added to allNodes above, so it's always found.
     const targetIndex = nodes.indexOf(targetSubject);
-    if (targetIndex === -1) return 0n;
 
     // Precalculate row sums for transition matrix normalization
     const rowSums = new Map<string, bigint>();

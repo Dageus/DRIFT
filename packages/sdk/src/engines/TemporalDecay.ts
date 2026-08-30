@@ -37,8 +37,11 @@ export class TemporalDecayEngine implements IReputationEngine {
     this.decayFloor = config.decayFloor ?? 0.05;
   }
 
-  calculateScore(records: AttestationRecord[]): bigint {
-    const validRecords = records.filter((r) => !r.revoked);
+  calculateScore(records: AttestationRecord[], subject: string): bigint {
+    const targetSubject = subject.toLowerCase();
+    // Direct-aggregation engine, not a graph-propagation one: `records` may be the full context
+    // graph (IAttestationProvider.fetchAllContextRecords), so only keep edges into `subject`.
+    const validRecords = records.filter((r) => !r.revoked && r.subject.toLowerCase() === targetSubject);
     if (validRecords.length === 0) return 0n;
 
     const now = Date.now();

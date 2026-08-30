@@ -8,7 +8,11 @@ export interface IAttestationProvider {
   fetchUserRecords(contextUID: string, userAddress: string): Promise<AttestationRecord[]>;
 
   /**
-   * NOTE: future implementation (not enough time for the MVP)
+   * Fetches every attestation for this provider's schema — the full interaction graph, not just
+   * edges into one subject. Required for genuine multi-hop reputation engines (e.g. EigenTrust's
+   * indirect trust propagation): `fetchUserRecords` alone only ever yields a star graph (edges
+   * into one node), which can't represent an attester's own standing being derived from other
+   * attestations they received.
    */
-  // fetchAllContextRecords(contextUID: string): Promise<AttestationRecord[]>;
+  fetchAllContextRecords(contextUID: string): Promise<AttestationRecord[]>;
 }
