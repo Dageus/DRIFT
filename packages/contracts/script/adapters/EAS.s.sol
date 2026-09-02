@@ -5,11 +5,13 @@ import { Script, console2 } from "forge-std/Script.sol";
 import { EASAdapter } from "../../src/providers/EAS.sol";
 
 contract DeployEASAdapterScript is Script {
+    /// @dev EAS_ADDRESS must be the EAS contract itself (has getAttestation/attest), NOT the
+    /// SchemaRegistry (has register/getSchema)
     function run() external {
-        address easRegistry = vm.envAddress("EAS_REGISTRY");
+        address easAddress = vm.envAddress("EAS_ADDRESS");
 
         vm.startBroadcast();
-        EASAdapter adapter = new EASAdapter(easRegistry);
+        EASAdapter adapter = new EASAdapter(easAddress);
         vm.stopBroadcast();
 
         console2.log("EASAdapter deployed:", address(adapter));
