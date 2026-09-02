@@ -4,9 +4,10 @@ pragma solidity 0.8.28;
 import { DRIFTTypes } from "../../../src/Common.sol";
 import { DRIFTCore } from "../../../src/core/DRIFTCore.sol";
 import { IDRIFTCore } from "../../../src/core/IDRIFTCore.sol";
-import { IPolicy, NodeStatus } from "../../../src/policies/IPolicy.sol";
+import { NodeStatus } from "../../../src/policies/IPolicy.sol";
 import { DRIFTToken } from "../../../src/token/DRIFTToken.sol";
 import { MockAdapter } from "../../mocks/MockAdapter.sol";
+import { MockPolicy } from "../../mocks/MockPolicy.sol";
 import { IAccessControl } from "@openzeppelin/contracts/access/IAccessControl.sol";
 import { ERC1967Proxy } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import "forge-std/Test.sol";
@@ -473,5 +474,305 @@ contract DRIFTCoreTest is Test {
         roles = core.getNodeRoles(uid, node);
         assertEq(roles.length, 1);
         assertEq(roles[0], roleB);
+    }
+
+    // ACCESS CONTROL ===========================================================
+
+    function test_RevertIf_SetDriftTokenAlreadySet() public {
+        vm.prank(admin);
+        vm.expectRevert(IDRIFTCore.TokenAlreadySet.selector);
+        core.setDriftToken(makeAddr("anotherToken"));
+    }
+
+    /// @notice onlyContextAdmin must reject an unregistered contextUID with ContextNotFound
+    /// before ever reaching the role check — a stranger passing a bogus UID should not learn
+    /// "you're missing a role" (which implies the context exists) vs. "this context doesn't exist".
+    function test_RevertIf_OnlyContextAdminModifier_ContextNotFound() public {
+        bytes32 fakeUid = keccak256("never.registered");
+
+        vm.prank(stranger);
+        vm.expectRevert(abi.encodeWithSelector(IDRIFTCore.ContextNotFound.selector, fakeUid));
+        core.setContextPolicy(fakeUid, address(0x1));
+    }
+
+    function test_RevertIf_SlashCallerNotContextClient() public {
+        bytes32 uid = _registerWithClient();
+
+        vm.prank(stranger);
+        vm.expectRevert(abi.encodeWithSelector(IDRIFTCore.UnauthorizedCaller.selector, stranger));
+        core.slash(uid, bytes32(0), node, 1);
+    }
+
+    function test_RevertIf_RewardCallerNotContextClient() public {
+        bytes32 uid = _registerWithClient();
+
+        vm.prank(stranger);
+        vm.expectRevert(abi.encodeWithSelector(IDRIFTCore.UnauthorizedCaller.selector, stranger));
+        core.reward(uid, bytes32(0), node, 1);
+    }
+
+    // ADMISSION POLICIES =======================================================
+
+    function test_RevertIf_RegisterContextTaken() public {
+        _registerContext();
+
+        vm.prank(stranger);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IDRIFTCore.ContextTaken.selector, keccak256(abi.encodePacked("test.context"))
+            )
+        );
+        core.registerContext("test.context");
+    }
+
+    function test_RevertIf_AddSchemaZeroAdapter() public {
+        bytes32 uid = _registerContext();
+
+        vm.prank(creator);
+        vm.expectRevert(abi.encodeWithSelector(IDRIFTCore.InvalidAdapterAddress.selector, uid));
+        core.addSchema(uid, SCHEMA_UID, address(0));
+    }
+
+    function test_RevertIf_AddSchemaZeroSchemaUID() public {
+        bytes32 uid = _registerContext();
+
+        vm.prank(creator);
+        vm.expectRevert(abi.encodeWithSelector(IDRIFTCore.InvalidSchemaUID.selector, uid));
+        core.addSchema(uid, bytes32(0), provider);
+    }
+
+    function test_RemoveSchemaSucceeds() public {
+        bytes32 uid = _registerContext();
+
+        vm.startPrank(creator);
+        core.addSchema(uid, SCHEMA_UID, provider);
+        vm.expectEmit(true, true, false, false);
+        emit IDRIFTCore.SchemaRemoved(uid, SCHEMA_UID);
+        core.removeSchema(uid, SCHEMA_UID);
+        vm.stopPrank();
+
+        assertEq(core.getAdapter(uid, SCHEMA_UID), address(0));
+    }
+
+    function test_RevertIf_RemoveSchemaNotFound() public {
+        bytes32 uid = _registerContext();
+
+        vm.prank(creator);
+        vm.expectRevert(abi.encodeWithSelector(IDRIFTCore.SchemaNotFound.selector, uid, SCHEMA_UID));
+        core.removeSchema(uid, SCHEMA_UID);
+    }
+
+    function test_RevertIf_RegisterNodeContextNotActive() public {
+        bytes32 fakeUid = keccak256("never.registered");
+
+        vm.prank(node);
+        vm.expectRevert(abi.encodeWithSelector(IDRIFTCore.ContextNotActive.selector, fakeUid));
+        core.registerNode(fakeUid, "0x");
+    }
+
+    function test_RevertIf_RegisterNodeAlreadyRegistered() public {
+        bytes32 uid = _registerContext();
+
+        vm.startPrank(node);
+        core.registerNode(uid, "0x");
+        vm.expectRevert(
+            abi.encodeWithSelector(IDRIFTCore.NodeAlreadyRegistered.selector, uid, node)
+        );
+        core.registerNode(uid, "0x");
+        vm.stopPrank();
+    }
+
+    /// @notice A configured entry policy's returned NodeStatus is trusted directly — a policy can
+    /// admit a node below full standing (e.g. PROBATION) without rejecting entry outright.
+    function test_RegisterNode_PolicyGrantsProbationStatus() public {
+        bytes32 uid = _registerContext();
+        MockPolicy policy = new MockPolicy();
+        policy.setStatusToReturn(NodeStatus.PROBATION);
+
+        vm.prank(creator);
+        core.setContextPolicy(uid, address(policy));
+
+        vm.prank(node);
+        core.registerNode(uid, "0x");
+
+        assertEq(uint256(core.nodeStatus(uid, node)), uint256(NodeStatus.PROBATION));
+        // PROBATION is neither NONE nor BANNED, so the node still counts as registered.
+        assertTrue(core.isRegistered(uid, node));
+    }
+
+    function test_RevertIf_RegisterNode_PolicyRejectsEntry() public {
+        bytes32 uid = _registerContext();
+        MockPolicy policy = new MockPolicy();
+        policy.setStatusToReturn(NodeStatus.NONE);
+
+        vm.prank(creator);
+        core.setContextPolicy(uid, address(policy));
+
+        vm.prank(node);
+        vm.expectRevert(IDRIFTCore.PolicyRejectedEntry.selector);
+        core.registerNode(uid, "0x");
+    }
+
+    function test_RevertIf_DeregisterNodeNotRegistered() public {
+        bytes32 uid = _registerContext();
+
+        vm.prank(node);
+        vm.expectRevert(abi.encodeWithSelector(IDRIFTCore.NodeNotRegistered.selector, uid, node));
+        core.deregisterNode(uid);
+    }
+
+    function test_SetNodeStatus_AdminTransitionsStatus() public {
+        bytes32 uid = _registerContext();
+        vm.prank(node);
+        core.registerNode(uid, "0x");
+
+        vm.prank(creator);
+        core.setNodeStatus(uid, node, NodeStatus.PROBATION);
+
+        assertEq(uint256(core.nodeStatus(uid, node)), uint256(NodeStatus.PROBATION));
+    }
+
+    /// @notice Security-relevant permanence guard: once BANNED, setNodeStatus can never move a
+    /// node to any other status (including back to BANNED) — banning must be a one-way street
+    /// enforced independently of what deregisterNode's own BANNED check does.
+    function test_RevertIf_SetNodeStatusCannotUnbanViaStatusUpdate() public {
+        bytes32 uid = _registerContext();
+        vm.prank(node);
+        core.registerNode(uid, "0x");
+
+        vm.startPrank(creator);
+        core.setNodeStatus(uid, node, NodeStatus.BANNED);
+
+        vm.expectRevert(IDRIFTCore.CannotUnbanViaStatusUpdate.selector);
+        core.setNodeStatus(uid, node, NodeStatus.FULL);
+        vm.stopPrank();
+    }
+
+    function test_RevertIf_SlashUnregisteredNode() public {
+        bytes32 uid = _registerWithClient();
+        address other = makeAddr("neverRegistered");
+
+        vm.prank(creator);
+        vm.expectRevert(abi.encodeWithSelector(IDRIFTCore.NodeNotRegistered.selector, uid, other));
+        core.slash(uid, bytes32(0), other, 1);
+    }
+
+    function test_RevertIf_RewardUnregisteredNode() public {
+        bytes32 uid = _registerWithClient();
+        address other = makeAddr("neverRegistered");
+
+        vm.prank(creator);
+        vm.expectRevert(abi.encodeWithSelector(IDRIFTCore.NodeNotRegistered.selector, uid, other));
+        core.reward(uid, bytes32(0), other, 1);
+    }
+
+    function test_RevertIf_GetContextNotFound() public {
+        bytes32 fakeUid = keccak256("never.registered");
+
+        vm.expectRevert(abi.encodeWithSelector(IDRIFTCore.ContextNotFound.selector, fakeUid));
+        core.getContext(fakeUid);
+    }
+
+    // PROOF VERIFICATION (verifyAttestation) ===================================
+
+    function test_VerifyAttestation_FalseIfContextInactive() public {
+        bytes32 uid = _registerContext();
+        MockAdapter mockAdapter = new MockAdapter();
+        address subject = makeAddr("subject");
+        address attester = makeAddr("attester");
+
+        vm.startPrank(creator);
+        core.addSchema(uid, SCHEMA_UID, address(mockAdapter));
+        vm.stopPrank();
+
+        vm.prank(subject);
+        core.registerNode(uid, "0x");
+        vm.prank(attester);
+        core.registerNode(uid, "0x");
+
+        vm.prank(creator);
+        core.deactivateContext(uid);
+
+        bool isValid =
+            core.verifyAttestation(uid, SCHEMA_UID, keccak256("att.uid"), subject, attester);
+        assertFalse(isValid);
+    }
+
+    function test_VerifyAttestation_FalseIfSchemaNotAccepted() public {
+        bytes32 uid = _registerContext();
+        address subject = makeAddr("subject");
+        address attester = makeAddr("attester");
+
+        vm.prank(subject);
+        core.registerNode(uid, "0x");
+        vm.prank(attester);
+        core.registerNode(uid, "0x");
+
+        // SCHEMA_UID was never added via addSchema for this context.
+        bool isValid =
+            core.verifyAttestation(uid, SCHEMA_UID, keccak256("att.uid"), subject, attester);
+        assertFalse(isValid);
+    }
+
+    function test_VerifyAttestation_FalseIfAttesterNotRegistered() public {
+        bytes32 uid = _registerContext();
+        MockAdapter mockAdapter = new MockAdapter();
+        address subject = makeAddr("subject");
+        address attester = makeAddr("attester");
+
+        vm.prank(creator);
+        core.addSchema(uid, SCHEMA_UID, address(mockAdapter));
+
+        vm.prank(subject);
+        core.registerNode(uid, "0x");
+        // attester never registers.
+
+        bool isValid =
+            core.verifyAttestation(uid, SCHEMA_UID, keccak256("att.uid"), subject, attester);
+        assertFalse(isValid);
+    }
+
+    function test_VerifyAttestation_FalseIfAttesterBanned() public {
+        bytes32 uid = _registerContext();
+        MockAdapter mockAdapter = new MockAdapter();
+        address subject = makeAddr("subject");
+        address attester = makeAddr("attester");
+
+        vm.prank(creator);
+        core.addSchema(uid, SCHEMA_UID, address(mockAdapter));
+
+        vm.prank(subject);
+        core.registerNode(uid, "0x");
+        vm.prank(attester);
+        core.registerNode(uid, "0x");
+
+        vm.prank(creator);
+        core.setNodeStatus(uid, attester, NodeStatus.BANNED);
+
+        bool isValid =
+            core.verifyAttestation(uid, SCHEMA_UID, keccak256("att.uid"), subject, attester);
+        assertFalse(isValid);
+    }
+
+    function test_VerifyAttestation_FalseIfSubjectBanned() public {
+        bytes32 uid = _registerContext();
+        MockAdapter mockAdapter = new MockAdapter();
+        address subject = makeAddr("subject");
+        address attester = makeAddr("attester");
+
+        vm.prank(creator);
+        core.addSchema(uid, SCHEMA_UID, address(mockAdapter));
+
+        vm.prank(subject);
+        core.registerNode(uid, "0x");
+        vm.prank(attester);
+        core.registerNode(uid, "0x");
+
+        vm.prank(creator);
+        core.setNodeStatus(uid, subject, NodeStatus.BANNED);
+
+        bool isValid =
+            core.verifyAttestation(uid, SCHEMA_UID, keccak256("att.uid"), subject, attester);
+        assertFalse(isValid);
     }
 }

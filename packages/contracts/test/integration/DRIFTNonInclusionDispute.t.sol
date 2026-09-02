@@ -675,4 +675,234 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         core.grantRole(adminRole, address(freshClient));
         vm.stopPrank();
     }
+
+    // CHALLENGE / RESPONSE — GUARD BRANCHES ===================================
+
+    function test_RevertIf_ChallengeAlreadyOpen() public {
+        address other = makeAddr("other");
+        address missingNode = makeAddr("missingNode");
+        vm.prank(other);
+        core.registerNode(contextUID, "0x");
+        vm.prank(missingNode);
+        core.registerNode(contextUID, "0x");
+
+        uint256 epoch = 1;
+        _postEpoch(epoch, _leaf(other, 100, epoch));
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, missingNode);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(IDRIFTSettler.ChallengeAlreadyOpen.selector, epoch, missingNode)
+        );
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, missingNode);
+    }
+
+    function test_RevertIf_RespondToChallenge_ChallengeNotFound() public {
+        address nodeA = makeAddr("nodeA");
+        vm.prank(nodeA);
+        core.registerNode(contextUID, "0x");
+
+        uint256 epoch = 1;
+        _postEpoch(epoch, _leaf(nodeA, 100, epoch));
+
+        vm.expectRevert(
+            abi.encodeWithSelector(IDRIFTSettler.ChallengeNotFound.selector, epoch, nodeA)
+        );
+        client.respondToChallenge(epoch, nodeA, ROLE, 100, new bytes32[](0));
+    }
+
+    function test_RevertIf_RespondToChallenge_ChallengeAlreadyResolved() public {
+        address nodeA = makeAddr("nodeA");
+        vm.prank(nodeA);
+        core.registerNode(contextUID, "0x");
+
+        uint256 epoch = 1;
+        _postEpoch(epoch, _leaf(nodeA, 100, epoch));
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeA);
+        client.respondToChallenge(epoch, nodeA, ROLE, 100, new bytes32[](0));
+
+        vm.expectRevert(
+            abi.encodeWithSelector(IDRIFTSettler.ChallengeAlreadyResolved.selector, epoch, nodeA)
+        );
+        client.respondToChallenge(epoch, nodeA, ROLE, 100, new bytes32[](0));
+    }
+
+    /// @notice A challenge left open against a node with a genuine leaf becomes unanswerable once
+    ///         a *different*, unrelated challenge in the same epoch times out and rolls the root
+    ///         back — respondToChallenge must recognize the epoch is already gone rather than
+    ///         verifying a proof against a root that no longer applies.
+    function test_RevertIf_RespondToChallenge_EpochAlreadyInvalidated() public {
+        address nodeA = makeAddr("nodeA"); // has a leaf, challenge left open
+        address nodeC = makeAddr("nodeC"); // genuinely missing, times out
+        vm.prank(nodeA);
+        core.registerNode(contextUID, "0x");
+        vm.prank(nodeC);
+        core.registerNode(contextUID, "0x");
+
+        uint256 epoch = 1;
+        bytes32 leafA = _leaf(nodeA, 100, epoch);
+        _postEpoch(epoch, leafA);
+
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeA);
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeC);
+
+        vm.warp(block.timestamp + RESPONSE_WINDOW + 1);
+        client.claimUnansweredChallenge(epoch, nodeC);
+        assertEq(client.epochRoots(epoch), bytes32(0));
+
+        vm.expectRevert(
+            abi.encodeWithSelector(IDRIFTSettler.EpochAlreadyInvalidated.selector, epoch)
+        );
+        client.respondToChallenge(epoch, nodeA, ROLE, 100, new bytes32[](0));
+    }
+
+    function test_RevertIf_RespondToChallenge_ResponseWindowClosed() public {
+        address nodeA = makeAddr("nodeA");
+        vm.prank(nodeA);
+        core.registerNode(contextUID, "0x");
+
+        uint256 epoch = 1;
+        _postEpoch(epoch, _leaf(nodeA, 100, epoch));
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeA);
+
+        vm.warp(block.timestamp + RESPONSE_WINDOW + 1);
+        vm.expectRevert(
+            abi.encodeWithSelector(IDRIFTSettler.ResponseWindowClosed.selector, epoch, nodeA)
+        );
+        client.respondToChallenge(epoch, nodeA, ROLE, 100, new bytes32[](0));
+    }
+
+    function test_RevertIf_RespondToChallenge_InvalidMerkleProof() public {
+        address nodeA = makeAddr("nodeA");
+        vm.prank(nodeA);
+        core.registerNode(contextUID, "0x");
+
+        uint256 epoch = 1;
+        _postEpoch(epoch, _leaf(nodeA, 100, epoch));
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeA);
+
+        // Wrong score claimed for nodeA's leaf — proof (none) can't verify against a different leaf.
+        vm.expectRevert(IDRIFTSettler.InvalidMerkleProof.selector);
+        client.respondToChallenge(epoch, nodeA, ROLE, 999, new bytes32[](0));
+    }
+
+    function test_RevertIf_ClaimUnansweredChallenge_ChallengeNotFound() public {
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IDRIFTSettler.ChallengeNotFound.selector, uint256(1), makeAddr("nobody")
+            )
+        );
+        client.claimUnansweredChallenge(1, makeAddr("nobody"));
+    }
+
+    function test_RevertIf_ClaimUnansweredChallenge_ChallengeAlreadyResolved() public {
+        address nodeA = makeAddr("nodeA");
+        vm.prank(nodeA);
+        core.registerNode(contextUID, "0x");
+
+        uint256 epoch = 1;
+        _postEpoch(epoch, _leaf(nodeA, 100, epoch));
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeA);
+        client.respondToChallenge(epoch, nodeA, ROLE, 100, new bytes32[](0));
+
+        vm.warp(block.timestamp + RESPONSE_WINDOW + 1);
+        vm.expectRevert(
+            abi.encodeWithSelector(IDRIFTSettler.ChallengeAlreadyResolved.selector, epoch, nodeA)
+        );
+        client.claimUnansweredChallenge(epoch, nodeA);
+    }
+
+    /// @notice Mirrors test_RevertIf_RespondToChallenge_EpochAlreadyInvalidated for the
+    ///         claimUnansweredChallenge path: a second still-open challenge cannot be claimed
+    ///         unanswered a second time against an epoch already rolled back by a different one.
+    function test_RevertIf_ClaimUnansweredChallenge_EpochAlreadyInvalidated() public {
+        address nodeA = makeAddr("nodeA");
+        address nodeC = makeAddr("nodeC");
+        vm.prank(nodeA);
+        core.registerNode(contextUID, "0x");
+        vm.prank(nodeC);
+        core.registerNode(contextUID, "0x");
+
+        uint256 epoch = 1;
+        _postEpoch(epoch, _leaf(nodeA, 100, epoch));
+
+        // Both genuinely missing from the (single-leaf) root above except nodeA itself; challenge
+        // both, let nodeC's time out first to roll the epoch back, then nodeA's is left dangling.
+        address nodeB = makeAddr("nodeB");
+        vm.prank(nodeB);
+        core.registerNode(contextUID, "0x");
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeB);
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeC);
+
+        vm.warp(block.timestamp + RESPONSE_WINDOW + 1);
+        client.claimUnansweredChallenge(epoch, nodeC);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(IDRIFTSettler.EpochAlreadyInvalidated.selector, epoch)
+        );
+        client.claimUnansweredChallenge(epoch, nodeB);
+    }
+
+    function test_RevertIf_ReclaimMootChallenge_ChallengeNotFound() public {
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IDRIFTSettler.ChallengeNotFound.selector, uint256(1), makeAddr("nobody")
+            )
+        );
+        client.reclaimMootChallenge(1, makeAddr("nobody"));
+    }
+
+    function test_RevertIf_ReclaimMootChallenge_ChallengeAlreadyResolved() public {
+        address nodeA = makeAddr("nodeA");
+        vm.prank(nodeA);
+        core.registerNode(contextUID, "0x");
+
+        uint256 epoch = 1;
+        _postEpoch(epoch, _leaf(nodeA, 100, epoch));
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeA);
+        client.respondToChallenge(epoch, nodeA, ROLE, 100, new bytes32[](0));
+
+        vm.expectRevert(
+            abi.encodeWithSelector(IDRIFTSettler.ChallengeAlreadyResolved.selector, epoch, nodeA)
+        );
+        client.reclaimMootChallenge(epoch, nodeA);
+    }
+
+    /// @notice reclaimMootChallenge is only for a challenge whose epoch was invalidated by a
+    ///         *different* resolution — calling it while the root is still live (nothing moot
+    ///         about it) must revert, not silently refund.
+    function test_RevertIf_ReclaimMootChallenge_EpochNotInvalidated() public {
+        address nodeA = makeAddr("nodeA");
+        vm.prank(nodeA);
+        core.registerNode(contextUID, "0x");
+
+        uint256 epoch = 1;
+        _postEpoch(epoch, _leaf(nodeA, 100, epoch));
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeA);
+
+        vm.expectRevert(abi.encodeWithSelector(IDRIFTSettler.EpochNotInvalidated.selector, epoch));
+        client.reclaimMootChallenge(epoch, nodeA);
+    }
+
+    /// @notice The ineligibility half of _disputeEligible's ban check: a node banned *at or before*
+    ///         the boundary was never legitimately part of A_c^E at settlement time, so it cannot
+    ///         be the subject of a dispute — complements test_ChallengeEligible_BannedAfterBoundary.
+    function test_RevertIf_ChallengeIneligible_BannedBeforeBoundary() public {
+        address victim = makeAddr("victim");
+        vm.prank(victim);
+        core.registerNode(contextUID, "0x");
+        vm.prank(admin);
+        core.setNodeStatus(contextUID, victim, NodeStatus.BANNED);
+
+        address other = makeAddr("other");
+        vm.prank(other);
+        core.registerNode(contextUID, "0x");
+
+        uint256 epoch = 1;
+        _postEpoch(epoch, _leaf(other, 100, epoch));
+
+        vm.expectRevert(
+            abi.encodeWithSelector(IDRIFTSettler.NodeNotEligibleForDispute.selector, victim)
+        );
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, victim);
+    }
 }
