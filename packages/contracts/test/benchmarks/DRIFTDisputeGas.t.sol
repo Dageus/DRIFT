@@ -315,6 +315,55 @@ contract DRIFTDisputeGasTest is DRIFTTestHelper {
         vm.stopSnapshotGas();
     }
 
+    /// @notice Per-item marginal cost of reclaimMootChallenges at batch size 10 -- amortizing the
+    ///         fixed transaction overhead a caller would otherwise pay 10 times over via
+    ///         reclaimMootChallenge individually. This is what determines the gas price above
+    ///         which batching keeps reclaiming a moot bond worthwhile (BACKLOG.md).
+    function test_Gas_ReclaimMootChallenges_Batch10() public {
+        vm.startPrank(admin);
+        client.setDisputeWindow(DISPUTE_WINDOW);
+        client.setResponseWindow(RESPONSE_WINDOW);
+        client.setSettlementBond(SETTLEMENT_BOND);
+        client.setChallengeBond(CHALLENGE_BOND);
+        vm.stopPrank();
+
+        uint256 batchSize = 10;
+        address missingNode = makeAddr("missingNode");
+        vm.prank(missingNode);
+        core.registerNode(contextUID, "0x");
+
+        uint256 epoch = 1;
+        _postEpoch(epoch, _leaf(missingNode, 0, epoch)); // placeholder root; never matched
+
+        uint256[] memory epochs = new uint256[](batchSize);
+        address[] memory nodes = new address[](batchSize);
+        for (uint256 i = 0; i < batchSize; i++) {
+            address node = makeAddr(string.concat("mootNode", vm.toString(i)));
+            vm.prank(node);
+            core.registerNode(contextUID, "0x");
+
+            address challenger = makeAddr(string.concat("mootChallenger", vm.toString(i)));
+            vm.deal(challenger, CHALLENGE_BOND);
+            vm.prank(challenger);
+            client.challengeOmission{ value: CHALLENGE_BOND }(epoch, node);
+
+            epochs[i] = epoch;
+            nodes[i] = node;
+        }
+
+        address challengerMissing = makeAddr("challengerMissing");
+        vm.deal(challengerMissing, CHALLENGE_BOND);
+        vm.prank(challengerMissing);
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, missingNode);
+
+        vm.warp(block.timestamp + RESPONSE_WINDOW + 1);
+        client.claimUnansweredChallenge(epoch, missingNode);
+
+        vm.startSnapshotGas("ReclaimMootChallenges_Batch10");
+        client.reclaimMootChallenges(epochs, nodes);
+        vm.stopSnapshotGas();
+    }
+
     /// @notice Cost for the settler to withdraw its bond after an epoch finalizes cleanly.
     function test_Gas_WithdrawSettlementBond() public {
         vm.startPrank(admin);

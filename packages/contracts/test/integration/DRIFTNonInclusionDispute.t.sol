@@ -277,6 +277,114 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         assertEq(client.openChallengeCount(epoch), 0);
     }
 
+    /// @notice Multiple moot challenges against the same rolled-back epoch can be refunded in one
+    ///         transaction via reclaimMootChallenges, amortizing the fixed per-transaction
+    ///         overhead that otherwise makes reclaiming a single bond uneconomical above some gas
+    ///         price. Different challengers, refunded independently in one call.
+    function test_ReclaimMootChallenges_BatchRefundsMultiple() public {
+        address nodeA = makeAddr("nodeA");
+        address nodeB = makeAddr("nodeB");
+        address nodeC = makeAddr("nodeC"); // genuinely missing -> times out, rolls back
+        vm.prank(nodeA);
+        core.registerNode(contextUID, "0x");
+        vm.prank(nodeB);
+        core.registerNode(contextUID, "0x");
+        vm.prank(nodeC);
+        core.registerNode(contextUID, "0x");
+
+        uint256 epoch = 1;
+        uint256 score = 100;
+        bytes32 leafA = _leaf(nodeA, score, epoch);
+        bytes32 leafB = _leaf(nodeB, score, epoch);
+        bytes32 root = _hashPair(leafA, leafB);
+        _postEpoch(epoch, root);
+
+        address challengerA = makeAddr("challengerA");
+        address challengerB = makeAddr("challengerB");
+        address challengerC = makeAddr("challengerC");
+        vm.deal(challengerA, CHALLENGE_BOND);
+        vm.deal(challengerB, CHALLENGE_BOND);
+        vm.deal(challengerC, CHALLENGE_BOND);
+
+        vm.prank(challengerA);
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeA);
+        vm.prank(challengerB);
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeB);
+        vm.prank(challengerC);
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeC);
+
+        // Neither A nor B is answered -- both are left open when C's timeout rolls back the epoch.
+        vm.warp(block.timestamp + RESPONSE_WINDOW + 1);
+        client.claimUnansweredChallenge(epoch, nodeC);
+        assertEq(client.epochRoots(epoch), bytes32(0));
+
+        uint256 balanceABefore = challengerA.balance;
+        uint256 balanceBBefore = challengerB.balance;
+
+        uint256[] memory epochs = new uint256[](2);
+        address[] memory nodes = new address[](2);
+        epochs[0] = epoch;
+        epochs[1] = epoch;
+        nodes[0] = nodeA;
+        nodes[1] = nodeB;
+        client.reclaimMootChallenges(epochs, nodes);
+
+        assertEq(challengerA.balance, balanceABefore + CHALLENGE_BOND);
+        assertEq(challengerB.balance, balanceBBefore + CHALLENGE_BOND);
+        assertEq(client.openChallengeCount(epoch), 0);
+    }
+
+    function test_RevertIf_ReclaimMootChallenges_ArrayLengthMismatch() public {
+        uint256[] memory epochs = new uint256[](2);
+        address[] memory nodes = new address[](1);
+        vm.expectRevert(WeightedGovernanceClient.ArrayLengthMismatch.selector);
+        client.reclaimMootChallenges(epochs, nodes);
+    }
+
+    /// @notice A batch reverts entirely if any single entry isn't currently reclaimable -- no
+    ///         partial application that could leave a caller thinking only one entry failed when
+    ///         the whole call actually rolled back.
+    function test_RevertIf_ReclaimMootChallenges_OneEntryNotReclaimable() public {
+        address nodeA = makeAddr("nodeA");
+        address nodeC = makeAddr("nodeC");
+        vm.prank(nodeA);
+        core.registerNode(contextUID, "0x");
+        vm.prank(nodeC);
+        core.registerNode(contextUID, "0x");
+
+        uint256 epoch = 1;
+        uint256 score = 100;
+        _postEpoch(epoch, _leaf(nodeA, score, epoch));
+
+        address challengerA = makeAddr("challengerA");
+        address challengerC = makeAddr("challengerC");
+        vm.deal(challengerA, CHALLENGE_BOND);
+        vm.deal(challengerC, CHALLENGE_BOND);
+
+        vm.prank(challengerA);
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeA);
+        vm.prank(challengerC);
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeC);
+
+        vm.warp(block.timestamp + RESPONSE_WINDOW + 1);
+        client.claimUnansweredChallenge(epoch, nodeC);
+
+        // nodeA's challenge is moot and reclaimable; the second entry names a node never
+        // challenged at all.
+        address neverChallenged = makeAddr("neverChallenged");
+        uint256[] memory epochs = new uint256[](2);
+        address[] memory nodes = new address[](2);
+        epochs[0] = epoch;
+        nodes[0] = nodeA;
+        epochs[1] = epoch;
+        nodes[1] = neverChallenged;
+
+        vm.expectRevert(
+            abi.encodeWithSelector(IDRIFTSettler.ChallengeNotFound.selector, epoch, neverChallenged)
+        );
+        client.reclaimMootChallenges(epochs, nodes);
+    }
+
     // ELIGIBILITY (boundary-aware, DRIFTCore) =================================
 
     /// @notice A node registered *after* the epoch boundary cannot be the subject of a dispute —

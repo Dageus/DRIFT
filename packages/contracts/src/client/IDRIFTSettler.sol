@@ -175,6 +175,15 @@ interface IDRIFTSettler is IDRIFTClient {
         address node
     ) external;
 
+    /// @notice Batched reclaimMootChallenge: refunds several moot challenges' bonds in one
+    ///         transaction, amortizing the fixed transaction overhead a caller would otherwise
+    ///         pay per reclaim. `epochs[i]`/`nodes[i]` are paired positionally. Reverts the whole
+    ///         batch if any entry is not currently reclaimable.
+    function reclaimMootChallenges(
+        uint256[] calldata epochs,
+        address[] calldata nodes
+    ) external;
+
     /// @notice Withdraws the settler's escrowed bond for an epoch that finalized cleanly
     ///         (window elapsed, no successful challenge). Callable by anyone; pays trustedSettler.
     function withdrawSettlementBond(

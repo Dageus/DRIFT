@@ -645,6 +645,21 @@ contract WeightedGovernanceClient is
         uint256 epoch,
         address node
     ) external {
+        _reclaimMootChallenge(epoch, node);
+    }
+
+    /// @inheritdoc IDRIFTSettler
+    function reclaimMootChallenges(
+        uint256[] calldata epochs,
+        address[] calldata nodes
+    ) external {
+        if (epochs.length != nodes.length) revert ArrayLengthMismatch();
+        for (uint256 i = 0; i < epochs.length; i++) {
+            _reclaimMootChallenge(epochs[i], nodes[i]);
+        }
+    }
+
+    function _reclaimMootChallenge(uint256 epoch, address node) internal {
         Challenge storage c = challenges[epoch][node];
         if (c.openedAtTimestamp == 0) revert ChallengeNotFound(epoch, node);
         if (c.resolved) revert ChallengeAlreadyResolved(epoch, node);
