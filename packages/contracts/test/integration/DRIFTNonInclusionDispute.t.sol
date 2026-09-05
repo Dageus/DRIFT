@@ -113,6 +113,19 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         client.postEpochRoot{ value: SETTLEMENT_BOND }(epoch, root, "", sig);
     }
 
+    /// @dev As _postEpoch, but with an explicit settlement bond instead of the shared
+    ///      SETTLEMENT_BOND constant -- for tests that need a settlement bond distinct from the
+    ///      challenge bond.
+    function _postEpochWithBond(
+        uint256 epoch,
+        bytes32 root,
+        uint256 bondAmount
+    ) internal {
+        vm.warp(_boundary(epoch));
+        bytes memory sig = _signEpochRoot(settlerPk, contextUID, epoch, root, address(client));
+        client.postEpochRoot{ value: bondAmount }(epoch, root, "", sig);
+    }
+
     function _rollPastFinalization() internal {
         vm.warp(block.timestamp + DISPUTE_WINDOW + RESPONSE_WINDOW + 1);
     }
@@ -177,7 +190,8 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         uint256 challengerBalanceBefore = challenger.balance;
         client.claimUnansweredChallenge(epoch, missingNode);
 
-        assertEq(challenger.balance, challengerBalanceBefore + SETTLEMENT_BOND);
+        // The forfeited settlement bond, plus the challenger's own challenge bond refunded.
+        assertEq(challenger.balance, challengerBalanceBefore + SETTLEMENT_BOND + CHALLENGE_BOND);
         assertEq(client.epochRoots(epoch), bytes32(0));
         assertEq(client.currentEpoch(), 0);
         assertEq(client.epochPostedAtTimestamp(epoch), 0);
@@ -253,7 +267,7 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         vm.warp(block.timestamp + RESPONSE_WINDOW + 1);
         uint256 challengerCBalanceBefore = challengerC.balance;
         client.claimUnansweredChallenge(epoch, nodeC);
-        assertEq(challengerC.balance, challengerCBalanceBefore + SETTLEMENT_BOND);
+        assertEq(challengerC.balance, challengerCBalanceBefore + SETTLEMENT_BOND + CHALLENGE_BOND);
         assertEq(client.epochRoots(epoch), bytes32(0));
 
         // B's still-open challenge is now moot: refund, no forfeiture either direction.
@@ -597,6 +611,56 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         assertEq(client.epochRoots(epoch), bytes32(0));
     }
 
+    // STUCK BOND FIX ============================================================
+
+    /// @notice claimUnansweredChallenge must refund the winning challenger's own challenge bond
+    ///         alongside the forfeited settlement bond. Uses distinct bond amounts specifically so
+    ///         a regression that pays only one of the two (in either direction) cannot pass by
+    ///         coincidence the way it could with the shared suite's equal SETTLEMENT_BOND ==
+    ///         CHALLENGE_BOND.
+    function test_ClaimUnansweredChallenge_RefundsChallengerOwnBond() public {
+        uint256 distinctSettlementBond = 0.02 ether;
+        uint256 distinctChallengeBond = 0.005 ether;
+        vm.startPrank(admin);
+        client.setSettlementBond(distinctSettlementBond);
+        client.setChallengeBond(distinctChallengeBond);
+        vm.stopPrank();
+
+        address missingNode = makeAddr("missingNode");
+        vm.prank(missingNode);
+        core.registerNode(contextUID, "0x");
+        address other = makeAddr("other");
+        vm.prank(other);
+        core.registerNode(contextUID, "0x");
+
+        uint256 epoch = 1;
+        _postEpochWithBond(epoch, _leaf(other, 100, epoch), distinctSettlementBond);
+
+        address challenger = makeAddr("challenger");
+        vm.deal(challenger, distinctChallengeBond);
+        vm.prank(challenger);
+        client.challengeOmission{ value: distinctChallengeBond }(epoch, missingNode);
+
+        vm.warp(block.timestamp + RESPONSE_WINDOW + 1);
+
+        uint256 challengerBalanceBefore = challenger.balance;
+        client.claimUnansweredChallenge(epoch, missingNode);
+
+        assertEq(
+            challenger.balance,
+            challengerBalanceBefore + distinctSettlementBond + distinctChallengeBond
+        );
+
+        // The now-refunded challenge bond has no remaining exit path -- confirm it can't be
+        // double-paid via reclaimMootChallenge.
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IDRIFTSettler.ChallengeAlreadyResolved.selector, epoch, missingNode
+            )
+        );
+        client.reclaimMootChallenge(epoch, missingNode);
+    }
+
     // FUZZ ======================================================================
 
     function testFuzz_RevertIf_ChallengeIneligible_UnregisteredNode(
@@ -904,5 +968,49 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
             abi.encodeWithSelector(IDRIFTSettler.NodeNotEligibleForDispute.selector, victim)
         );
         client.challengeOmission{ value: CHALLENGE_BOND }(epoch, victim);
+    }
+
+    // FINALIZATION TIMING ======================================================
+
+    /// @notice An epoch with zero challenges ever raised finalizes as soon as the dispute window
+    ///         alone elapses — it must not also wait out the response window, which would be pure
+    ///         dead time: once disputeWindow has passed, challengeOmission's own window check
+    ///         permanently forecloses any new challenge, so openChallengeCount == 0 at that moment
+    ///         proves nothing can ever become pending again.
+    function test_Finalizes_AtDisputeWindowAlone_WhenNoChallengeRaised() public {
+        address nodeA = makeAddr("nodeA");
+        vm.prank(nodeA);
+        core.registerNode(contextUID, "0x");
+
+        uint256 epoch = 1;
+        _postEpoch(epoch, _leaf(nodeA, 100, epoch));
+
+        // Strictly past DISPUTE_WINDOW alone, strictly before DISPUTE_WINDOW + RESPONSE_WINDOW —
+        // the old unconditional bound would still be pending here.
+        vm.warp(block.timestamp + DISPUTE_WINDOW + 1);
+
+        uint256 settlerBalanceBefore = settler.balance;
+        client.withdrawSettlementBond(epoch);
+        assertEq(settler.balance, settlerBalanceBefore + SETTLEMENT_BOND);
+    }
+
+    /// @notice The tightened bound must not skip the case it exists to protect: an epoch with a
+    ///         still-open challenge stays unfinalized past disputeWindow alone, exactly as before.
+    function test_RevertIf_StillPendingAtDisputeWindowAlone_WithOpenChallenge() public {
+        address nodeA = makeAddr("nodeA");
+        address missingNode = makeAddr("missingNode");
+        vm.prank(nodeA);
+        core.registerNode(contextUID, "0x");
+        vm.prank(missingNode);
+        core.registerNode(contextUID, "0x");
+
+        uint256 epoch = 1;
+        _postEpoch(epoch, _leaf(nodeA, 100, epoch));
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, missingNode);
+
+        vm.warp(block.timestamp + DISPUTE_WINDOW + 1);
+
+        vm.expectRevert(abi.encodeWithSelector(IDRIFTSettler.EpochNotYetFinalized.selector, epoch));
+        client.withdrawSettlementBond(epoch);
     }
 }

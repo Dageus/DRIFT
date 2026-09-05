@@ -199,6 +199,52 @@ contract DRIFTDisputeGasTest is DRIFTTestHelper {
         vm.stopSnapshotGas();
     }
 
+    /// @notice Cost for the settler to defeat a challenge at proof depth 20 (1,000,000+ users at
+    ///         capacity) --- the deployment case this dissertation's own figures use elsewhere
+    ///         (DRIFTMerkleGas.t.sol's Claim_Depth_20 benchmark), rather than extrapolating from
+    ///         the depth-1 figure above.
+    function test_Gas_RespondToChallenge_Depth20() public {
+        vm.startPrank(admin);
+        client.setDisputeWindow(DISPUTE_WINDOW);
+        client.setResponseWindow(RESPONSE_WINDOW);
+        client.setSettlementBond(SETTLEMENT_BOND);
+        client.setChallengeBond(CHALLENGE_BOND);
+        vm.stopPrank();
+
+        address nodeA = makeAddr("nodeA");
+        vm.prank(nodeA);
+        core.registerNode(contextUID, "0x");
+
+        uint256 epoch = 1;
+        uint256 score = 100;
+        uint256 depth = 20;
+
+        bytes32[] memory proof = new bytes32[](depth);
+        bytes32 root;
+        {
+            bytes32 currentHash = _leaf(nodeA, score, epoch);
+            for (uint256 i = 0; i < depth; i++) {
+                bytes32 sibling = keccak256(abi.encode("dummy_sibling", epoch, i));
+                proof[i] = sibling;
+                // OpenZeppelin StandardMerkleTree sorts pairs before hashing.
+                currentHash = currentHash < sibling
+                    ? keccak256(abi.encodePacked(currentHash, sibling))
+                    : keccak256(abi.encodePacked(sibling, currentHash));
+            }
+            root = currentHash;
+        }
+        _postEpoch(epoch, root);
+
+        address challenger = makeAddr("challenger");
+        vm.deal(challenger, CHALLENGE_BOND);
+        vm.prank(challenger);
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeA);
+
+        vm.startSnapshotGas("RespondToChallenge_Depth20");
+        client.respondToChallenge(epoch, nodeA, ROLE, score, proof);
+        vm.stopSnapshotGas();
+    }
+
     /// @notice Cost to execute a won-by-timeout challenge: rolls the epoch back and pays out the
     ///         settler's forfeited bond to the challenger.
     function test_Gas_ClaimUnansweredChallenge() public {

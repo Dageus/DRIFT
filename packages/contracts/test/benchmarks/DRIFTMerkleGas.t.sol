@@ -118,6 +118,15 @@ contract DRIFTMerkleGasTest is Test {
         _simulateAndMeasureClaim(25, 1, "Claim_Depth_25_Users_33M");
     }
 
+    /// @notice Benchmarks a repeat claim: same node, same role, a later epoch with an increased
+    ///         score. Unlike a first claim, `lastClaimedEpoch[node][role]` is already non-zero and
+    ///         the ERC-1155 balance already exists, so this isolates the warm-storage cost of an
+    ///         already-claimed role's subsequent claim from the first claim's cold-mint cost.
+    function test_Gas_Repeat_Claim_Depth10_1024Users() public {
+        _simulateClaim(10, 1, 100, false, "");
+        _simulateClaim(10, 2, 150, true, "Repeat_Claim_Depth_10_Users_1024");
+    }
+
     /// @notice Benchmarks the O(1) fixed cost of posting the epoch root
     function test_Gas_New_PostRoot_O1() public {
         bytes32 root = keccak256("dummy_root");
@@ -153,7 +162,19 @@ contract DRIFTMerkleGasTest is Test {
         uint256 epoch,
         string memory snapshotName
     ) internal {
-        uint256 score = 100;
+        _simulateClaim(depth, epoch, 100, true, snapshotName);
+    }
+
+    /// @dev As _simulateAndMeasureClaim, with the score and snapshot behaviour exposed --
+    ///      lets a test put a node into "already claimed this role" state (measure = false)
+    ///      before measuring a subsequent claim.
+    function _simulateClaim(
+        uint256 depth,
+        uint256 epoch,
+        uint256 score,
+        bool measure,
+        string memory snapshotName
+    ) internal {
         bytes32 calculatedRoot;
         bytes32[] memory proof = new bytes32[](depth);
 
@@ -216,9 +237,13 @@ contract DRIFTMerkleGasTest is Test {
             vm.warp(block.timestamp + client.disputeWindow() + client.responseWindow() + 1);
         }
 
-        vm.startSnapshotGas(snapshotName);
+        if (measure) {
+            vm.startSnapshotGas(snapshotName);
+        }
         vm.prank(node);
         client.claimReputation(node, ROLE, score, epoch, proof);
-        vm.stopSnapshotGas();
+        if (measure) {
+            vm.stopSnapshotGas();
+        }
     }
 }

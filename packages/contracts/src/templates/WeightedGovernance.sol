@@ -75,6 +75,14 @@ contract WeightedGovernanceClient is
     /// @notice Floor a non-zero settlementBond/challengeBond must clear. Plain constants rather
     ///         than admin-configurable values, so an admin (or an admin colluding with the
     ///         settler) can never grief the bond down to economically meaningless.
+    /// @dev This is a floor against a degenerate zero-ish bond, not a recommended operating
+    ///      value. The settlementBond an admin actually sets must be sized well above this floor
+    ///      against the settler's real response capacity (how many concurrent challenges it can
+    ///      answer within `responseWindow`) and prevailing gas price -- too low a bond relative to
+    ///      that capacity lets a rational settler abandon defense rather than pay to protect a
+    ///      bond smaller than the defense cost, forfeiting it for free. This constant cannot know
+    ///      either quantity for a given deployment, so it deliberately does not attempt to be
+    ///      "safe" on its own.
     uint256 public constant MIN_SETTLEMENT_BOND = 0.001 ether;
     uint256 public constant MIN_CHALLENGE_BOND = 0.001 ether;
 
@@ -610,7 +618,7 @@ contract WeightedGovernanceClient is
         c.resolved = true;
         openChallengeCount[epoch]--;
 
-        uint256 bond = epochBondAmount[epoch];
+        uint256 settlementBondAmount = epochBondAmount[epoch];
         epochBondAmount[epoch] = 0;
         epochRoots[epoch] = bytes32(0);
         epochPostedAtTimestamp[epoch] = 0;
@@ -620,10 +628,16 @@ contract WeightedGovernanceClient is
         uint256 failCount = consecutiveFailedEpochs;
 
         address challenger = c.challenger;
-        (bool sent,) = challenger.call{ value: bond }("");
+        // The challenger's own challenge bond is refunded alongside the forfeited settlement
+        // bond, in the same transfer -- unlike respondToChallenge and reclaimMootChallenge, this
+        // path used to leave c.bond unread and unzeroed, permanently stranding it.
+        uint256 challengeBondAmount = c.bond;
+        c.bond = 0;
+        uint256 payout = settlementBondAmount + challengeBondAmount;
+        (bool sent,) = challenger.call{ value: payout }("");
         if (!sent) revert ExecutionFailed();
 
-        emit NonInclusionProven(contextUID, epoch, node, challenger, bond, failCount);
+        emit NonInclusionProven(contextUID, epoch, node, challenger, payout, failCount);
     }
 
     /// @inheritdoc IDRIFTSettler
@@ -1004,15 +1018,28 @@ contract WeightedGovernanceClient is
         return true;
     }
 
-    /// @notice An epoch is finalized once its dispute+response windows have fully elapsed and no
-    ///         challenge against it remains unresolved. `openChallengeCount == 0` matters even
-    ///         after the time bound passes: a timed-out-but-not-yet-claimed challenge must not
-    ///         let a genuinely bad epoch slip into use before its rollback actually executes.
+    /// @notice An epoch is finalized once its dispute window has fully elapsed and no challenge
+    ///         against it remains unresolved. `openChallengeCount == 0` matters even after the
+    ///         time bound passes: a timed-out-but-not-yet-claimed challenge must not let a
+    ///         genuinely bad epoch slip into use before its rollback actually executes.
+    /// @dev Deliberately `disputeWindow` alone, not `disputeWindow + responseWindow`: once
+    ///      `disputeWindow` has elapsed, challengeOmission's own window check permanently forecloses
+    ///      any *new* challenge against this epoch (see challengeOmission), so if
+    ///      `openChallengeCount == 0` at that exact moment, no challenge can ever appear again and
+    ///      it is safe to finalize immediately. `responseWindow` only needs adding to the bound
+    ///      when a challenge is genuinely still open, which the `openChallengeCount == 0` clause
+    ///      already enforces on its own — an epoch with a pending challenge (however it was timed)
+    ///      stays unfinalized until that challenge resolves one way or the other, so paying the
+    ///      full `disputeWindow + responseWindow` unconditionally, even when zero challenges were
+    ///      ever raised, was pure dead time in the common case, not a soundness requirement. The
+    ///      worst case (a challenge opened at the last valid instant of disputeWindow) is still
+    ///      bounded by `disputeWindow + responseWindow` exactly as before — this only removes the
+    ///      wait when no challenge is, or ever becomes, pending.
     function _isFinalized(
         uint256 epoch
     ) internal view returns (bool) {
         return epochRoots[epoch] != bytes32(0)
-            && block.timestamp > epochPostedAtTimestamp[epoch] + disputeWindow + responseWindow
+            && block.timestamp > epochPostedAtTimestamp[epoch] + disputeWindow
             && openChallengeCount[epoch] == 0;
     }
 }
