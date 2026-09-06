@@ -81,6 +81,24 @@ contract DRIFTDisputeGasTest is DRIFTTestHelper {
         core.grantRole(core.contextAdminRole(contextUID), address(client));
         client.setEpochLength(EPOCH_LENGTH);
         vm.stopPrank();
+
+        // Third-party challengers must themselves be admitted at the boundary they challenge, so
+        // every identity these benchmarks challenge from is registered here, before any epoch
+        // exists. Registration is outside the snapshotted region and so does not affect the
+        // measured cost of the dispute call itself.
+        _admitChallenger(makeAddr("challenger"));
+        _admitChallenger(makeAddr("challengerB"));
+        _admitChallenger(makeAddr("challengerMissing"));
+        for (uint256 i = 0; i < 10; i++) {
+            _admitChallenger(makeAddr(string.concat("mootChallenger", vm.toString(i))));
+        }
+    }
+
+    function _admitChallenger(
+        address who
+    ) internal {
+        vm.prank(who);
+        core.registerNode(contextUID, "0x");
     }
 
     // HELPERS =================================================================
@@ -270,7 +288,7 @@ contract DRIFTDisputeGasTest is DRIFTTestHelper {
         vm.prank(challenger);
         client.challengeOmission{ value: CHALLENGE_BOND }(epoch, missingNode);
 
-        vm.warp(block.timestamp + RESPONSE_WINDOW + 1);
+        vm.warp(vm.getBlockTimestamp() + RESPONSE_WINDOW + 1);
 
         vm.startSnapshotGas("ClaimUnansweredChallenge");
         client.claimUnansweredChallenge(epoch, missingNode);
@@ -307,7 +325,7 @@ contract DRIFTDisputeGasTest is DRIFTTestHelper {
         vm.prank(challengerMissing);
         client.challengeOmission{ value: CHALLENGE_BOND }(epoch, missingNode);
 
-        vm.warp(block.timestamp + RESPONSE_WINDOW + 1);
+        vm.warp(vm.getBlockTimestamp() + RESPONSE_WINDOW + 1);
         client.claimUnansweredChallenge(epoch, missingNode);
 
         vm.startSnapshotGas("ReclaimMootChallenge");
@@ -356,7 +374,7 @@ contract DRIFTDisputeGasTest is DRIFTTestHelper {
         vm.prank(challengerMissing);
         client.challengeOmission{ value: CHALLENGE_BOND }(epoch, missingNode);
 
-        vm.warp(block.timestamp + RESPONSE_WINDOW + 1);
+        vm.warp(vm.getBlockTimestamp() + RESPONSE_WINDOW + 1);
         client.claimUnansweredChallenge(epoch, missingNode);
 
         vm.startSnapshotGas("ReclaimMootChallenges_Batch10");
@@ -379,7 +397,7 @@ contract DRIFTDisputeGasTest is DRIFTTestHelper {
 
         uint256 epoch = 1;
         _postEpoch(epoch, _leaf(nodeA, 100, epoch));
-        vm.warp(block.timestamp + DISPUTE_WINDOW + RESPONSE_WINDOW + 1);
+        vm.warp(vm.getBlockTimestamp() + DISPUTE_WINDOW + RESPONSE_WINDOW + 1);
 
         vm.startSnapshotGas("WithdrawSettlementBond");
         client.withdrawSettlementBond(epoch);

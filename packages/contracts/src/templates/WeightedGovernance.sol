@@ -86,6 +86,21 @@ contract WeightedGovernanceClient is
     uint256 public constant MIN_SETTLEMENT_BOND = 0.001 ether;
     uint256 public constant MIN_CHALLENGE_BOND = 0.001 ether;
 
+    /// @notice Hard ceiling on `responseGasEstimate`. Without it, a context admin could set the
+    ///         estimate arbitrarily high and price every challenger out, suppressing challenges
+    ///         entirely — an administrative-capture path P3 is supposed to rule out. 500,000 is
+    ///         roughly an order of magnitude above a real depth-20 response, so it constrains
+    ///         abuse without constraining honest configuration.
+    uint256 public constant MAX_RESPONSE_GAS_ESTIMATE = 500_000;
+
+    /// @notice Margin applied over the estimated response cost when pricing a challenge bond,
+    ///         in basis points (12_000 = 1.2x). Absorbs the gap between the basefee at challenge
+    ///         time (when the bond is sized) and at response time (when the settler actually
+    ///         spends it). It does not close that gap: a basefee rise steeper than this margin
+    ///         within `responseWindow` still leaves the response under-covered.
+    uint256 public constant CHALLENGE_BOND_MARGIN_BPS = 12_000;
+    uint256 public constant BPS_DENOMINATOR = 10_000;
+
     /// @notice Wei the settler must escrow per posted epoch, forfeited on a successful challenge.
     uint256 public settlementBond;
     /// @notice Wei a challenger must escrow to open a non-inclusion challenge.
@@ -118,6 +133,31 @@ contract WeightedGovernanceClient is
     /// @notice epoch => missing node => open/resolved challenge. Concurrent per-node, not
     ///         serialized per-epoch — see `challengeOmission`.
     mapping(uint256 => mapping(address => Challenge)) public challenges;
+
+    /// @notice Settler's expected gas to answer one challenge, used to price the challenge bond
+    ///         so that defending is profitable rather than merely obligatory. Admin-set because
+    ///         response cost scales with tree depth, which the contract cannot observe. Bounded
+    ///         above by MAX_RESPONSE_GAS_ESTIMATE. Left at 0, the bond falls back to
+    ///         MIN_CHALLENGE_BOND — a degradation to the old fixed-floor behaviour, not a hole.
+    uint256 public responseGasEstimate;
+
+    /// @notice Seconds a *third-party* challenger must have been admitted before an epoch's
+    ///         boundary in order to challenge on another node's behalf. 0 means any admitted node
+    ///         may. Does not apply to self-challenge, which is always unconditional: gating
+    ///         self-challenge would let a settler omit a node and thereby strip its standing to
+    ///         contest that very omission.
+    uint256 public thirdPartyChallengeMinAge;
+
+    /// @notice epoch => challenger => timestamp of that challenger's most recent challenge
+    ///         against this epoch. Caps each challenger at one challenge per epoch.
+    /// @dev Deliberately a timestamp, not a bool. An epoch number is reusable: a successful
+    ///      challenge rolls the epoch back and the settler reposts under the same number. A bool
+    ///      would never reset, permanently barring a challenger who was *correct* in the previous
+    ///      round from contesting a corrected root that still omits them — reinstating, through
+    ///      the cap, exactly the "settler silences the victim" failure that unconditional
+    ///      self-challenge exists to prevent. Comparing against `epochPostedAtTimestamp[epoch]`
+    ///      (zeroed on invalidation, reset on repost) scopes the cap to the current round.
+    mapping(uint256 => mapping(address => uint256)) public lastChallengedAt;
 
     // Mappings
     mapping(uint256 => bytes32) public epochRoots;
@@ -322,12 +362,47 @@ contract WeightedGovernanceClient is
         settlementBond = amount;
     }
 
-    /// @notice Sets the challenger's bond for opening a non-inclusion challenge.
+    /// @notice Sets the challenger's bond floor for opening a non-inclusion challenge. The bond
+    ///         actually charged is the greater of this and the response-cost-tracking amount —
+    ///         see `requiredChallengeBond`.
     function setChallengeBond(
         uint256 amount
     ) external onlyContextAdmin {
         if (amount < MIN_CHALLENGE_BOND) revert BondBelowFloor(amount, MIN_CHALLENGE_BOND);
         challengeBond = amount;
+    }
+
+    /// @notice Sets the settler's expected gas cost to answer one challenge, which prices the
+    ///         challenge bond. Scales with tree depth, so it is per-context configuration rather
+    ///         than a constant.
+    /// @dev Bounded by MAX_RESPONSE_GAS_ESTIMATE: an unbounded setter would let a context admin
+    ///      price challenges out of reach and suppress disputes altogether.
+    function setResponseGasEstimate(
+        uint256 gasEstimate
+    ) external onlyContextAdmin {
+        if (gasEstimate > MAX_RESPONSE_GAS_ESTIMATE) {
+            revert ResponseGasEstimateTooHigh(gasEstimate, MAX_RESPONSE_GAS_ESTIMATE);
+        }
+        responseGasEstimate = gasEstimate;
+        emit ResponseGasEstimateUpdated(contextUID, gasEstimate);
+    }
+
+    /// @notice Sets how long a third-party challenger must have been admitted before an epoch's
+    ///         boundary to challenge on another node's behalf. 0 allows any admitted node.
+    ///         Never applies to self-challenge.
+    function setThirdPartyChallengeMinAge(
+        uint256 minAgeSeconds
+    ) external onlyContextAdmin {
+        thirdPartyChallengeMinAge = minAgeSeconds;
+        emit ThirdPartyChallengeMinAgeUpdated(contextUID, minAgeSeconds);
+    }
+
+    /// @inheritdoc IDRIFTSettler
+    function requiredChallengeBond() public view returns (uint256) {
+        uint256 floor = challengeBond < MIN_CHALLENGE_BOND ? MIN_CHALLENGE_BOND : challengeBond;
+        uint256 responseCost =
+            (responseGasEstimate * block.basefee * CHALLENGE_BOND_MARGIN_BPS) / BPS_DENOMINATOR;
+        return responseCost > floor ? responseCost : floor;
     }
 
     /// @notice Updates the trusted settler address
@@ -551,21 +626,65 @@ contract WeightedGovernanceClient is
             // be possible if the corrected root still omits them.
             revert ChallengeAlreadyOpen(epoch, missingNode);
         }
-        if (!_disputeEligible(missingNode, _boundaryTimestampFor(epoch))) {
+        uint256 boundary = _boundaryTimestampFor(epoch);
+        if (!_disputeEligible(missingNode, boundary)) {
             revert NodeNotEligibleForDispute(missingNode);
         }
-        if (challengeBond < MIN_CHALLENGE_BOND) {
-            revert BondBelowFloor(challengeBond, MIN_CHALLENGE_BOND);
-        }
-        if (msg.value != challengeBond) revert InsufficientBond(msg.value, challengeBond);
 
+        // Standing. Self-challenge is unconditional: P5' soundness rests on it, and gating it on
+        // anything derived from settled state would be circular — reputation is materialised from
+        // the root, so an omitted node has no leaf, and any reputation or age requirement would
+        // let a settler disqualify a node from contesting its own omission simply by omitting it.
+        // The eligibility check above already establishes the victim was admitted at the boundary,
+        // which is the only standing a self-challenge needs.
+        //
+        // Third-party challenge may be gated freely, because P5' never depends on it: it exists to
+        // cover nodes that are offline or have lost keys, a convenience. Gating it costs no
+        // soundness and removes most of the griefing surface, mass challenge being inherently
+        // third-party.
+        if (msg.sender != missingNode) {
+            if (!_disputeEligible(msg.sender, boundary)) {
+                revert ChallengerNotAdmitted(msg.sender);
+            }
+            uint256 challengerRegisteredAt = core.nodeRegisteredAt(contextUID, msg.sender);
+            if (
+                thirdPartyChallengeMinAge != 0
+                    && challengerRegisteredAt + thirdPartyChallengeMinAge > boundary
+            ) {
+                revert ThirdPartyChallengeNotPermitted(msg.sender, missingNode);
+            }
+        }
+
+        // One challenge per challenger per epoch *round*. Scoped to the current posting rather
+        // than the epoch number, so a rollback and repost re-arms it — see `lastChallengedAt`.
+        if (lastChallengedAt[epoch][msg.sender] >= epochPostedAtTimestamp[epoch]) {
+            revert AlreadyChallengedThisEpoch(epoch, msg.sender);
+        }
+
+        // Bond tracks the settler's response cost, so defending a challenge is profitable rather
+        // than merely obligatory. `>=` not `==`: the required amount depends on the basefee of the
+        // block this call lands in, which the caller cannot know in advance and must pad against.
+        uint256 requiredBond = requiredChallengeBond();
+        if (msg.value < requiredBond) revert InsufficientBond(msg.value, requiredBond);
+
+        lastChallengedAt[epoch][msg.sender] = block.timestamp;
         challenges[epoch][missingNode] = Challenge({
             openedAtTimestamp: block.timestamp,
-            bond: msg.value,
+            bond: requiredBond,
             challenger: msg.sender,
             resolved: false
         });
         openChallengeCount[epoch]++;
+
+        // Refund the pad. Only `requiredBond` is at stake, so an honest challenger who padded
+        // generously against basefee movement isn't penalised for it on a losing challenge.
+        // Effects above are complete before this call, and the per-challenger cap just set means
+        // a re-entrant challengeOmission reverts rather than opening a second challenge.
+        uint256 excess = msg.value - requiredBond;
+        if (excess > 0) {
+            (bool refunded,) = msg.sender.call{ value: excess }("");
+            if (!refunded) revert ExecutionFailed();
+        }
 
         emit ChallengeOpened(contextUID, epoch, missingNode, msg.sender, msg.value);
     }

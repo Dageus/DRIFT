@@ -54,6 +54,13 @@ interface IDRIFTSettler is IDRIFTClient {
         bytes32 indexed contextUID, uint256 indexed epoch, uint256 amount
     );
 
+    /// @notice Emitted when the per-context response gas estimate that prices challenge bonds
+    ///         changes. Challengers watch this: it moves the bond they must post.
+    event ResponseGasEstimateUpdated(bytes32 indexed contextUID, uint256 gasEstimate);
+
+    /// @notice Emitted when the third-party challenge standing requirement changes.
+    event ThirdPartyChallengeMinAgeUpdated(bytes32 indexed contextUID, uint256 minAgeSeconds);
+
     // ERRORS ==================================================================
 
     error InvalidSettlerSignature();
@@ -85,6 +92,10 @@ interface IDRIFTSettler is IDRIFTClient {
     error EpochAlreadyInvalidated(uint256 epoch);
     error EpochNotInvalidated(uint256 epoch);
     error NoBondToWithdraw(uint256 epoch);
+    error ChallengerNotAdmitted(address challenger);
+    error AlreadyChallengedThisEpoch(uint256 epoch, address challenger);
+    error ThirdPartyChallengeNotPermitted(address challenger, address node);
+    error ResponseGasEstimateTooHigh(uint256 provided, uint256 maximum);
 
     // SETTLEMENT CONFIGURATION ================================================
 
@@ -183,6 +194,13 @@ interface IDRIFTSettler is IDRIFTClient {
         uint256[] calldata epochs,
         address[] calldata nodes
     ) external;
+
+    /// @notice Wei a challenge must post right now: the greater of the configured bond floor and
+    ///         the settler's estimated response cost at the current basefee plus margin. Depends
+    ///         on `block.basefee`, so the amount required when a transaction is *included* may
+    ///         exceed the amount quoted when it was built — callers should pad. The excess over
+    ///         the required amount is refunded and never at stake.
+    function requiredChallengeBond() external view returns (uint256);
 
     /// @notice Withdraws the settler's escrowed bond for an epoch that finalized cleanly
     ///         (window elapsed, no successful challenge). Callable by anyone; pays trustedSettler.
