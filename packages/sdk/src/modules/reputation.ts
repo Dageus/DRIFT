@@ -82,8 +82,34 @@ export class ReputationModule {
   // B1 — Non-inclusion disputes ===============================================
 
   /**
+   * Reads the bond a challenge must post right now: the greater of the configured floor and the
+   * settler's estimated response cost at the current basefee plus margin.
+   *
+   * This depends on `block.basefee`, so the amount required when a transaction is *included* can
+   * exceed the amount quoted when it was built. Send more than this — `challengeOmission` takes
+   * any amount at or above the requirement and refunds the excess, so padding is free.
+   */
+  public async requiredChallengeBond(clientAddress: string): Promise<bigint> {
+    try {
+      return await this._connected(clientAddress).requiredChallengeBond();
+    } catch (err) {
+      handleContractError(err, this._interface);
+      throw err;
+    }
+  }
+
+  /**
    * Opens a challenge claiming `missingNode` was admitted at `epoch`'s boundary but has no leaf
-   * in that epoch's posted root. `bondAmount` must equal the client's current `challengeBond`.
+   * in that epoch's posted root.
+   *
+   * `bondAmount` must be at least `requiredChallengeBond()`; anything above that is refunded in
+   * the same transaction, so pad against basefee movement between building and inclusion rather
+   * than sending the exact quote.
+   *
+   * Standing: challenging on another node's behalf requires the caller to itself be admitted at
+   * the epoch boundary, and to satisfy the context's `thirdPartyChallengeMinAge` if one is set.
+   * Challenging one's *own* omission carries neither requirement. Each challenger may open one
+   * challenge per epoch.
    */
   public async challengeOmission(
     clientAddress: string,
@@ -142,6 +168,24 @@ export class ReputationModule {
   public async reclaimMootChallenge(clientAddress: string, epoch: bigint, node: string): Promise<void> {
     try {
       const tx = await this._connected(clientAddress).reclaimMootChallenge(epoch, node);
+      await tx.wait();
+    } catch (err) {
+      handleContractError(err, this._interface);
+    }
+  }
+
+  /**
+   * Batched `reclaimMootChallenge`: refunds several moot challenges in one transaction, paired
+   * positionally. Reclaiming a bond individually costs a whole transaction's fixed overhead,
+   * which above a certain gas price exceeds what a single bond is worth; batching amortizes that
+   * overhead across the set. Reverts the whole batch if any entry is not currently reclaimable.
+   */
+  public async reclaimMootChallenges(clientAddress: string, epochs: bigint[], nodes: string[]): Promise<void> {
+    if (epochs.length !== nodes.length) {
+      throw new Error(`epochs and nodes must be the same length (got ${epochs.length} and ${nodes.length})`);
+    }
+    try {
+      const tx = await this._connected(clientAddress).reclaimMootChallenges(epochs, nodes);
       await tx.wait();
     } catch (err) {
       handleContractError(err, this._interface);

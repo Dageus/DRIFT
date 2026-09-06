@@ -58,6 +58,8 @@ export interface WeightedGovernanceClientContract extends BaseContract {
   ): Promise<ContractTransactionResponse>;
   claimUnansweredChallenge(epoch: bigint, node: string): Promise<ContractTransactionResponse>;
   reclaimMootChallenge(epoch: bigint, node: string): Promise<ContractTransactionResponse>;
+  reclaimMootChallenges(epochs: bigint[], nodes: string[]): Promise<ContractTransactionResponse>;
+  requiredChallengeBond(): Promise<bigint>;
   withdrawSettlementBond(epoch: bigint): Promise<ContractTransactionResponse>;
 
   // Governance proposals/voting ===============================================

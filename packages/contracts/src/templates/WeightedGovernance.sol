@@ -76,13 +76,14 @@ contract WeightedGovernanceClient is
     ///         than admin-configurable values, so an admin (or an admin colluding with the
     ///         settler) can never grief the bond down to economically meaningless.
     /// @dev This is a floor against a degenerate zero-ish bond, not a recommended operating
-    ///      value. The settlementBond an admin actually sets must be sized well above this floor
-    ///      against the settler's real response capacity (how many concurrent challenges it can
-    ///      answer within `responseWindow`) and prevailing gas price -- too low a bond relative to
-    ///      that capacity lets a rational settler abandon defense rather than pay to protect a
-    ///      bond smaller than the defense cost, forfeiting it for free. This constant cannot know
-    ///      either quantity for a given deployment, so it deliberately does not attempt to be
-    ///      "safe" on its own.
+    ///      value. Once `responseGasEstimate` is configured, the challenge bond covers the
+    ///      settler's response cost, so defending is profitable and a settler never rationally
+    ///      abandons a correct root however many challenges it faces — which removes the *lower*
+    ///      constraint on settlementBond that would otherwise apply. What remains is an upper
+    ///      one: settlementBond must not exceed the cost of mounting enough challenges to exhaust
+    ///      the settler's response capacity, or overwhelming a settler pays for itself. That
+    ///      capacity is a deployment property this constant cannot observe, so it makes no
+    ///      attempt to be "safe" on its own.
     uint256 public constant MIN_SETTLEMENT_BOND = 0.001 ether;
     uint256 public constant MIN_CHALLENGE_BOND = 0.001 ether;
 
