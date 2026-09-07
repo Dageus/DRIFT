@@ -119,11 +119,23 @@ contract DRIFTMerkleGasTest is Test {
     }
 
     /// @notice Benchmarks a repeat claim: same node, same role, a later epoch with an increased
-    ///         score. Unlike a first claim, `lastClaimedEpoch[node][role]` is already non-zero and
-    ///         the ERC-1155 balance already exists, so this isolates the warm-storage cost of an
-    ///         already-claimed role's subsequent claim from the first claim's cold-mint cost.
+    ///         score. Unlike a first claim, `lastClaimedEpoch[node][role]` and the ERC-1155
+    ///         balance are already non-zero, so the storage writes are updates rather than
+    ///         initialisations -- which is the whole of the difference being measured.
+    /// @dev The accounts touched by the unmeasured first claim are cooled before the measured one.
+    ///      Without this the figure is an artifact of the harness: both claims run inside a single
+    ///      test transaction, so the second would inherit EIP-2929 warm access to the registry and
+    ///      token that a real repeat claim, arriving as its own transaction, pays for again. The
+    ///      result is slightly conservative -- it also re-cools the client account, which the
+    ///      first-claim benchmark leaves warm from its own `postEpochRoot` -- so the true gap
+    ///      between first and repeat is marginally wider than the measured one, not narrower.
     function test_Gas_Repeat_Claim_Depth10_1024Users() public {
         _simulateClaim(10, 1, 100, false, "");
+
+        vm.cool(address(client));
+        vm.cool(address(core));
+        vm.cool(address(driftToken));
+
         _simulateClaim(10, 2, 150, true, "Repeat_Claim_Depth_10_Users_1024");
     }
 
