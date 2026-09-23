@@ -1,0 +1,37 @@
+engine,pretrust,honest_nodes,sybil_nodes,honest_to_sybil_edges,sybil_mass_share,baseline_share,amplification
+EigenTrust,uniform,1000,100,0,0.09091,0.09091,1.000
+EigenTrust,uniform,1000,100,1,0.09120,0.09091,1.003
+EigenTrust,uniform,1000,100,2,0.09161,0.09091,1.008
+EigenTrust,uniform,1000,100,5,0.09407,0.09091,1.035
+EigenTrust,uniform,1000,100,10,0.09761,0.09091,1.074
+EigenTrust,uniform,1000,100,25,0.10678,0.09091,1.175
+EigenTrust,uniform,1000,100,50,0.12114,0.09091,1.333
+EigenTrust,uniform,1000,100,100,0.14607,0.09091,1.607
+EigenTrust,uniform,1000,100,250,0.21526,0.09091,2.368
+EigenTrust,all-honest-anchored (upper bound),1000,100,0,0.00000,0.09091,0.000
+EigenTrust,all-honest-anchored (upper bound),1000,100,1,0.00011,0.09091,0.001
+EigenTrust,all-honest-anchored (upper bound),1000,100,2,0.00022,0.09091,0.002
+EigenTrust,all-honest-anchored (upper bound),1000,100,5,0.00222,0.09091,0.024
+EigenTrust,all-honest-anchored (upper bound),1000,100,10,0.00618,0.09091,0.068
+EigenTrust,all-honest-anchored (upper bound),1000,100,25,0.01705,0.09091,0.188
+EigenTrust,all-honest-anchored (upper bound),1000,100,50,0.03289,0.09091,0.362
+EigenTrust,all-honest-anchored (upper bound),1000,100,100,0.06208,0.09091,0.683
+EigenTrust,all-honest-anchored (upper bound),1000,100,250,0.13939,0.09091,1.533
+EigenTrust,seed-anchored (10 nodes),1000,100,0,0.00000,0.09091,0.000
+EigenTrust,seed-anchored (10 nodes),1000,100,1,0.01242,0.09091,0.137
+EigenTrust,seed-anchored (10 nodes),1000,100,2,0.02658,0.09091,0.292
+EigenTrust,seed-anchored (10 nodes),1000,100,5,0.07011,0.09091,0.771
+EigenTrust,seed-anchored (10 nodes),1000,100,10,0.14786,0.09091,1.626
+EigenTrust,seed-anchored (10 nodes),1000,100,25,0.19605,0.09091,2.157
+EigenTrust,seed-anchored (10 nodes),1000,100,50,0.29340,0.09091,3.227
+EigenTrust,seed-anchored (10 nodes),1000,100,100,0.40084,0.09091,4.409
+EigenTrust,seed-anchored (10 nodes),1000,100,250,0.47415,0.09091,5.216
+WeightedLocal,n/a,1000,100,0,0.09091,0.09091,1.000
+WeightedLocal,n/a,1000,100,1,0.09091,0.09091,1.000
+WeightedLocal,n/a,1000,100,2,0.09091,0.09091,1.000
+WeightedLocal,n/a,1000,100,5,0.09091,0.09091,1.000
+WeightedLocal,n/a,1000,100,10,0.09091,0.09091,1.000
+WeightedLocal,n/a,1000,100,25,0.09091,0.09091,1.000
+WeightedLocal,n/a,1000,100,50,0.09091,0.09091,1.000
+WeightedLocal,n/a,1000,100,100,0.09091,0.09091,1.000
+WeightedLocal,n/a,1000,100,250,0.09091,0.09091,1.000
