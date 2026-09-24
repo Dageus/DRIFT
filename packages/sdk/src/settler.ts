@@ -11,7 +11,14 @@ const EPOCH_BOUNDARY_ABI = [
   'function epochAnchorTimestamp() external view returns (uint256)'
 ];
 
-const HAS_NODE_ROLE_ABI = ['function hasNodeRole(address node, bytes32 role) external view returns (bool)'];
+const CLIENT_REGISTRY_ABI = [
+  'function core() external view returns (address)',
+  'function contextUID() external view returns (bytes32)'
+];
+
+const HELD_ROLE_AT_ABI = [
+  'function nodeHeldRoleAt(bytes32 contextUID, address node, bytes32 role, uint256 timestamp) external view returns (bool)'
+];
 
 /**
  * Thrown by assertSynchronizedForEpoch when the connected provider's observed chain head has not
@@ -118,16 +125,21 @@ export class DriftSettler {
   }
 
   /**
-   * Checks, for every unique (node, role) pair in `scores`, that DRIFTCore already has that role
-   * assigned to that node — reward() rejects an unassigned role on-chain, so a settlement built
-   * for a node/role no one called assignRole on would fail only once posted, mid-batch, after the
-   * settler has already spent the gas and revealed the (rejected) score. Throws
-   * DriftValidationError naming the first missing pair instead. Callers computing Phi_c for
-   * `epoch` MUST check this (or use buildAndSignEpochRoot after) — this intentionally does not
-   * gate buildAndSignEpochRoot itself, so tree-building/signing stays unit-testable against an
+   * Checks, for every unique (node, role) pair in `scores`, that the node held the role at
+   * `epoch`'s boundary, as DRIFTCore.nodeHeldRoleAt reports it. Throws DriftValidationError naming
+   * the first pair that did not.
+   *
+   * The reference time is the boundary, not the present, and both directions matter. An epoch's
+   * leaf set must be exactly the pairs that existed at its boundary: the dispute contract admits an
+   * omission challenge for any such pair, so dropping one whose role was revoked after the boundary
+   * lets that node win the settler's bond; and including one whose role was assigned after the
+   * boundary would let a node vote on a snapshot with a role it acquired later.
+   *
+   * Callers computing Phi_c for `epoch` MUST check this. It intentionally does not gate
+   * buildAndSignEpochRoot itself, so tree-building and signing stay unit-testable against an
    * offline signer with no provider attached, matching isSynchronizedForEpoch's convention.
    */
-  public async assertRolesAssigned(clientAddress: string, scores: ScoreEntry[]): Promise<void> {
+  public async assertRolesAssigned(clientAddress: string, epoch: bigint, scores: ScoreEntry[]): Promise<void> {
     if (!this.signer.provider) {
       throw new DriftConfigError('DRIFT SDK: Signer must have a provider to check role assignment.');
     }
@@ -140,18 +152,32 @@ export class DriftSettler {
       return true;
     });
 
-    const results = await Promise.all(pairs.map((s) => this._fetchHasNodeRole(clientAddress, s.node, s.role)));
+    const { epochLength, epochAnchorTimestamp } = await this._fetchEpochBoundaryConfig(clientAddress);
+    const boundary = epochAnchorTimestamp + epochLength * epoch;
+
+    const results = await Promise.all(
+      pairs.map((s) => this._fetchHeldRoleAt(clientAddress, s.node, s.role, boundary))
+    );
     const missing = pairs.find((_, i) => !results[i]);
     if (missing) {
       throw new DriftValidationError(
-        `DRIFT SDK: node ${missing.node} does not hold role ${missing.role} in context at ${clientAddress} — call assignRole first.`
+        `DRIFT SDK: node ${missing.node} did not hold role ${missing.role} at the boundary of epoch ${epoch} ` +
+          `in context at ${clientAddress}; only pairs held at the boundary may be settled.`
       );
     }
   }
 
-  private async _fetchHasNodeRole(clientAddress: string, node: string, role: string): Promise<boolean> {
-    const contract = new Contract(clientAddress, HAS_NODE_ROLE_ABI, this.signer.provider);
-    return await contract.hasNodeRole!(node, role);
+  private async _fetchHeldRoleAt(
+    clientAddress: string,
+    node: string,
+    role: string,
+    timestamp: bigint
+  ): Promise<boolean> {
+    const client = new Contract(clientAddress, CLIENT_REGISTRY_ABI, this.signer.provider);
+    // Dynamic ABI method access: both are declared in CLIENT_REGISTRY_ABI.
+    const [coreAddress, contextUID] = await Promise.all([client.core!(), client.contextUID!()]);
+    const core = new Contract(coreAddress, HELD_ROLE_AT_ABI, this.signer.provider);
+    return await core.nodeHeldRoleAt!(contextUID, node, role, timestamp);
   }
 
   /**
@@ -161,7 +187,7 @@ export class DriftSettler {
    * Does NOT perform the O1 synchronization check itself — call
    * isSynchronizedForEpoch/assertSynchronizedForEpoch before computing Phi_c for `epoch` and
    * invoking this method. Nor does it check role assignment itself — call assertRolesAssigned
-   * first if any `scores` entries may name a role the settler hasn't confirmed is assigned.
+   * first to confirm every `scores` entry names a pair held at the epoch boundary.
    */
   public async buildAndSignEpochRoot(
     clientAddress: string,
