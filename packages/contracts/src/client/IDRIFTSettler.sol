@@ -30,13 +30,14 @@ interface IDRIFTSettler is IDRIFTClient {
         bytes32 indexed contextUID,
         uint256 indexed epoch,
         address indexed missingNode,
+        bytes32 role,
         address challenger,
         uint256 bond
     );
 
     /// @notice Emitted when a challenge is defeated by a valid inclusion proof (B1)
     event ChallengeDefeated(
-        bytes32 indexed contextUID, uint256 indexed epoch, address indexed missingNode
+        bytes32 indexed contextUID, uint256 indexed epoch, address indexed missingNode, bytes32 role
     );
 
     /// @notice Emitted when a challenge goes unanswered and the epoch root is invalidated (B1)
@@ -44,6 +45,7 @@ interface IDRIFTSettler is IDRIFTClient {
         bytes32 indexed contextUID,
         uint256 indexed epoch,
         address indexed missingNode,
+        bytes32 role,
         address disputer,
         uint256 bondPaid,
         uint256 consecutiveFailedEpochs
@@ -83,12 +85,13 @@ interface IDRIFTSettler is IDRIFTClient {
     error InsufficientBond(uint256 provided, uint256 required);
     error EpochNotYetFinalized(uint256 epoch);
     error NodeNotEligibleForDispute(address node);
+    error RoleNotHeldAtBoundary(address node, bytes32 role);
     error DisputeWindowClosed(uint256 epoch);
-    error ResponseWindowClosed(uint256 epoch, address node);
-    error ResponseWindowStillOpen(uint256 epoch, address node);
-    error ChallengeNotFound(uint256 epoch, address node);
-    error ChallengeAlreadyOpen(uint256 epoch, address node);
-    error ChallengeAlreadyResolved(uint256 epoch, address node);
+    error ResponseWindowClosed(uint256 epoch, address node, bytes32 role);
+    error ResponseWindowStillOpen(uint256 epoch, address node, bytes32 role);
+    error ChallengeNotFound(uint256 epoch, address node, bytes32 role);
+    error ChallengeAlreadyOpen(uint256 epoch, address node, bytes32 role);
+    error ChallengeAlreadyResolved(uint256 epoch, address node, bytes32 role);
     error EpochAlreadyInvalidated(uint256 epoch);
     error EpochNotInvalidated(uint256 epoch);
     error NoBondToWithdraw(uint256 epoch);
@@ -151,16 +154,20 @@ interface IDRIFTSettler is IDRIFTClient {
 
     // B1 — NON-INCLUSION DISPUTES =============================================
 
-    /// @notice Opens a challenge claiming `missingNode` was admitted at `epoch`'s boundary but has
-    ///         no leaf in that epoch's posted root. Caller must escrow `challengeBond` wei.
+    /// @notice Opens a challenge claiming that `missingNode` held `role` at `epoch`'s boundary but
+    ///         the pair has no leaf in that epoch's posted root. Caller must escrow at least
+    ///         `requiredChallengeBond()` wei; any excess is refunded.
     /// @param epoch The (current) epoch being challenged
     /// @param missingNode The node claimed to be omitted
+    /// @param role The role whose leaf is claimed missing. Must have been held at the boundary.
     function challengeOmission(
         uint256 epoch,
-        address missingNode
+        address missingNode,
+        bytes32 role
     ) external payable;
 
-    /// @notice Defeats an open challenge by proving `node` does have a leaf in `epoch`'s root.
+    /// @notice Defeats an open challenge by proving the challenged (`node`, `role`) pair does have
+    ///         a leaf in `epoch`'s root. A leaf for a different role does not answer it.
     ///         Permissionless — callable by anyone with the published tree data — but the
     ///         challenger's forfeited bond always pays out to the context's trustedSettler.
     function respondToChallenge(
@@ -176,23 +183,26 @@ interface IDRIFTSettler is IDRIFTClient {
     ///         invalidated (rolled back) for correction. Permissionless trigger.
     function claimUnansweredChallenge(
         uint256 epoch,
-        address node
+        address node,
+        bytes32 role
     ) external;
 
     /// @notice Refunds a challenger's own bond for a challenge rendered moot by a *different*
     ///         concurrent challenge against the same epoch already invalidating its root.
     function reclaimMootChallenge(
         uint256 epoch,
-        address node
+        address node,
+        bytes32 role
     ) external;
 
     /// @notice Batched reclaimMootChallenge: refunds several moot challenges' bonds in one
     ///         transaction, amortizing the fixed transaction overhead a caller would otherwise
-    ///         pay per reclaim. `epochs[i]`/`nodes[i]` are paired positionally. Reverts the whole
-    ///         batch if any entry is not currently reclaimable.
+    ///         pay per reclaim. `epochs[i]`, `nodes[i]` and `roles[i]` are paired positionally.
+    ///         Reverts the whole batch if any entry is not currently reclaimable.
     function reclaimMootChallenges(
         uint256[] calldata epochs,
-        address[] calldata nodes
+        address[] calldata nodes,
+        bytes32[] calldata roles
     ) external;
 
     /// @notice Wei a challenge must post right now: the greater of the configured bond floor and

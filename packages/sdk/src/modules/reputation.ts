@@ -99,8 +99,13 @@ export class ReputationModule {
   }
 
   /**
-   * Opens a challenge claiming `missingNode` was admitted at `epoch`'s boundary but has no leaf
-   * in that epoch's posted root.
+   * Opens a challenge claiming that `missingNode` held `role` at `epoch`'s boundary but the
+   * (node, role) pair has no leaf in that epoch's posted root.
+   *
+   * Completeness is per pair, so the challenge names a role, and the node must have held that role
+   * at the boundary (assigned at or before it, not revoked by it). Otherwise the contract reverts
+   * with `RoleNotHeldAtBoundary`: a correct settler never includes a leaf for a role the node did
+   * not hold, so such a challenge could only ever be used to grief an honest settler.
    *
    * `bondAmount` must be at least `requiredChallengeBond()`; anything above that is refunded in
    * the same transaction, so pad against basefee movement between building and inclusion rather
@@ -115,10 +120,13 @@ export class ReputationModule {
     clientAddress: string,
     epoch: bigint,
     missingNode: string,
+    role: string,
     bondAmount: bigint
   ): Promise<void> {
     try {
-      const tx = await this._connected(clientAddress).challengeOmission(epoch, missingNode, { value: bondAmount });
+      const tx = await this._connected(clientAddress).challengeOmission(epoch, missingNode, role, {
+        value: bondAmount
+      });
       await tx.wait();
     } catch (err) {
       handleContractError(err, this._interface);
@@ -126,7 +134,8 @@ export class ReputationModule {
   }
 
   /**
-   * Defeats an open challenge by proving `node` does have a leaf in `epoch`'s root.
+   * Defeats an open challenge by proving the challenged (`node`, `role`) pair does have a leaf in
+   * `epoch`'s root. A leaf for any other role of the same node does not answer it.
    * Permissionless — callable by anyone with the published tree data (see
    * `DriftSettler.generateChallengeResponse` for building `role`/`score`/`merkleProof`).
    */
@@ -152,9 +161,14 @@ export class ReputationModule {
    * Permissionless trigger — still requires a connected signer to pay gas, but need not be the
    * original challenger.
    */
-  public async claimUnansweredChallenge(clientAddress: string, epoch: bigint, node: string): Promise<void> {
+  public async claimUnansweredChallenge(
+    clientAddress: string,
+    epoch: bigint,
+    node: string,
+    role: string
+  ): Promise<void> {
     try {
-      const tx = await this._connected(clientAddress).claimUnansweredChallenge(epoch, node);
+      const tx = await this._connected(clientAddress).claimUnansweredChallenge(epoch, node, role);
       await tx.wait();
     } catch (err) {
       handleContractError(err, this._interface);
@@ -165,9 +179,9 @@ export class ReputationModule {
    * Refunds a challenger's own bond for a challenge rendered moot by a *different* concurrent
    * challenge against the same epoch already invalidating its root.
    */
-  public async reclaimMootChallenge(clientAddress: string, epoch: bigint, node: string): Promise<void> {
+  public async reclaimMootChallenge(clientAddress: string, epoch: bigint, node: string, role: string): Promise<void> {
     try {
-      const tx = await this._connected(clientAddress).reclaimMootChallenge(epoch, node);
+      const tx = await this._connected(clientAddress).reclaimMootChallenge(epoch, node, role);
       await tx.wait();
     } catch (err) {
       handleContractError(err, this._interface);
@@ -180,12 +194,19 @@ export class ReputationModule {
    * which above a certain gas price exceeds what a single bond is worth; batching amortizes that
    * overhead across the set. Reverts the whole batch if any entry is not currently reclaimable.
    */
-  public async reclaimMootChallenges(clientAddress: string, epochs: bigint[], nodes: string[]): Promise<void> {
-    if (epochs.length !== nodes.length) {
-      throw new Error(`epochs and nodes must be the same length (got ${epochs.length} and ${nodes.length})`);
+  public async reclaimMootChallenges(
+    clientAddress: string,
+    epochs: bigint[],
+    nodes: string[],
+    roles: string[]
+  ): Promise<void> {
+    if (epochs.length !== nodes.length || epochs.length !== roles.length) {
+      throw new Error(
+        `epochs, nodes and roles must be the same length (got ${epochs.length}, ${nodes.length} and ${roles.length})`
+      );
     }
     try {
-      const tx = await this._connected(clientAddress).reclaimMootChallenges(epochs, nodes);
+      const tx = await this._connected(clientAddress).reclaimMootChallenges(epochs, nodes, roles);
       await tx.wait();
     } catch (err) {
       handleContractError(err, this._interface);

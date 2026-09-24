@@ -291,4 +291,19 @@ interface IDRIFTCore is IAccessControl {
         bytes32 contextUID,
         address node
     ) external view returns (uint256);
+
+    /// @notice Whether `node` held `role` in `contextUID` at `timestamp`. Used for dispute
+    ///         eligibility: completeness is defined over (node, role) pairs admitted at an epoch
+    ///         boundary, so a challenge may only name a pair that existed there.
+    /// @dev    Conservative by construction. Only the latest assignment and the latest removal are
+    ///         stored, so a role revoked and then re-assigned after `timestamp` reads as not held
+    ///         at `timestamp` even if it was. The reverse never happens: this returns true only if
+    ///         the node genuinely held the role then. Ambiguity within a single block also
+    ///         resolves to false. Roles assigned before this view existed read as never held.
+    function nodeHeldRoleAt(
+        bytes32 contextUID,
+        address node,
+        bytes32 role,
+        uint256 timestamp
+    ) external view returns (bool);
 }

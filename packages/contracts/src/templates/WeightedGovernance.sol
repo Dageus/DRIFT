@@ -131,9 +131,11 @@ contract WeightedGovernanceClient is
         bool resolved;
     }
 
-    /// @notice epoch => missing node => open/resolved challenge. Concurrent per-node, not
-    ///         serialized per-epoch — see `challengeOmission`.
-    mapping(uint256 => mapping(address => Challenge)) public challenges;
+    /// @notice epoch => missing node => role => open/resolved challenge. Keyed by the (node, role)
+    ///         pair because completeness is defined over pairs: a node holding several roles can be
+    ///         omitted for one while included for another. Concurrent per pair, not serialized per
+    ///         epoch — see `challengeOmission`.
+    mapping(uint256 => mapping(address => mapping(bytes32 => Challenge))) public challenges;
 
     /// @notice Settler's expected gas to answer one challenge, used to price the challenge bond
     ///         so that defending is profitable rather than merely obligatory. Admin-set because
@@ -612,24 +614,32 @@ contract WeightedGovernanceClient is
     /// @inheritdoc IDRIFTSettler
     function challengeOmission(
         uint256 epoch,
-        address missingNode
+        address missingNode,
+        bytes32 role
     ) external payable {
         if (epoch != currentEpoch) revert EpochNotFound(epoch);
         if (block.timestamp > epochPostedAtTimestamp[epoch] + disputeWindow) {
             revert DisputeWindowClosed(epoch);
         }
         if (
-            challenges[epoch][missingNode].openedAtTimestamp != 0
-                && !challenges[epoch][missingNode].resolved
+            challenges[epoch][missingNode][role].openedAtTimestamp != 0
+                && !challenges[epoch][missingNode][role].resolved
         ) {
             // A resolved (or never-opened) slot can be reused: this matters after a rollback and
             // repost of the same epoch number, where a fresh challenge against the same node must
             // be possible if the corrected root still omits them.
-            revert ChallengeAlreadyOpen(epoch, missingNode);
+            revert ChallengeAlreadyOpen(epoch, missingNode, role);
         }
         uint256 boundary = _boundaryTimestampFor(epoch);
         if (!_disputeEligible(missingNode, boundary)) {
             revert NodeNotEligibleForDispute(missingNode);
+        }
+        // The pair must have existed at the boundary. Without this, a registered node holding no
+        // role (or not yet holding `role`) could "prove" an omission from a correct root: a
+        // correct settler never includes a leaf for a role the node does not hold, so no valid
+        // response exists and the unanswered challenge would forfeit an honest settler's bond.
+        if (!core.nodeHeldRoleAt(contextUID, missingNode, role, boundary)) {
+            revert RoleNotHeldAtBoundary(missingNode, role);
         }
 
         // Standing. Self-challenge is unconditional: P5' soundness rests on it, and gating it on
@@ -669,7 +679,7 @@ contract WeightedGovernanceClient is
         if (msg.value < requiredBond) revert InsufficientBond(msg.value, requiredBond);
 
         lastChallengedAt[epoch][msg.sender] = block.timestamp;
-        challenges[epoch][missingNode] = Challenge({
+        challenges[epoch][missingNode][role] = Challenge({
             openedAtTimestamp: block.timestamp,
             bond: requiredBond,
             challenger: msg.sender,
@@ -687,7 +697,7 @@ contract WeightedGovernanceClient is
             if (!refunded) revert ExecutionFailed();
         }
 
-        emit ChallengeOpened(contextUID, epoch, missingNode, msg.sender, msg.value);
+        emit ChallengeOpened(contextUID, epoch, missingNode, role, msg.sender, msg.value);
     }
 
     /// @inheritdoc IDRIFTSettler
@@ -698,12 +708,12 @@ contract WeightedGovernanceClient is
         uint256 score,
         bytes32[] calldata merkleProof
     ) external {
-        Challenge storage c = challenges[epoch][node];
-        if (c.openedAtTimestamp == 0) revert ChallengeNotFound(epoch, node);
-        if (c.resolved) revert ChallengeAlreadyResolved(epoch, node);
+        Challenge storage c = challenges[epoch][node][role];
+        if (c.openedAtTimestamp == 0) revert ChallengeNotFound(epoch, node, role);
+        if (c.resolved) revert ChallengeAlreadyResolved(epoch, node, role);
         if (epochRoots[epoch] == bytes32(0)) revert EpochAlreadyInvalidated(epoch);
         if (block.timestamp > c.openedAtTimestamp + responseWindow) {
-            revert ResponseWindowClosed(epoch, node);
+            revert ResponseWindowClosed(epoch, node, role);
         }
 
         bytes32 leaf = _canonicalLeaf(node, role, score, epoch);
@@ -719,20 +729,21 @@ contract WeightedGovernanceClient is
         (bool sent,) = trustedSettler.call{ value: bond }("");
         if (!sent) revert ExecutionFailed();
 
-        emit ChallengeDefeated(contextUID, epoch, node);
+        emit ChallengeDefeated(contextUID, epoch, node, role);
     }
 
     /// @inheritdoc IDRIFTSettler
     function claimUnansweredChallenge(
         uint256 epoch,
-        address node
+        address node,
+        bytes32 role
     ) external {
-        Challenge storage c = challenges[epoch][node];
-        if (c.openedAtTimestamp == 0) revert ChallengeNotFound(epoch, node);
-        if (c.resolved) revert ChallengeAlreadyResolved(epoch, node);
+        Challenge storage c = challenges[epoch][node][role];
+        if (c.openedAtTimestamp == 0) revert ChallengeNotFound(epoch, node, role);
+        if (c.resolved) revert ChallengeAlreadyResolved(epoch, node, role);
         if (epochRoots[epoch] == bytes32(0)) revert EpochAlreadyInvalidated(epoch);
         if (block.timestamp <= c.openedAtTimestamp + responseWindow) {
-            revert ResponseWindowStillOpen(epoch, node);
+            revert ResponseWindowStillOpen(epoch, node, role);
         }
 
         c.resolved = true;
@@ -757,32 +768,40 @@ contract WeightedGovernanceClient is
         (bool sent,) = challenger.call{ value: payout }("");
         if (!sent) revert ExecutionFailed();
 
-        emit NonInclusionProven(contextUID, epoch, node, challenger, payout, failCount);
+        emit NonInclusionProven(contextUID, epoch, node, role, challenger, payout, failCount);
     }
 
     /// @inheritdoc IDRIFTSettler
     function reclaimMootChallenge(
         uint256 epoch,
-        address node
+        address node,
+        bytes32 role
     ) external {
-        _reclaimMootChallenge(epoch, node);
+        _reclaimMootChallenge(epoch, node, role);
     }
 
     /// @inheritdoc IDRIFTSettler
     function reclaimMootChallenges(
         uint256[] calldata epochs,
-        address[] calldata nodes
+        address[] calldata nodes,
+        bytes32[] calldata roles
     ) external {
-        if (epochs.length != nodes.length) revert ArrayLengthMismatch();
+        if (epochs.length != nodes.length || epochs.length != roles.length) {
+            revert ArrayLengthMismatch();
+        }
         for (uint256 i = 0; i < epochs.length; i++) {
-            _reclaimMootChallenge(epochs[i], nodes[i]);
+            _reclaimMootChallenge(epochs[i], nodes[i], roles[i]);
         }
     }
 
-    function _reclaimMootChallenge(uint256 epoch, address node) internal {
-        Challenge storage c = challenges[epoch][node];
-        if (c.openedAtTimestamp == 0) revert ChallengeNotFound(epoch, node);
-        if (c.resolved) revert ChallengeAlreadyResolved(epoch, node);
+    function _reclaimMootChallenge(
+        uint256 epoch,
+        address node,
+        bytes32 role
+    ) internal {
+        Challenge storage c = challenges[epoch][node][role];
+        if (c.openedAtTimestamp == 0) revert ChallengeNotFound(epoch, node, role);
+        if (c.resolved) revert ChallengeAlreadyResolved(epoch, node, role);
         if (epochRoots[epoch] != bytes32(0)) revert EpochNotInvalidated(epoch);
 
         c.resolved = true;

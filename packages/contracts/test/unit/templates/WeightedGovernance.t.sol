@@ -798,7 +798,7 @@ contract WeightedGovernanceClientTest is DRIFTTestHelper {
         // currentEpoch is 0 (nothing posted yet) — any epoch != 0 must be rejected immediately,
         // before any dispute-window/eligibility/bond check ever runs.
         vm.expectRevert(abi.encodeWithSelector(IDRIFTSettler.EpochNotFound.selector, 1));
-        client.challengeOmission(1, makeAddr("missing"));
+        client.challengeOmission(1, makeAddr("missing"), ROLE_PROFESSOR);
     }
 
     // PROOF VERIFICATION =======================================================

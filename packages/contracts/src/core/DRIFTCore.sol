@@ -232,6 +232,7 @@ contract DRIFTCore is
                 driftToken.slashReputation(msg.sender, tokenId, balance);
             }
             roles.remove(role);
+            _roleRevokedAt[contextUID][msg.sender][role] = block.timestamp;
         }
 
         emit NodeDeregistered(contextUID, msg.sender);
@@ -348,6 +349,7 @@ contract DRIFTCore is
         if (!_nodeRoles[contextUID][node].add(role)) {
             revert RoleAlreadyHeld(contextUID, node, role);
         }
+        _roleAssignedAt[contextUID][node][role] = block.timestamp;
 
         emit RoleAssigned(contextUID, node, role);
     }
@@ -361,6 +363,7 @@ contract DRIFTCore is
         if (!_nodeRoles[contextUID][node].remove(role)) {
             revert RoleNotHeld(contextUID, node, role);
         }
+        _roleRevokedAt[contextUID][node][role] = block.timestamp;
 
         uint256 tokenId = uint256(keccak256(abi.encode(contextUID, role)));
         uint256 balance = driftToken.balanceOf(node, tokenId);
@@ -445,6 +448,23 @@ contract DRIFTCore is
         address node
     ) external view returns (uint256) {
         return _nodeBannedAt[contextUID][node];
+    }
+
+    /// @inheritdoc IDRIFTCore
+    function nodeHeldRoleAt(
+        bytes32 contextUID,
+        address node,
+        bytes32 role,
+        uint256 timestamp
+    ) external view returns (bool) {
+        uint256 assignedAt = _roleAssignedAt[contextUID][node][role];
+        if (assignedAt == 0 || assignedAt > timestamp) return false;
+        // The latest assignment precedes `timestamp`. Only one removal can follow it without an
+        // intervening re-assignment, and that removal is the latest one, so the role was held
+        // at `timestamp` unless that removal falls in (assignedAt, timestamp]. A removal in the
+        // same block as the assignment is treated as ending the holding.
+        uint256 revokedAt = _roleRevokedAt[contextUID][node][role];
+        return revokedAt < assignedAt || revokedAt > timestamp;
     }
 
     // Modifiers ===============================================================

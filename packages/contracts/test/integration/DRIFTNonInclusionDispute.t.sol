@@ -168,6 +168,8 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         address nodeA = makeAddr("nodeA");
         vm.prank(nodeA);
         core.registerNode(contextUID, "0x");
+        vm.prank(admin);
+        client.assignRole(nodeA, ROLE);
 
         uint256 epoch = 1;
         uint256 score = 100;
@@ -176,7 +178,7 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         address challenger = makeAddr("challenger");
         vm.deal(challenger, CHALLENGE_BOND);
         vm.prank(challenger);
-        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeA);
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeA, ROLE);
 
         assertEq(client.openChallengeCount(epoch), 1);
 
@@ -187,7 +189,7 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         assertEq(settler.balance, settlerBalanceBefore + CHALLENGE_BOND);
         assertEq(client.epochRoots(epoch), _leaf(nodeA, score, epoch));
 
-        (,,, bool resolved) = client.challenges(epoch, nodeA);
+        (,,, bool resolved) = client.challenges(epoch, nodeA, ROLE);
         assertTrue(resolved);
     }
 
@@ -202,6 +204,8 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         vm.prank(missingNode);
         core.registerNode(contextUID, "0x");
         vm.prank(admin);
+        client.assignRole(missingNode, ROLE);
+        vm.prank(admin);
         client.assignRole(nodeA, ROLE);
 
         uint256 epoch = 1;
@@ -212,12 +216,12 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         address challenger = makeAddr("challenger");
         vm.deal(challenger, CHALLENGE_BOND);
         vm.prank(challenger);
-        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, missingNode);
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, missingNode, ROLE);
 
         vm.warp(vm.getBlockTimestamp() + RESPONSE_WINDOW + 1);
 
         uint256 challengerBalanceBefore = challenger.balance;
-        client.claimUnansweredChallenge(epoch, missingNode);
+        client.claimUnansweredChallenge(epoch, missingNode, ROLE);
 
         // The forfeited settlement bond, plus the challenger's own challenge bond refunded.
         assertEq(challenger.balance, challengerBalanceBefore + SETTLEMENT_BOND + CHALLENGE_BOND);
@@ -259,10 +263,16 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         address nodeC = makeAddr("nodeC"); // genuinely missing -> times out, rolls back
         vm.prank(nodeA);
         core.registerNode(contextUID, "0x");
+        vm.prank(admin);
+        client.assignRole(nodeA, ROLE);
         vm.prank(nodeB);
         core.registerNode(contextUID, "0x");
+        vm.prank(admin);
+        client.assignRole(nodeB, ROLE);
         vm.prank(nodeC);
         core.registerNode(contextUID, "0x");
+        vm.prank(admin);
+        client.assignRole(nodeC, ROLE);
 
         uint256 epoch = 1;
         uint256 score = 100;
@@ -280,11 +290,11 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         vm.deal(challengerC, CHALLENGE_BOND);
 
         vm.prank(challengerA);
-        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeA);
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeA, ROLE);
         vm.prank(challengerB);
-        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeB);
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeB, ROLE);
         vm.prank(challengerC);
-        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeC);
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeC, ROLE);
 
         assertEq(client.openChallengeCount(epoch), 3);
 
@@ -295,13 +305,13 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         // C's response window expires unanswered — rolls the epoch back.
         vm.warp(vm.getBlockTimestamp() + RESPONSE_WINDOW + 1);
         uint256 challengerCBalanceBefore = challengerC.balance;
-        client.claimUnansweredChallenge(epoch, nodeC);
+        client.claimUnansweredChallenge(epoch, nodeC, ROLE);
         assertEq(challengerC.balance, challengerCBalanceBefore + SETTLEMENT_BOND + CHALLENGE_BOND);
         assertEq(client.epochRoots(epoch), bytes32(0));
 
         // B's still-open challenge is now moot: refund, no forfeiture either direction.
         uint256 challengerBBalanceBefore = challengerB.balance;
-        client.reclaimMootChallenge(epoch, nodeB);
+        client.reclaimMootChallenge(epoch, nodeB, ROLE);
         assertEq(challengerB.balance, challengerBBalanceBefore + CHALLENGE_BOND);
         assertEq(client.openChallengeCount(epoch), 0);
     }
@@ -316,10 +326,16 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         address nodeC = makeAddr("nodeC"); // genuinely missing -> times out, rolls back
         vm.prank(nodeA);
         core.registerNode(contextUID, "0x");
+        vm.prank(admin);
+        client.assignRole(nodeA, ROLE);
         vm.prank(nodeB);
         core.registerNode(contextUID, "0x");
+        vm.prank(admin);
+        client.assignRole(nodeB, ROLE);
         vm.prank(nodeC);
         core.registerNode(contextUID, "0x");
+        vm.prank(admin);
+        client.assignRole(nodeC, ROLE);
 
         uint256 epoch = 1;
         uint256 score = 100;
@@ -336,15 +352,15 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         vm.deal(challengerC, CHALLENGE_BOND);
 
         vm.prank(challengerA);
-        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeA);
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeA, ROLE);
         vm.prank(challengerB);
-        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeB);
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeB, ROLE);
         vm.prank(challengerC);
-        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeC);
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeC, ROLE);
 
         // Neither A nor B is answered -- both are left open when C's timeout rolls back the epoch.
         vm.warp(vm.getBlockTimestamp() + RESPONSE_WINDOW + 1);
-        client.claimUnansweredChallenge(epoch, nodeC);
+        client.claimUnansweredChallenge(epoch, nodeC, ROLE);
         assertEq(client.epochRoots(epoch), bytes32(0));
 
         uint256 balanceABefore = challengerA.balance;
@@ -356,7 +372,7 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         epochs[1] = epoch;
         nodes[0] = nodeA;
         nodes[1] = nodeB;
-        client.reclaimMootChallenges(epochs, nodes);
+        client.reclaimMootChallenges(epochs, nodes, _roles(nodes.length));
 
         assertEq(challengerA.balance, balanceABefore + CHALLENGE_BOND);
         assertEq(challengerB.balance, balanceBBefore + CHALLENGE_BOND);
@@ -367,7 +383,7 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         uint256[] memory epochs = new uint256[](2);
         address[] memory nodes = new address[](1);
         vm.expectRevert(WeightedGovernanceClient.ArrayLengthMismatch.selector);
-        client.reclaimMootChallenges(epochs, nodes);
+        client.reclaimMootChallenges(epochs, nodes, _roles(nodes.length));
     }
 
     /// @notice A batch reverts entirely if any single entry isn't currently reclaimable -- no
@@ -378,8 +394,12 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         address nodeC = makeAddr("nodeC");
         vm.prank(nodeA);
         core.registerNode(contextUID, "0x");
+        vm.prank(admin);
+        client.assignRole(nodeA, ROLE);
         vm.prank(nodeC);
         core.registerNode(contextUID, "0x");
+        vm.prank(admin);
+        client.assignRole(nodeC, ROLE);
 
         uint256 epoch = 1;
         uint256 score = 100;
@@ -391,12 +411,12 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         vm.deal(challengerC, CHALLENGE_BOND);
 
         vm.prank(challengerA);
-        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeA);
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeA, ROLE);
         vm.prank(challengerC);
-        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeC);
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeC, ROLE);
 
         vm.warp(vm.getBlockTimestamp() + RESPONSE_WINDOW + 1);
-        client.claimUnansweredChallenge(epoch, nodeC);
+        client.claimUnansweredChallenge(epoch, nodeC, ROLE);
 
         // nodeA's challenge is moot and reclaimable; the second entry names a node never
         // challenged at all.
@@ -409,9 +429,11 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         nodes[1] = neverChallenged;
 
         vm.expectRevert(
-            abi.encodeWithSelector(IDRIFTSettler.ChallengeNotFound.selector, epoch, neverChallenged)
+            abi.encodeWithSelector(
+                IDRIFTSettler.ChallengeNotFound.selector, epoch, neverChallenged, ROLE
+            )
         );
-        client.reclaimMootChallenges(epochs, nodes);
+        client.reclaimMootChallenges(epochs, nodes, _roles(nodes.length));
     }
 
     // ELIGIBILITY (boundary-aware, DRIFTCore) =================================
@@ -429,12 +451,14 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
 
         address late = makeAddr("late");
         vm.prank(late);
-        core.registerNode(contextUID, "0x"); // registers AFTER the boundary already passed
+        core.registerNode(contextUID, "0x");
+        vm.prank(admin);
+        client.assignRole(late, ROLE); // registers AFTER the boundary already passed
 
         vm.expectRevert(
             abi.encodeWithSelector(IDRIFTSettler.NodeNotEligibleForDispute.selector, late)
         );
-        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, late);
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, late, ROLE);
     }
 
     /// @notice A node banned *after* the boundary must still be disputable — banning it after the
@@ -443,6 +467,8 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         address victim = makeAddr("victim");
         vm.prank(victim);
         core.registerNode(contextUID, "0x");
+        vm.prank(admin);
+        client.assignRole(victim, ROLE);
 
         uint256 epoch = 1;
         // victim omitted from the root entirely.
@@ -456,7 +482,7 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         core.setNodeStatus(contextUID, victim, NodeStatus.BANNED);
 
         // Must NOT revert: victim was registered before the boundary and only banned after it.
-        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, victim);
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, victim, ROLE);
         assertEq(client.openChallengeCount(epoch), 1);
     }
 
@@ -466,6 +492,8 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         address missingNode = makeAddr("missingNode");
         vm.prank(missingNode);
         core.registerNode(contextUID, "0x");
+        vm.prank(admin);
+        client.assignRole(missingNode, ROLE);
 
         address other = makeAddr("other");
         vm.prank(other);
@@ -476,27 +504,29 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
 
         vm.warp(vm.getBlockTimestamp() + DISPUTE_WINDOW + 1);
         vm.expectRevert(abi.encodeWithSelector(IDRIFTSettler.DisputeWindowClosed.selector, epoch));
-        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, missingNode);
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, missingNode, ROLE);
     }
 
     function test_RevertIf_ClaimUnansweredChallenge_ResponseWindowStillOpen() public {
         address missingNode = makeAddr("missingNode");
         vm.prank(missingNode);
         core.registerNode(contextUID, "0x");
+        vm.prank(admin);
+        client.assignRole(missingNode, ROLE);
         address other = makeAddr("other");
         vm.prank(other);
         core.registerNode(contextUID, "0x");
 
         uint256 epoch = 1;
         _postEpoch(epoch, _leaf(other, 100, epoch));
-        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, missingNode);
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, missingNode, ROLE);
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                IDRIFTSettler.ResponseWindowStillOpen.selector, epoch, missingNode
+                IDRIFTSettler.ResponseWindowStillOpen.selector, epoch, missingNode, ROLE
             )
         );
-        client.claimUnansweredChallenge(epoch, missingNode);
+        client.claimUnansweredChallenge(epoch, missingNode, ROLE);
     }
 
     // SEQUENTIAL SETTLEMENT ====================================================
@@ -694,19 +724,21 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         core.registerNode(contextUID, "0x");
         vm.prank(missingNode);
         core.registerNode(contextUID, "0x");
+        vm.prank(admin);
+        client.assignRole(missingNode, ROLE);
 
         uint256 epoch = 1;
         _postEpoch(epoch, _leaf(other, 100, epoch));
-        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, missingNode);
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, missingNode, ROLE);
         vm.warp(vm.getBlockTimestamp() + RESPONSE_WINDOW + 1);
-        client.claimUnansweredChallenge(epoch, missingNode);
+        client.claimUnansweredChallenge(epoch, missingNode, ROLE);
         assertEq(client.consecutiveFailedEpochs(), 1);
 
         // Repost, fail again.
         _postEpoch(epoch, _leaf(other, 100, epoch));
-        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, missingNode);
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, missingNode, ROLE);
         vm.warp(vm.getBlockTimestamp() + RESPONSE_WINDOW + 1);
-        client.claimUnansweredChallenge(epoch, missingNode);
+        client.claimUnansweredChallenge(epoch, missingNode, ROLE);
         assertEq(client.consecutiveFailedEpochs(), 2);
 
         // Repost with a correct root this time -> finalizes cleanly -> next post resets counter.
@@ -731,6 +763,8 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         core.registerNode(contextUID, "0x");
         vm.prank(missingNode);
         core.registerNode(contextUID, "0x");
+        vm.prank(admin);
+        client.assignRole(missingNode, ROLE);
 
         // Deployed and admitted before the boundary: a third-party challenger must itself be
         // eligible at the epoch boundary, so the mock cannot be created after the root is posted.
@@ -741,7 +775,7 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         uint256 epoch = 1;
         _postEpoch(epoch, _leaf(other, 100, epoch));
 
-        attacker.setTarget(client, epoch, missingNode);
+        attacker.setTarget(client, epoch, missingNode, ROLE);
         vm.deal(address(attacker), CHALLENGE_BOND);
         attacker.challenge(CHALLENGE_BOND);
 
@@ -767,6 +801,8 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         core.registerNode(contextUID, "0x");
         vm.prank(victim);
         core.registerNode(contextUID, "0x");
+        vm.prank(admin);
+        client.assignRole(victim, ROLE);
 
         uint256 epoch = 1;
         // Root contains only `other` — victim is omitted in the first epoch it was ever admitted.
@@ -774,7 +810,7 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
 
         vm.deal(victim, CHALLENGE_BOND);
         vm.prank(victim);
-        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, victim);
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, victim, ROLE);
 
         assertEq(client.openChallengeCount(epoch), 1);
     }
@@ -791,13 +827,15 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         core.registerNode(contextUID, "0x");
         vm.prank(victim);
         core.registerNode(contextUID, "0x");
+        vm.prank(admin);
+        client.assignRole(victim, ROLE);
 
         uint256 epoch = 1;
         _postEpoch(epoch, _leaf(other, 100, epoch));
 
         vm.deal(victim, CHALLENGE_BOND);
         vm.prank(victim);
-        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, victim);
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, victim, ROLE);
 
         assertEq(client.openChallengeCount(epoch), 1);
     }
@@ -809,6 +847,8 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         core.registerNode(contextUID, "0x");
         vm.prank(missingNode);
         core.registerNode(contextUID, "0x");
+        vm.prank(admin);
+        client.assignRole(missingNode, ROLE);
 
         uint256 epoch = 1;
         _postEpoch(epoch, _leaf(other, 100, epoch));
@@ -819,7 +859,7 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         vm.expectRevert(
             abi.encodeWithSelector(IDRIFTSettler.ChallengerNotAdmitted.selector, outsider)
         );
-        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, missingNode);
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, missingNode, ROLE);
     }
 
     function test_RevertIf_ThirdPartyChallenger_BelowMinAge() public {
@@ -832,6 +872,8 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         core.registerNode(contextUID, "0x");
         vm.prank(missingNode);
         core.registerNode(contextUID, "0x");
+        vm.prank(admin);
+        client.assignRole(missingNode, ROLE);
 
         uint256 epoch = 1;
         _postEpoch(epoch, _leaf(other, 100, epoch));
@@ -845,7 +887,7 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
                 IDRIFTSettler.ThirdPartyChallengeNotPermitted.selector, challengerA, missingNode
             )
         );
-        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, missingNode);
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, missingNode, ROLE);
     }
 
     function test_RevertIf_SameChallengerTwiceInOneEpoch() public {
@@ -856,8 +898,12 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         core.registerNode(contextUID, "0x");
         vm.prank(nodeB);
         core.registerNode(contextUID, "0x");
+        vm.prank(admin);
+        client.assignRole(nodeB, ROLE);
         vm.prank(nodeC);
         core.registerNode(contextUID, "0x");
+        vm.prank(admin);
+        client.assignRole(nodeC, ROLE);
 
         uint256 epoch = 1;
         _postEpoch(epoch, _leaf(other, 100, epoch));
@@ -865,7 +911,7 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         address challengerA = makeAddr("challengerA");
         vm.deal(challengerA, CHALLENGE_BOND * 2);
         vm.prank(challengerA);
-        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeB);
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeB, ROLE);
 
         vm.prank(challengerA);
         vm.expectRevert(
@@ -873,7 +919,7 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
                 IDRIFTSettler.AlreadyChallengedThisEpoch.selector, epoch, challengerA
             )
         );
-        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeC);
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeC, ROLE);
     }
 
     /// @notice The per-challenger cap must be scoped to the epoch *round*, not the epoch number.
@@ -888,23 +934,25 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         core.registerNode(contextUID, "0x");
         vm.prank(victim);
         core.registerNode(contextUID, "0x");
+        vm.prank(admin);
+        client.assignRole(victim, ROLE);
 
         uint256 epoch = 1;
         _postEpoch(epoch, _leaf(other, 100, epoch));
 
         vm.deal(victim, CHALLENGE_BOND * 2);
         vm.prank(victim);
-        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, victim);
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, victim, ROLE);
 
         vm.warp(vm.getBlockTimestamp() + RESPONSE_WINDOW + 1);
-        client.claimUnansweredChallenge(epoch, victim);
+        client.claimUnansweredChallenge(epoch, victim, ROLE);
         assertEq(client.epochRoots(epoch), bytes32(0));
 
         // Settler reposts the same epoch number, still omitting the victim.
         _postEpoch(epoch, _leaf(other, 100, epoch));
 
         vm.prank(victim);
-        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, victim);
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, victim, ROLE);
         assertEq(client.openChallengeCount(epoch), 1);
     }
 
@@ -936,6 +984,8 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         core.registerNode(contextUID, "0x");
         vm.prank(victim);
         core.registerNode(contextUID, "0x");
+        vm.prank(admin);
+        client.assignRole(victim, ROLE);
 
         uint256 epoch = 1;
         _postEpoch(epoch, _leaf(other, 100, epoch));
@@ -944,11 +994,11 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         uint256 overpay = required + 1 ether;
         vm.deal(victim, overpay);
         vm.prank(victim);
-        client.challengeOmission{ value: overpay }(epoch, victim);
+        client.challengeOmission{ value: overpay }(epoch, victim, ROLE);
 
         // Only the required amount is at stake; the pad against basefee movement comes back.
         assertEq(victim.balance, 1 ether);
-        (, uint256 bond,,) = client.challenges(epoch, victim);
+        (, uint256 bond,,) = client.challenges(epoch, victim, ROLE);
         assertEq(bond, required);
     }
 
@@ -963,6 +1013,8 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         core.registerNode(contextUID, "0x");
         vm.prank(victim);
         core.registerNode(contextUID, "0x");
+        vm.prank(admin);
+        client.assignRole(victim, ROLE);
 
         uint256 epoch = 1;
         _postEpoch(epoch, _leaf(other, 100, epoch));
@@ -971,20 +1023,16 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         vm.deal(victim, required);
         vm.prank(victim);
         vm.expectRevert(
-            abi.encodeWithSelector(
-                IDRIFTSettler.InsufficientBond.selector, required - 1, required
-            )
+            abi.encodeWithSelector(IDRIFTSettler.InsufficientBond.selector, required - 1, required)
         );
-        client.challengeOmission{ value: required - 1 }(epoch, victim);
+        client.challengeOmission{ value: required - 1 }(epoch, victim, ROLE);
     }
 
     function test_RevertIf_ResponseGasEstimateAboveCap() public {
         uint256 cap = client.MAX_RESPONSE_GAS_ESTIMATE();
         vm.prank(admin);
         vm.expectRevert(
-            abi.encodeWithSelector(
-                IDRIFTSettler.ResponseGasEstimateTooHigh.selector, cap + 1, cap
-            )
+            abi.encodeWithSelector(IDRIFTSettler.ResponseGasEstimateTooHigh.selector, cap + 1, cap)
         );
         client.setResponseGasEstimate(cap + 1);
     }
@@ -1007,6 +1055,8 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         address missingNode = makeAddr("missingNode");
         vm.prank(missingNode);
         core.registerNode(contextUID, "0x");
+        vm.prank(admin);
+        client.assignRole(missingNode, ROLE);
         address other = makeAddr("other");
         vm.prank(other);
         core.registerNode(contextUID, "0x");
@@ -1017,12 +1067,12 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         address challenger = makeAddr("challenger");
         vm.deal(challenger, distinctChallengeBond);
         vm.prank(challenger);
-        client.challengeOmission{ value: distinctChallengeBond }(epoch, missingNode);
+        client.challengeOmission{ value: distinctChallengeBond }(epoch, missingNode, ROLE);
 
         vm.warp(vm.getBlockTimestamp() + RESPONSE_WINDOW + 1);
 
         uint256 challengerBalanceBefore = challenger.balance;
-        client.claimUnansweredChallenge(epoch, missingNode);
+        client.claimUnansweredChallenge(epoch, missingNode, ROLE);
 
         assertEq(
             challenger.balance,
@@ -1033,10 +1083,10 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         // double-paid via reclaimMootChallenge.
         vm.expectRevert(
             abi.encodeWithSelector(
-                IDRIFTSettler.ChallengeAlreadyResolved.selector, epoch, missingNode
+                IDRIFTSettler.ChallengeAlreadyResolved.selector, epoch, missingNode, ROLE
             )
         );
-        client.reclaimMootChallenge(epoch, missingNode);
+        client.reclaimMootChallenge(epoch, missingNode, ROLE);
     }
 
     // FUZZ ======================================================================
@@ -1056,7 +1106,7 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         vm.expectRevert(
             abi.encodeWithSelector(IDRIFTSettler.NodeNotEligibleForDispute.selector, missingNode)
         );
-        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, missingNode);
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, missingNode, ROLE);
     }
 
     /// @dev Strictly *below* the requirement, not merely different from it: the bond check is
@@ -1074,6 +1124,8 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         core.registerNode(contextUID, "0x");
         vm.prank(missingNode);
         core.registerNode(contextUID, "0x");
+        vm.prank(admin);
+        client.assignRole(missingNode, ROLE);
 
         uint256 epoch = 1;
         _postEpoch(epoch, _leaf(other, 100, epoch));
@@ -1082,7 +1134,7 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         vm.expectRevert(
             abi.encodeWithSelector(IDRIFTSettler.InsufficientBond.selector, badBond, CHALLENGE_BOND)
         );
-        client.challengeOmission{ value: badBond }(epoch, missingNode);
+        client.challengeOmission{ value: badBond }(epoch, missingNode, ROLE);
     }
 
     // INTERNAL HELPERS ==========================================================
@@ -1131,15 +1183,19 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         core.registerNode(contextUID, "0x");
         vm.prank(missingNode);
         core.registerNode(contextUID, "0x");
+        vm.prank(admin);
+        client.assignRole(missingNode, ROLE);
 
         uint256 epoch = 1;
         _postEpoch(epoch, _leaf(other, 100, epoch));
-        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, missingNode);
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, missingNode, ROLE);
 
         vm.expectRevert(
-            abi.encodeWithSelector(IDRIFTSettler.ChallengeAlreadyOpen.selector, epoch, missingNode)
+            abi.encodeWithSelector(
+                IDRIFTSettler.ChallengeAlreadyOpen.selector, epoch, missingNode, ROLE
+            )
         );
-        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, missingNode);
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, missingNode, ROLE);
     }
 
     function test_RevertIf_RespondToChallenge_ChallengeNotFound() public {
@@ -1151,7 +1207,7 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         _postEpoch(epoch, _leaf(nodeA, 100, epoch));
 
         vm.expectRevert(
-            abi.encodeWithSelector(IDRIFTSettler.ChallengeNotFound.selector, epoch, nodeA)
+            abi.encodeWithSelector(IDRIFTSettler.ChallengeNotFound.selector, epoch, nodeA, ROLE)
         );
         client.respondToChallenge(epoch, nodeA, ROLE, 100, new bytes32[](0));
     }
@@ -1160,14 +1216,18 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         address nodeA = makeAddr("nodeA");
         vm.prank(nodeA);
         core.registerNode(contextUID, "0x");
+        vm.prank(admin);
+        client.assignRole(nodeA, ROLE);
 
         uint256 epoch = 1;
         _postEpoch(epoch, _leaf(nodeA, 100, epoch));
-        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeA);
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeA, ROLE);
         client.respondToChallenge(epoch, nodeA, ROLE, 100, new bytes32[](0));
 
         vm.expectRevert(
-            abi.encodeWithSelector(IDRIFTSettler.ChallengeAlreadyResolved.selector, epoch, nodeA)
+            abi.encodeWithSelector(
+                IDRIFTSettler.ChallengeAlreadyResolved.selector, epoch, nodeA, ROLE
+            )
         );
         client.respondToChallenge(epoch, nodeA, ROLE, 100, new bytes32[](0));
     }
@@ -1181,8 +1241,12 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         address nodeC = makeAddr("nodeC"); // genuinely missing, times out
         vm.prank(nodeA);
         core.registerNode(contextUID, "0x");
+        vm.prank(admin);
+        client.assignRole(nodeA, ROLE);
         vm.prank(nodeC);
         core.registerNode(contextUID, "0x");
+        vm.prank(admin);
+        client.assignRole(nodeC, ROLE);
 
         uint256 epoch = 1;
         bytes32 leafA = _leaf(nodeA, 100, epoch);
@@ -1194,12 +1258,12 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         vm.deal(challengerA, CHALLENGE_BOND);
         vm.deal(challengerB, CHALLENGE_BOND);
         vm.prank(challengerA);
-        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeA);
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeA, ROLE);
         vm.prank(challengerB);
-        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeC);
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeC, ROLE);
 
         vm.warp(vm.getBlockTimestamp() + RESPONSE_WINDOW + 1);
-        client.claimUnansweredChallenge(epoch, nodeC);
+        client.claimUnansweredChallenge(epoch, nodeC, ROLE);
         assertEq(client.epochRoots(epoch), bytes32(0));
 
         vm.expectRevert(
@@ -1212,14 +1276,16 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         address nodeA = makeAddr("nodeA");
         vm.prank(nodeA);
         core.registerNode(contextUID, "0x");
+        vm.prank(admin);
+        client.assignRole(nodeA, ROLE);
 
         uint256 epoch = 1;
         _postEpoch(epoch, _leaf(nodeA, 100, epoch));
-        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeA);
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeA, ROLE);
 
         vm.warp(vm.getBlockTimestamp() + RESPONSE_WINDOW + 1);
         vm.expectRevert(
-            abi.encodeWithSelector(IDRIFTSettler.ResponseWindowClosed.selector, epoch, nodeA)
+            abi.encodeWithSelector(IDRIFTSettler.ResponseWindowClosed.selector, epoch, nodeA, ROLE)
         );
         client.respondToChallenge(epoch, nodeA, ROLE, 100, new bytes32[](0));
     }
@@ -1228,10 +1294,12 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         address nodeA = makeAddr("nodeA");
         vm.prank(nodeA);
         core.registerNode(contextUID, "0x");
+        vm.prank(admin);
+        client.assignRole(nodeA, ROLE);
 
         uint256 epoch = 1;
         _postEpoch(epoch, _leaf(nodeA, 100, epoch));
-        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeA);
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeA, ROLE);
 
         // Wrong score claimed for nodeA's leaf — proof (none) can't verify against a different leaf.
         vm.expectRevert(IDRIFTSettler.InvalidMerkleProof.selector);
@@ -1241,27 +1309,31 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
     function test_RevertIf_ClaimUnansweredChallenge_ChallengeNotFound() public {
         vm.expectRevert(
             abi.encodeWithSelector(
-                IDRIFTSettler.ChallengeNotFound.selector, uint256(1), makeAddr("nobody")
+                IDRIFTSettler.ChallengeNotFound.selector, uint256(1), makeAddr("nobody"), ROLE
             )
         );
-        client.claimUnansweredChallenge(1, makeAddr("nobody"));
+        client.claimUnansweredChallenge(1, makeAddr("nobody"), ROLE);
     }
 
     function test_RevertIf_ClaimUnansweredChallenge_ChallengeAlreadyResolved() public {
         address nodeA = makeAddr("nodeA");
         vm.prank(nodeA);
         core.registerNode(contextUID, "0x");
+        vm.prank(admin);
+        client.assignRole(nodeA, ROLE);
 
         uint256 epoch = 1;
         _postEpoch(epoch, _leaf(nodeA, 100, epoch));
-        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeA);
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeA, ROLE);
         client.respondToChallenge(epoch, nodeA, ROLE, 100, new bytes32[](0));
 
         vm.warp(vm.getBlockTimestamp() + RESPONSE_WINDOW + 1);
         vm.expectRevert(
-            abi.encodeWithSelector(IDRIFTSettler.ChallengeAlreadyResolved.selector, epoch, nodeA)
+            abi.encodeWithSelector(
+                IDRIFTSettler.ChallengeAlreadyResolved.selector, epoch, nodeA, ROLE
+            )
         );
-        client.claimUnansweredChallenge(epoch, nodeA);
+        client.claimUnansweredChallenge(epoch, nodeA, ROLE);
     }
 
     /// @notice Mirrors test_RevertIf_RespondToChallenge_EpochAlreadyInvalidated for the
@@ -1274,6 +1346,8 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         core.registerNode(contextUID, "0x");
         vm.prank(nodeC);
         core.registerNode(contextUID, "0x");
+        vm.prank(admin);
+        client.assignRole(nodeC, ROLE);
 
         uint256 epoch = 1;
         _postEpoch(epoch, _leaf(nodeA, 100, epoch));
@@ -1283,6 +1357,8 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         address nodeB = makeAddr("nodeB");
         vm.prank(nodeB);
         core.registerNode(contextUID, "0x");
+        vm.prank(admin);
+        client.assignRole(nodeB, ROLE);
 
         // Distinct challengers: each is capped at one challenge per epoch round.
         address challengerA = makeAddr("challengerA");
@@ -1290,42 +1366,46 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         vm.deal(challengerA, CHALLENGE_BOND);
         vm.deal(challengerB, CHALLENGE_BOND);
         vm.prank(challengerA);
-        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeB);
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeB, ROLE);
         vm.prank(challengerB);
-        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeC);
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeC, ROLE);
 
         vm.warp(vm.getBlockTimestamp() + RESPONSE_WINDOW + 1);
-        client.claimUnansweredChallenge(epoch, nodeC);
+        client.claimUnansweredChallenge(epoch, nodeC, ROLE);
 
         vm.expectRevert(
             abi.encodeWithSelector(IDRIFTSettler.EpochAlreadyInvalidated.selector, epoch)
         );
-        client.claimUnansweredChallenge(epoch, nodeB);
+        client.claimUnansweredChallenge(epoch, nodeB, ROLE);
     }
 
     function test_RevertIf_ReclaimMootChallenge_ChallengeNotFound() public {
         vm.expectRevert(
             abi.encodeWithSelector(
-                IDRIFTSettler.ChallengeNotFound.selector, uint256(1), makeAddr("nobody")
+                IDRIFTSettler.ChallengeNotFound.selector, uint256(1), makeAddr("nobody"), ROLE
             )
         );
-        client.reclaimMootChallenge(1, makeAddr("nobody"));
+        client.reclaimMootChallenge(1, makeAddr("nobody"), ROLE);
     }
 
     function test_RevertIf_ReclaimMootChallenge_ChallengeAlreadyResolved() public {
         address nodeA = makeAddr("nodeA");
         vm.prank(nodeA);
         core.registerNode(contextUID, "0x");
+        vm.prank(admin);
+        client.assignRole(nodeA, ROLE);
 
         uint256 epoch = 1;
         _postEpoch(epoch, _leaf(nodeA, 100, epoch));
-        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeA);
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeA, ROLE);
         client.respondToChallenge(epoch, nodeA, ROLE, 100, new bytes32[](0));
 
         vm.expectRevert(
-            abi.encodeWithSelector(IDRIFTSettler.ChallengeAlreadyResolved.selector, epoch, nodeA)
+            abi.encodeWithSelector(
+                IDRIFTSettler.ChallengeAlreadyResolved.selector, epoch, nodeA, ROLE
+            )
         );
-        client.reclaimMootChallenge(epoch, nodeA);
+        client.reclaimMootChallenge(epoch, nodeA, ROLE);
     }
 
     /// @notice reclaimMootChallenge is only for a challenge whose epoch was invalidated by a
@@ -1335,13 +1415,15 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         address nodeA = makeAddr("nodeA");
         vm.prank(nodeA);
         core.registerNode(contextUID, "0x");
+        vm.prank(admin);
+        client.assignRole(nodeA, ROLE);
 
         uint256 epoch = 1;
         _postEpoch(epoch, _leaf(nodeA, 100, epoch));
-        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeA);
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeA, ROLE);
 
         vm.expectRevert(abi.encodeWithSelector(IDRIFTSettler.EpochNotInvalidated.selector, epoch));
-        client.reclaimMootChallenge(epoch, nodeA);
+        client.reclaimMootChallenge(epoch, nodeA, ROLE);
     }
 
     /// @notice The ineligibility half of _disputeEligible's ban check: a node banned *at or before*
@@ -1351,6 +1433,8 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         address victim = makeAddr("victim");
         vm.prank(victim);
         core.registerNode(contextUID, "0x");
+        vm.prank(admin);
+        client.assignRole(victim, ROLE);
         vm.prank(admin);
         core.setNodeStatus(contextUID, victim, NodeStatus.BANNED);
 
@@ -1364,7 +1448,7 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         vm.expectRevert(
             abi.encodeWithSelector(IDRIFTSettler.NodeNotEligibleForDispute.selector, victim)
         );
-        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, victim);
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, victim, ROLE);
     }
 
     // FINALIZATION TIMING ======================================================
@@ -1400,14 +1484,165 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         core.registerNode(contextUID, "0x");
         vm.prank(missingNode);
         core.registerNode(contextUID, "0x");
+        vm.prank(admin);
+        client.assignRole(missingNode, ROLE);
 
         uint256 epoch = 1;
         _postEpoch(epoch, _leaf(nodeA, 100, epoch));
-        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, missingNode);
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, missingNode, ROLE);
 
         vm.warp(vm.getBlockTimestamp() + DISPUTE_WINDOW + 1);
 
         vm.expectRevert(abi.encodeWithSelector(IDRIFTSettler.EpochNotYetFinalized.selector, epoch));
         client.withdrawSettlementBond(epoch);
+    }
+
+    /// @dev A roles array of length `n`, all `ROLE`, for the batched reclaim.
+    function _roles(
+        uint256 n
+    ) internal pure returns (bytes32[] memory r) {
+        r = new bytes32[](n);
+        for (uint256 i = 0; i < n; i++) {
+            r[i] = ROLE;
+        }
+    }
+
+    // PAIR-LEVEL ELIGIBILITY ==================================================
+
+    bytes32 constant ROLE_B = keccak256("ROLE_B");
+
+    function _leafFor(
+        address node,
+        bytes32 role,
+        uint256 score,
+        uint256 epoch
+    ) internal view returns (bytes32) {
+        return keccak256(bytes.concat(keccak256(abi.encode(contextUID, node, role, score, epoch))));
+    }
+
+    /// @notice Regression for a griefing bug. A registered node holding no role has no leaf in a
+    ///         correct root, so an unanswerable challenge against it used to delete the root and
+    ///         pay the honest settler's bond to the challenger. It must be rejected up front.
+    function test_RevertIf_Challenge_RolelessNode() public {
+        address honest = makeAddr("honestNode");
+        address roleless = makeAddr("rolelessNode");
+        vm.prank(honest);
+        core.registerNode(contextUID, "0x");
+        vm.prank(roleless);
+        core.registerNode(contextUID, "0x");
+        vm.prank(admin);
+        client.assignRole(honest, ROLE);
+
+        uint256 epoch = 1;
+        _postEpoch(epoch, _leaf(honest, 100, epoch));
+
+        vm.deal(roleless, CHALLENGE_BOND);
+        vm.prank(roleless);
+        vm.expectRevert(
+            abi.encodeWithSelector(IDRIFTSettler.RoleNotHeldAtBoundary.selector, roleless, ROLE)
+        );
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, roleless, ROLE);
+    }
+
+    /// @notice A role assigned after the boundary did not exist when the root was computed.
+    function test_RevertIf_Challenge_RoleAssignedAfterBoundary() public {
+        address node = makeAddr("lateRole");
+        vm.prank(node);
+        core.registerNode(contextUID, "0x");
+
+        uint256 epoch = 1;
+        _postEpoch(epoch, keccak256("root-without-node"));
+        vm.warp(vm.getBlockTimestamp() + 1);
+        vm.prank(admin);
+        client.assignRole(node, ROLE);
+
+        vm.deal(node, CHALLENGE_BOND);
+        vm.prank(node);
+        vm.expectRevert(
+            abi.encodeWithSelector(IDRIFTSettler.RoleNotHeldAtBoundary.selector, node, ROLE)
+        );
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, node, ROLE);
+    }
+
+    /// @notice A role revoked before the boundary no longer existed when the root was computed.
+    function test_RevertIf_Challenge_RoleRevokedBeforeBoundary() public {
+        address node = makeAddr("revokedEarly");
+        vm.prank(node);
+        core.registerNode(contextUID, "0x");
+        vm.prank(admin);
+        client.assignRole(node, ROLE);
+        vm.warp(vm.getBlockTimestamp() + 1);
+        vm.prank(admin);
+        client.revokeRole(node, ROLE);
+
+        uint256 epoch = 1;
+        _postEpoch(epoch, keccak256("root-without-node"));
+
+        vm.deal(node, CHALLENGE_BOND);
+        vm.prank(node);
+        vm.expectRevert(
+            abi.encodeWithSelector(IDRIFTSettler.RoleNotHeldAtBoundary.selector, node, ROLE)
+        );
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, node, ROLE);
+    }
+
+    /// @notice Revoking a role after the boundary does not excuse its omission: the pair existed
+    ///         when the root was computed, so the omission stays contestable.
+    function test_Challenge_RoleRevokedAfterBoundary_StillContestable() public {
+        address node = makeAddr("revokedLate");
+        address other = makeAddr("otherNode");
+        vm.prank(node);
+        core.registerNode(contextUID, "0x");
+        vm.prank(other);
+        core.registerNode(contextUID, "0x");
+        vm.startPrank(admin);
+        client.assignRole(node, ROLE);
+        client.assignRole(other, ROLE);
+        vm.stopPrank();
+
+        uint256 epoch = 1;
+        _postEpoch(epoch, _leaf(other, 100, epoch));
+        vm.warp(vm.getBlockTimestamp() + 1);
+        vm.prank(admin);
+        client.revokeRole(node, ROLE);
+
+        vm.deal(node, CHALLENGE_BOND);
+        vm.prank(node);
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, node, ROLE);
+        assertEq(client.openChallengeCount(epoch), 1);
+    }
+
+    /// @notice Completeness is per (node, role) pair. Including one of a node's roles does not cover
+    ///         another it also held: a leaf for ROLE cannot answer a challenge over ROLE_B, so
+    ///         omitting ROLE_B is contestable even though the node appears in the root.
+    function test_PerRoleOmission_IsContestable() public {
+        address node = makeAddr("twoRoles");
+        vm.prank(node);
+        core.registerNode(contextUID, "0x");
+        vm.startPrank(admin);
+        client.assignRole(node, ROLE);
+        client.assignRole(node, ROLE_B);
+        vm.stopPrank();
+
+        uint256 epoch = 1;
+        _postEpoch(epoch, _leafFor(node, ROLE, 100, epoch));
+
+        address challenger = makeAddr("challengerA");
+        vm.deal(challenger, CHALLENGE_BOND);
+        vm.prank(challenger);
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, node, ROLE_B);
+
+        // The ROLE leaf is genuinely in the root, but it is not a leaf for the challenged pair.
+        vm.expectRevert(IDRIFTSettler.InvalidMerkleProof.selector);
+        client.respondToChallenge(epoch, node, ROLE_B, 100, new bytes32[](0));
+        // Nor does proving the ROLE pair resolve a challenge over ROLE_B.
+        vm.expectRevert(
+            abi.encodeWithSelector(IDRIFTSettler.ChallengeNotFound.selector, epoch, node, ROLE)
+        );
+        client.respondToChallenge(epoch, node, ROLE, 100, new bytes32[](0));
+
+        vm.warp(vm.getBlockTimestamp() + RESPONSE_WINDOW + 1);
+        client.claimUnansweredChallenge(epoch, node, ROLE_B);
+        assertEq(client.epochRoots(epoch), bytes32(0));
     }
 }

@@ -167,6 +167,8 @@ contract DRIFTDisputeGasTest is DRIFTTestHelper {
         core.registerNode(contextUID, "0x");
         vm.prank(missingNode);
         core.registerNode(contextUID, "0x");
+        vm.prank(admin);
+        client.assignRole(missingNode, ROLE);
 
         uint256 epoch = 1;
         _postEpoch(epoch, _leaf(nodeA, 100, epoch));
@@ -176,7 +178,7 @@ contract DRIFTDisputeGasTest is DRIFTTestHelper {
 
         vm.prank(challenger);
         vm.startSnapshotGas("ChallengeOmission");
-        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, missingNode);
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, missingNode, ROLE);
         vm.stopSnapshotGas();
     }
 
@@ -194,6 +196,8 @@ contract DRIFTDisputeGasTest is DRIFTTestHelper {
         address nodeA = makeAddr("nodeA");
         vm.prank(nodeA);
         core.registerNode(contextUID, "0x");
+        vm.prank(admin);
+        client.assignRole(nodeA, ROLE);
 
         uint256 epoch = 1;
         uint256 score = 100;
@@ -207,7 +211,7 @@ contract DRIFTDisputeGasTest is DRIFTTestHelper {
         address challenger = makeAddr("challenger");
         vm.deal(challenger, CHALLENGE_BOND);
         vm.prank(challenger);
-        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeA);
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeA, ROLE);
 
         bytes32[] memory proof = new bytes32[](1);
         proof[0] = sibling;
@@ -232,6 +236,8 @@ contract DRIFTDisputeGasTest is DRIFTTestHelper {
         address nodeA = makeAddr("nodeA");
         vm.prank(nodeA);
         core.registerNode(contextUID, "0x");
+        vm.prank(admin);
+        client.assignRole(nodeA, ROLE);
 
         uint256 epoch = 1;
         uint256 score = 100;
@@ -256,7 +262,7 @@ contract DRIFTDisputeGasTest is DRIFTTestHelper {
         address challenger = makeAddr("challenger");
         vm.deal(challenger, CHALLENGE_BOND);
         vm.prank(challenger);
-        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeA);
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeA, ROLE);
 
         vm.startSnapshotGas("RespondToChallenge_Depth20");
         client.respondToChallenge(epoch, nodeA, ROLE, score, proof);
@@ -279,6 +285,8 @@ contract DRIFTDisputeGasTest is DRIFTTestHelper {
         core.registerNode(contextUID, "0x");
         vm.prank(missingNode);
         core.registerNode(contextUID, "0x");
+        vm.prank(admin);
+        client.assignRole(missingNode, ROLE);
 
         uint256 epoch = 1;
         _postEpoch(epoch, _leaf(nodeA, 100, epoch));
@@ -286,12 +294,12 @@ contract DRIFTDisputeGasTest is DRIFTTestHelper {
         address challenger = makeAddr("challenger");
         vm.deal(challenger, CHALLENGE_BOND);
         vm.prank(challenger);
-        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, missingNode);
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, missingNode, ROLE);
 
         vm.warp(vm.getBlockTimestamp() + RESPONSE_WINDOW + 1);
 
         vm.startSnapshotGas("ClaimUnansweredChallenge");
-        client.claimUnansweredChallenge(epoch, missingNode);
+        client.claimUnansweredChallenge(epoch, missingNode, ROLE);
         vm.stopSnapshotGas();
     }
 
@@ -309,8 +317,12 @@ contract DRIFTDisputeGasTest is DRIFTTestHelper {
         address missingNode = makeAddr("missingNode");
         vm.prank(nodeB);
         core.registerNode(contextUID, "0x");
+        vm.prank(admin);
+        client.assignRole(nodeB, ROLE);
         vm.prank(missingNode);
         core.registerNode(contextUID, "0x");
+        vm.prank(admin);
+        client.assignRole(missingNode, ROLE);
 
         uint256 epoch = 1;
         _postEpoch(epoch, _leaf(nodeB, 100, epoch));
@@ -321,15 +333,15 @@ contract DRIFTDisputeGasTest is DRIFTTestHelper {
         vm.deal(challengerMissing, CHALLENGE_BOND);
 
         vm.prank(challengerB);
-        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeB);
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, nodeB, ROLE);
         vm.prank(challengerMissing);
-        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, missingNode);
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, missingNode, ROLE);
 
         vm.warp(vm.getBlockTimestamp() + RESPONSE_WINDOW + 1);
-        client.claimUnansweredChallenge(epoch, missingNode);
+        client.claimUnansweredChallenge(epoch, missingNode, ROLE);
 
         vm.startSnapshotGas("ReclaimMootChallenge");
-        client.reclaimMootChallenge(epoch, nodeB);
+        client.reclaimMootChallenge(epoch, nodeB, ROLE);
         vm.stopSnapshotGas();
     }
 
@@ -349,6 +361,8 @@ contract DRIFTDisputeGasTest is DRIFTTestHelper {
         address missingNode = makeAddr("missingNode");
         vm.prank(missingNode);
         core.registerNode(contextUID, "0x");
+        vm.prank(admin);
+        client.assignRole(missingNode, ROLE);
 
         uint256 epoch = 1;
         _postEpoch(epoch, _leaf(missingNode, 0, epoch)); // placeholder root; never matched
@@ -359,11 +373,13 @@ contract DRIFTDisputeGasTest is DRIFTTestHelper {
             address node = makeAddr(string.concat("mootNode", vm.toString(i)));
             vm.prank(node);
             core.registerNode(contextUID, "0x");
+            vm.prank(admin);
+            client.assignRole(node, ROLE);
 
             address challenger = makeAddr(string.concat("mootChallenger", vm.toString(i)));
             vm.deal(challenger, CHALLENGE_BOND);
             vm.prank(challenger);
-            client.challengeOmission{ value: CHALLENGE_BOND }(epoch, node);
+            client.challengeOmission{ value: CHALLENGE_BOND }(epoch, node, ROLE);
 
             epochs[i] = epoch;
             nodes[i] = node;
@@ -372,13 +388,13 @@ contract DRIFTDisputeGasTest is DRIFTTestHelper {
         address challengerMissing = makeAddr("challengerMissing");
         vm.deal(challengerMissing, CHALLENGE_BOND);
         vm.prank(challengerMissing);
-        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, missingNode);
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, missingNode, ROLE);
 
         vm.warp(vm.getBlockTimestamp() + RESPONSE_WINDOW + 1);
-        client.claimUnansweredChallenge(epoch, missingNode);
+        client.claimUnansweredChallenge(epoch, missingNode, ROLE);
 
         vm.startSnapshotGas("ReclaimMootChallenges_Batch10");
-        client.reclaimMootChallenges(epochs, nodes);
+        client.reclaimMootChallenges(epochs, nodes, _roles(nodes.length));
         vm.stopSnapshotGas();
     }
 
@@ -402,5 +418,15 @@ contract DRIFTDisputeGasTest is DRIFTTestHelper {
         vm.startSnapshotGas("WithdrawSettlementBond");
         client.withdrawSettlementBond(epoch);
         vm.stopSnapshotGas();
+    }
+
+    /// @dev A roles array of length `n`, all `ROLE`, for the batched reclaim.
+    function _roles(
+        uint256 n
+    ) internal pure returns (bytes32[] memory r) {
+        r = new bytes32[](n);
+        for (uint256 i = 0; i < n; i++) {
+            r[i] = ROLE;
+        }
     }
 }
