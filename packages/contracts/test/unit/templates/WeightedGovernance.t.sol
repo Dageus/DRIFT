@@ -1106,6 +1106,123 @@ contract WeightedGovernanceClientTest is DRIFTTestHelper {
         client.castVoteWithProofs(proposalId, true, emptyRoles, emptyScores, emptyProofs);
     }
 
+    // DUPLICATE AND UNSORTED ROLES ===========================================
+
+    /// @dev `n` copies of the fixture's single valid (role, score, proof) entry. Its root is the
+    ///      lone leaf itself, so the empty proof verifies for every copy.
+    function _repeatClaim(
+        uint256 n
+    )
+        internal
+        pure
+        returns (bytes32[] memory roles, uint256[] memory scores, bytes32[][] memory proofs)
+    {
+        roles = new bytes32[](n);
+        scores = new uint256[](n);
+        proofs = new bytes32[][](n);
+        for (uint256 i = 0; i < n; i++) {
+            roles[i] = ROLE_PROFESSOR;
+            scores[i] = 100;
+            proofs[i] = new bytes32[](0);
+        }
+    }
+
+    function _rolesNotIncreasing(
+        uint256 index
+    ) internal pure returns (bytes memory) {
+        return abi.encodeWithSelector(
+            IDRIFTGovernanceProofOfState.RolesNotStrictlyIncreasing.selector, index
+        );
+    }
+
+    /// @notice Regression: repeating one valid leaf used to multiply the voter's power by the
+    ///         number of copies, since power adds one term per entry.
+    function test_RevertIf_CastVoteWithProofsDuplicateRole() public {
+        (uint256 proposalId,,) = _settleAndCreateProposal();
+        (bytes32[] memory roles, uint256[] memory scores, bytes32[][] memory proofs) =
+            _repeatClaim(2);
+
+        vm.prank(makeAddr("proposalCreator"));
+        vm.expectRevert(_rolesNotIncreasing(1));
+        client.castVoteWithProofs(proposalId, true, roles, scores, proofs);
+    }
+
+    function test_RevertIf_CreateProposalWithProofsDuplicateRole() public {
+        _settleAndCreateProposal();
+        (bytes32[] memory roles, uint256[] memory scores, bytes32[][] memory proofs) =
+            _repeatClaim(2);
+
+        vm.prank(makeAddr("proposalCreator"));
+        vm.expectRevert(_rolesNotIncreasing(1));
+        client.createProposalWithProofs("desc", address(0), "", 1, roles, scores, proofs);
+    }
+
+    /// @notice The views must not report inflated power either: frontends and the SDK read them.
+    function test_RevertIf_GetVotingPowerDuplicateRole() public {
+        (uint256 proposalId,,) = _settleAndCreateProposal();
+        (bytes32[] memory roles, uint256[] memory scores, bytes32[][] memory proofs) =
+            _repeatClaim(2);
+        address voter = makeAddr("proposalCreator");
+
+        vm.expectRevert(_rolesNotIncreasing(1));
+        client.getVotingPowerAtEpoch(voter, 1, roles, scores, proofs);
+        vm.expectRevert(_rolesNotIncreasing(1));
+        client.getVotingPowerForProposal(proposalId, voter, roles, scores, proofs);
+    }
+
+    function test_RevertIf_CastVoteWithProofsUnsortedRoles() public {
+        (uint256 proposalId,,) = _settleAndCreateProposal();
+        (bytes32 lo, bytes32 hi) = ROLE_STUDENT < ROLE_PROFESSOR
+            ? (ROLE_STUDENT, ROLE_PROFESSOR)
+            : (ROLE_PROFESSOR, ROLE_STUDENT);
+        bytes32[] memory roles = new bytes32[](2);
+        roles[0] = hi;
+        roles[1] = lo;
+        uint256[] memory scores = new uint256[](2);
+        bytes32[][] memory proofs = new bytes32[][](2);
+
+        vm.expectRevert(_rolesNotIncreasing(1));
+        client.castVoteWithProofs(proposalId, true, roles, scores, proofs);
+    }
+
+    /// @notice Distinct roles in increasing order still add up, each proved against one root.
+    function test_GetVotingPowerAtEpoch_SumsDistinctSortedRoles() public {
+        address voter = makeAddr("twoRoleVoter");
+        vm.prank(voter);
+        core.registerNode(contextUID, "0x");
+
+        uint256 epoch = 1;
+        bytes32 leafStudent = keccak256(
+            bytes.concat(keccak256(abi.encode(contextUID, voter, ROLE_STUDENT, 100, epoch)))
+        );
+        bytes32 leafProfessor = keccak256(
+            bytes.concat(keccak256(abi.encode(contextUID, voter, ROLE_PROFESSOR, 50, epoch)))
+        );
+        bytes32 root = leafStudent < leafProfessor
+            ? keccak256(abi.encodePacked(leafStudent, leafProfessor))
+            : keccak256(abi.encodePacked(leafProfessor, leafStudent));
+        vm.warp(client.epochAnchorTimestamp() + client.epochLength() * epoch);
+        client.postEpochRoot{ value: SETTLEMENT_BOND }(
+            epoch, root, "", _signEpochRoot(settlerPk, contextUID, epoch, root, address(client))
+        );
+        _rollPastFinalization(client);
+
+        bool studentFirst = ROLE_STUDENT < ROLE_PROFESSOR;
+        bytes32[] memory roles = new bytes32[](2);
+        uint256[] memory scores = new uint256[](2);
+        bytes32[][] memory proofs = new bytes32[][](2);
+        (roles[0], roles[1]) =
+            studentFirst ? (ROLE_STUDENT, ROLE_PROFESSOR) : (ROLE_PROFESSOR, ROLE_STUDENT);
+        (scores[0], scores[1]) = studentFirst ? (100, 50) : (50, 100);
+        proofs[0] = new bytes32[](1);
+        proofs[1] = new bytes32[](1);
+        (proofs[0][0], proofs[1][0]) =
+            studentFirst ? (leafProfessor, leafStudent) : (leafStudent, leafProfessor);
+
+        // STUDENT 100 * 2000 / 10000 = 20, PROFESSOR 50 * 8000 / 10000 = 40
+        assertEq(client.getVotingPowerAtEpoch(voter, epoch, roles, scores, proofs), 60);
+    }
+
     function test_RevertIf_GetVotingPowerAtEpochArrayLengthMismatch() public {
         vm.prank(node);
         core.registerNode(contextUID, "0x");

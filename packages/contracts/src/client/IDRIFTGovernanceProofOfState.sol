@@ -11,6 +11,7 @@ interface IDRIFTGovernanceProofOfState is IDRIFTGovernance {
 
     error InvalidProofCount(uint256 roles, uint256 scores, uint256 proofs);
     error RoleHasNoWeight(bytes32 role);
+    error RolesNotStrictlyIncreasing(uint256 index);
     error NoSettledEpochs();
     error InvalidHistoricalProof();
     error BelowProposalThreshold();
@@ -25,7 +26,7 @@ interface IDRIFTGovernanceProofOfState is IDRIFTGovernance {
     /// @param target Address to call upon execution
     /// @param payload Calldata to execute on the target
     /// @param durationInDays Length of the voting period
-    /// @param roles Array of roles the caller is claiming power for
+    /// @param roles Roles the caller is claiming power for, in strictly increasing order
     /// @param scores Array of scores corresponding to those roles
     /// @param proofs Array of merkle proofs for those claims
     /// @return The newly created proposal ID
@@ -43,7 +44,7 @@ interface IDRIFTGovernanceProofOfState is IDRIFTGovernance {
     /// @dev Replaces standard castVote in Proof-of-State environments
     /// @param proposalId The ID of the proposal
     /// @param support True to vote in favor, false to vote against
-    /// @param roles Array of roles the caller is claiming power for
+    /// @param roles Roles the caller is claiming power for, in strictly increasing order
     /// @param scores Array of scores corresponding to those roles
     /// @param proofs Array of merkle proofs for those claims
     function castVoteWithProofs(
@@ -59,7 +60,7 @@ interface IDRIFTGovernanceProofOfState is IDRIFTGovernance {
     /// @notice Simulates voting power at a specific epoch by verifying state proofs
     /// @param account The address to check
     /// @param epoch The epoch ID to simulate against
-    /// @param roles Array of claimed roles
+    /// @param roles Claimed roles, in strictly increasing order
     /// @param scores Array of claimed scores
     /// @param proofs Array of Merkle proofs for the claims
     /// @return The total verified voting power for the account at that epoch

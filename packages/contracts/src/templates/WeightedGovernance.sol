@@ -847,7 +847,7 @@ contract WeightedGovernanceClient is
     /// @param target Address to call if proposal passes
     /// @param payload Calldata to execute on the target address
     /// @param durationInDays How many days the voting period lasts
-    /// @param roles Array of roles the caller is claiming power for
+    /// @param roles Roles the caller is claiming power for, in strictly increasing order
     /// @param scores Array of scores corresponding to those roles
     /// @param proofs Array of merkle proofs for those claims
     /// @return The newly created proposal ID
@@ -864,6 +864,7 @@ contract WeightedGovernanceClient is
         if (roles.length != scores.length || roles.length != proofs.length) {
             revert ArrayLengthMismatch();
         }
+        _requireStrictlyIncreasing(roles);
         if (!_isFinalized(currentEpoch)) revert EpochNotYetFinalized(currentEpoch);
 
         uint32 pinnedConfigVersion = epochConfigVersion[currentEpoch];
@@ -937,7 +938,7 @@ contract WeightedGovernanceClient is
     /// @notice Casts a vote on a proposal using state proofs for voting power
     /// @param proposalId The ID of the proposal
     /// @param support True for yes, false for no
-    /// @param roles Array of roles the caller is claiming power for
+    /// @param roles Roles the caller is claiming power for, in strictly increasing order
     /// @param scores Array of scores corresponding to those roles
     /// @param proofs Array of merkle proofs for those claims
     function castVoteWithProofs(
@@ -955,6 +956,7 @@ contract WeightedGovernanceClient is
         if (roles.length != scores.length || roles.length != proofs.length) {
             revert InvalidProofCount(roles.length, scores.length, proofs.length);
         }
+        _requireStrictlyIncreasing(roles);
 
         bytes32 root = epochRoots[p.snapshotEpoch];
         if (root == bytes32(0)) revert EpochNotFound(p.snapshotEpoch);
@@ -1000,6 +1002,7 @@ contract WeightedGovernanceClient is
     ) external view returns (uint256 totalPower) {
         Proposal storage p = proposals[proposalId];
         if (!p.exists) revert ProposalNotFound(proposalId);
+        _requireStrictlyIncreasing(roles);
 
         bytes32 root = epochRoots[p.snapshotEpoch];
         if (root == bytes32(0)) revert EpochNotFound(p.snapshotEpoch);
@@ -1025,6 +1028,7 @@ contract WeightedGovernanceClient is
         if (roles.length != scores.length || roles.length != proofs.length) {
             revert ArrayLengthMismatch();
         }
+        _requireStrictlyIncreasing(roles);
 
         bytes32 root = epochRoots[epoch];
         if (root == bytes32(0)) revert EpochNotFound(epoch);
@@ -1132,6 +1136,17 @@ contract WeightedGovernanceClient is
     }
 
     // INTERNAL ================================================================
+
+    /// @dev Voting power adds one term per (role, score, proof) entry, so a repeated role would
+    ///      count the same leaf twice. Requiring strictly increasing roles rules out repeats with one
+    ///      comparison per entry and gives every caller the same canonical order.
+    function _requireStrictlyIncreasing(
+        bytes32[] calldata roles
+    ) internal pure {
+        for (uint256 i = 1; i < roles.length; i++) {
+            if (roles[i] <= roles[i - 1]) revert RolesNotStrictlyIncreasing(i);
+        }
+    }
 
     /// @notice Generates a standardized leaf hash for verifying Merkle proofs
     /// @param node Address of the node
