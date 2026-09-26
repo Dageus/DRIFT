@@ -34,7 +34,9 @@ export class ReputationModule {
   /**
    * Posts a signed epoch root. `bondAmount` must equal the client's current `settlementBond`
    * (queryable via the client contract's `settlementBond()` view) — `postEpochRoot` is payable
-   * and reverts with `InsufficientBond` if `msg.value` doesn't match exactly.
+   * and reverts with `InsufficientBond` if `msg.value` doesn't match exactly. The connected signer
+   * must be the client's `trustedSettler`: the contract rejects any other sender
+   * (`NotTrustedSettler`), so a rolled-back root cannot be re-posted by a third party.
    */
   public async postEpochRoot(
     clientAddress: string,
