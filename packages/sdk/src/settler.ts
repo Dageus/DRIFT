@@ -76,7 +76,9 @@ export class DriftSettler {
    * observed head" the thesis's O1 assumption describes.
    *
    * Callers computing Phi_c for `epoch` MUST check this (or use assertSynchronizedForEpoch)
-   * BEFORE fetching attestations and calling buildAndSignEpochRoot — this method intentionally
+   * BEFORE fetching attestations and calling buildAndSignEpochRoot, and should fetch them with
+   * `provider.fetchAllContextRecords(contextUID, Number(boundaryTimestamp))` so the input is the
+   * attestation set at the boundary rather than whatever is live when they run — this method intentionally
    * does not gate buildAndSignEpochRoot itself, so tree-building/signing stays unit-testable
    * against an offline signer with no provider attached.
    */

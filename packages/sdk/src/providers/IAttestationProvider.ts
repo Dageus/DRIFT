@@ -14,5 +14,11 @@ export interface IAttestationProvider {
    * into one node), which can't represent an attester's own standing being derived from other
    * attestations they received.
    */
-  fetchAllContextRecords(contextUID: string): Promise<AttestationRecord[]>;
+  /**
+   * With `asOf` (a ledger timestamp, normally the epoch boundary t_E returned by
+   * DriftSettler.isSynchronizedForEpoch), returns the attestation set as it stood at that instant:
+   * records created at or before `asOf` and not revoked by then, so every party computing Phi_c for
+   * an epoch reads the same input whenever it runs. Without `asOf`, returns the currently live set.
+   */
+  fetchAllContextRecords(contextUID: string, asOf?: number): Promise<AttestationRecord[]>;
 }
