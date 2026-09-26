@@ -169,22 +169,54 @@ describe('DriftSettler Cryptographic Boundaries', () => {
 describe('DriftSettler O1 Synchronization Check', () => {
   const clientAddress = '0x1234567890123456789012345678901234567890';
 
-  function makeSettler(observedHead: number, epochLength: bigint, epochAnchorTimestamp: bigint): DriftSettler {
-    const getBlock = (async () => ({ timestamp: observedHead })) as unknown as Provider['getBlock'];
+  let requestedTags: unknown[] = [];
+
+  function makeSettler(
+    observedHead: number | null,
+    epochLength: bigint,
+    epochAnchorTimestamp: bigint
+  ): DriftSettler {
+    requestedTags = [];
+    const getBlock = (async (tag: unknown) => {
+      requestedTags.push(tag);
+      return observedHead === null ? null : { timestamp: observedHead };
+    }) as unknown as Provider['getBlock'];
     const signer = Wallet.createRandom().connect(fakeProvider({ getBlock }));
     const settler = new DriftSettler(signer);
     mockInternals(settler)._fetchEpochBoundaryConfig = async () => ({ epochLength, epochAnchorTimestamp });
     return settler;
   }
 
-  it('reports synced once the observed head reaches the boundary timestamp', async () => {
+  it('reads the finalized head by default', async () => {
+    await makeSettler(200, 10n, 100n).isSynchronizedForEpoch(clientAddress, 3n);
+    expect(requestedTags).toEqual(['finalized']);
+  });
+
+  it('passes an explicit block tag through', async () => {
+    await makeSettler(200, 10n, 100n).isSynchronizedForEpoch(clientAddress, 3n, 'latest');
+    expect(requestedTags).toEqual(['latest']);
+  });
+
+  it('reports synced once the finalized head is strictly past the boundary timestamp', async () => {
     // boundary = 100 (anchor) + 10 (beta) * 3 (epoch) = 130
-    const settler = makeSettler(130, 10n, 100n);
+    const settler = makeSettler(131, 10n, 100n);
     const result = await settler.isSynchronizedForEpoch(clientAddress, 3n);
 
     expect(result.boundaryTimestamp).toBe(130n);
-    expect(result.observedHead).toBe(130n);
+    expect(result.observedHead).toBe(131n);
     expect(result.synced).toBe(true);
+  });
+
+  it('reports not synced while the finalized head sits exactly on the boundary', async () => {
+    // A later, unfinalized block can share timestamp 130 and still hold attestations dated t_E.
+    const result = await makeSettler(130, 10n, 100n).isSynchronizedForEpoch(clientAddress, 3n);
+    expect(result.synced).toBe(false);
+  });
+
+  it('fails loudly when the chain does not serve the requested tag', async () => {
+    await expect(makeSettler(null, 10n, 100n).isSynchronizedForEpoch(clientAddress, 3n)).rejects.toThrow(
+      /no 'finalized' block/
+    );
   });
 
   it('reports not synced while the observed head is behind the boundary timestamp', async () => {

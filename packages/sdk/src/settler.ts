@@ -21,8 +21,8 @@ const HELD_ROLE_AT_ABI = [
 ];
 
 /**
- * Thrown by assertSynchronizedForEpoch when the connected provider's observed chain head has not
- * yet reached the epoch's on-chain boundary timestamp (t_0 + beta * epoch). Settlement must be
+ * Thrown by assertSynchronizedForEpoch when the connected provider's finalized head has not yet
+ * passed the epoch's on-chain boundary timestamp (t_0 + beta * epoch). Settlement must be
  * deferred, not retried against stale/incomplete data (O1).
  *
  * Timestamps, not block numbers: block.number is not portable across the chains this protocol
@@ -35,7 +35,7 @@ export class EpochNotSynchronizedError extends DriftError {
     public readonly boundaryTimestamp: bigint
   ) {
     super(
-      `DRIFT SDK: observed chain head (timestamp ${observedHead}) has not reached the epoch boundary timestamp ${boundaryTimestamp} yet — defer settlement.`
+      `DRIFT SDK: observed chain head (timestamp ${observedHead}) has not passed the epoch boundary timestamp ${boundaryTimestamp} yet — defer settlement.`
     );
   }
 }
@@ -70,10 +70,14 @@ export class DriftSettler {
 
   /**
    * O1 synchronization check: computes the on-chain boundary timestamp for `epoch`
-   * (epochAnchorTimestamp + epochLength * epoch) and compares it to the connected provider's
-   * currently observed chain head. This repo does not yet ship a dedicated indexer/subgraph
-   * (see TODO.md), so the RPC provider's head is used as an interim proxy for "the indexer's
-   * observed head" the thesis's O1 assumption describes.
+   * (epochAnchorTimestamp + epochLength * epoch) and compares it to the timestamp of the block the
+   * provider reports for `blockTag`, the finalized head by default. Synced means that timestamp is
+   * strictly past the boundary: block timestamps never decrease, so every block that can hold an
+   * attestation created at or before t_E is then final and cannot be reorganized away. Equality is
+   * not enough, since several blocks can share a timestamp (on Arbitrum, many L2 blocks do).
+   * Pass 'latest' only on development chains that never finalize. This repo does not yet ship a
+   * dedicated indexer/subgraph (see TODO.md), so the RPC provider's head is used as an interim
+   * proxy for "the indexer's observed head" the thesis's O1 assumption describes.
    *
    * Callers computing Phi_c for `epoch` MUST check this (or use assertSynchronizedForEpoch)
    * BEFORE fetching attestations and calling buildAndSignEpochRoot, and should fetch them with
@@ -84,25 +88,29 @@ export class DriftSettler {
    */
   public async isSynchronizedForEpoch(
     clientAddress: string,
-    epoch: bigint
+    epoch: bigint,
+    blockTag: 'finalized' | 'safe' | 'latest' = 'finalized'
   ): Promise<{ synced: boolean; observedHead: bigint; boundaryTimestamp: bigint }> {
     const provider = this.signer.provider;
     if (!provider) {
       throw new DriftConfigError('DRIFT SDK: Signer must have a provider to check epoch synchronization.');
     }
 
-    const [{ epochLength, epochAnchorTimestamp }, latestBlock] = await Promise.all([
+    const [{ epochLength, epochAnchorTimestamp }, head] = await Promise.all([
       this._fetchEpochBoundaryConfig(clientAddress),
-      provider.getBlock('latest')
+      provider.getBlock(blockTag)
     ]);
-    if (!latestBlock) {
-      throw new DriftConfigError('DRIFT SDK: Provider returned no latest block.');
+    if (!head) {
+      // No silent fallback to 'latest': an unfinalized head is exactly what O1 rules out.
+      throw new DriftConfigError(
+        `DRIFT SDK: Provider returned no '${blockTag}' block; the chain may not support that tag.`
+      );
     }
 
     const boundaryTimestamp = epochAnchorTimestamp + epochLength * epoch;
-    const observedHead = BigInt(latestBlock.timestamp);
+    const observedHead = BigInt(head.timestamp);
 
-    return { synced: observedHead >= boundaryTimestamp, observedHead, boundaryTimestamp };
+    return { synced: observedHead > boundaryTimestamp, observedHead, boundaryTimestamp };
   }
 
   private async _fetchEpochBoundaryConfig(
@@ -121,8 +129,16 @@ export class DriftSettler {
    * Convenience wrapper around isSynchronizedForEpoch that throws EpochNotSynchronizedError
    * instead of returning a boolean — for callers that want to fail fast rather than branch.
    */
-  public async assertSynchronizedForEpoch(clientAddress: string, epoch: bigint): Promise<void> {
-    const { synced, observedHead, boundaryTimestamp } = await this.isSynchronizedForEpoch(clientAddress, epoch);
+  public async assertSynchronizedForEpoch(
+    clientAddress: string,
+    epoch: bigint,
+    blockTag: 'finalized' | 'safe' | 'latest' = 'finalized'
+  ): Promise<void> {
+    const { synced, observedHead, boundaryTimestamp } = await this.isSynchronizedForEpoch(
+      clientAddress,
+      epoch,
+      blockTag
+    );
     if (!synced) throw new EpochNotSynchronizedError(observedHead, boundaryTimestamp);
   }
 
