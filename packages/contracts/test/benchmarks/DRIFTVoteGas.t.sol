@@ -167,9 +167,12 @@ contract DRIFTVoteGasTest is Test {
 
             (uint8 v, bytes32 r, bytes32 s) = vm.sign(settlerPk, digest);
             vm.warp(client.epochAnchorTimestamp() + client.epochLength() * epoch);
+            vm.deal(client.trustedSettler(), client.trustedSettler().balance + 1000 ether);
+            vm.startPrank(client.trustedSettler());
             client.postEpochRoot{ value: SETTLEMENT_BOND }(
                 epoch, calculatedRoot, "", abi.encodePacked(r, s, v)
             );
+            vm.stopPrank();
             vm.warp(block.timestamp + client.disputeWindow() + client.responseWindow() + 1);
         }
 

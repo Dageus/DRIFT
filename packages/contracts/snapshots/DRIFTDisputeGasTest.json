@@ -1,13 +1,13 @@
 {
   "ChallengeOmission": "149353",
-  "ClaimUnansweredChallenge": "61985",
-  "ReclaimMootChallenge": "35138",
-  "ReclaimMootChallenges_Batch10": "344046",
-  "RespondToChallenge_Depth1": "39463",
-  "RespondToChallenge_Depth20": "45764",
+  "ClaimUnansweredChallenge": "62006",
+  "ReclaimMootChallenge": "35148",
+  "ReclaimMootChallenges_Batch10": "344147",
+  "RespondToChallenge_Depth1": "14456",
+  "RespondToChallenge_Depth20": "20758",
   "SetChallengeBond": "46981",
   "SetDisputeWindow": "47275",
   "SetResponseWindow": "46840",
   "SetSettlementBond": "47570",
-  "WithdrawSettlementBond": "39114"
+  "WithdrawSettlementBond": "14136"
 }

@@ -51,6 +51,13 @@ interface IDRIFTSettler is IDRIFTClient {
         uint256 consecutiveFailedEpochs
     );
 
+    /// @notice Emitted when a payout could not be pushed to `recipient` and was credited instead;
+    ///         the recipient collects it with `withdrawPendingPayout`.
+    event PayoutDeferred(address indexed recipient, uint256 amount);
+
+    /// @notice Emitted when a deferred payout is collected.
+    event PendingPayoutWithdrawn(address indexed recipient, uint256 amount);
+
     /// @notice Emitted when the settler's escrowed bond for a cleanly-finalized epoch is withdrawn (B1)
     event SettlementBondWithdrawn(
         bytes32 indexed contextUID, uint256 indexed epoch, uint256 amount
@@ -99,6 +106,8 @@ interface IDRIFTSettler is IDRIFTClient {
     error AlreadyChallengedThisEpoch(uint256 epoch, address challenger);
     error ThirdPartyChallengeNotPermitted(address challenger, address node);
     error ResponseGasEstimateTooHigh(uint256 provided, uint256 maximum);
+    error NotTrustedSettler(address caller);
+    error NoPendingPayout(address recipient);
 
     // SETTLEMENT CONFIGURATION ================================================
 
@@ -113,6 +122,9 @@ interface IDRIFTSettler is IDRIFTClient {
     /// @notice Posts a new epoch root verified by the trusted settler
     /// @dev Payable: the caller must escrow `settlementBond` wei (B1), forfeited to a successful
     ///      challenger if the epoch's non-inclusion challenge window times out unanswered.
+    ///      Only `trustedSettler` may call it. A rolled-back root keeps a valid settler signature,
+    ///      so a permissionless post would let anyone holding the bond re-post it and block the
+    ///      correction; relaying bought nothing anyway, since the bond is refunded to the settler.
     /// @param epoch The sequential epoch ID
     /// @param merkleRoot The root of the reputation Merkle tree
     /// @param sig EIP-712 signature from the trusted settler
@@ -211,6 +223,9 @@ interface IDRIFTSettler is IDRIFTClient {
     ///         exceed the amount quoted when it was built — callers should pad. The excess over
     ///         the required amount is refunded and never at stake.
     function requiredChallengeBond() external view returns (uint256);
+
+    /// @notice Collects payouts that could not be pushed to the caller (see `PayoutDeferred`).
+    function withdrawPendingPayout() external;
 
     /// @notice Withdraws the settler's escrowed bond for an epoch that finalized cleanly
     ///         (window elapsed, no successful challenge). Callable by anyone; pays trustedSettler.

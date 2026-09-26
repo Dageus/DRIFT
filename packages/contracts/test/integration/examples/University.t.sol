@@ -125,7 +125,10 @@ contract UniversityScenarioTest is Test {
             : keccak256(abi.encodePacked(leafAlice, leafBob));
 
         vm.warp(client.epochAnchorTimestamp() + client.epochLength() * epoch);
+        vm.deal(client.trustedSettler(), client.trustedSettler().balance + 1000 ether);
+        vm.startPrank(client.trustedSettler());
         client.postEpochRoot{ value: SETTLEMENT_BOND }(epoch, root, "", _signRoot(epoch, root));
+        vm.stopPrank();
         vm.warp(block.timestamp + client.disputeWindow() + client.responseWindow() + 1);
 
         bytes32 gradingSchemaUID = keccak256("schema.grading");

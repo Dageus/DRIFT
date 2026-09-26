@@ -4,9 +4,11 @@ pragma solidity 0.8.28;
 import { DRIFTClientFactory } from "../../src/client/DRIFTClientFactory.sol";
 import { IDRIFTSettler } from "../../src/client/IDRIFTSettler.sol";
 import { DRIFTCore } from "../../src/core/DRIFTCore.sol";
+import { IDRIFTCore } from "../../src/core/IDRIFTCore.sol";
 import { NodeStatus } from "../../src/policies/IPolicy.sol";
 import { WeightedGovernanceClient } from "../../src/templates/WeightedGovernance.sol";
 import { DRIFTToken } from "../../src/token/DRIFTToken.sol";
+import { MockHostileRecipient } from "../mocks/MockHostileRecipient.sol";
 import { MockReentrantChallenger } from "../mocks/MockReentrantChallenger.sol";
 import { DRIFTTestHelper } from "../utils/DRIFTTestHelper.sol";
 import { ERC1967Proxy } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
@@ -139,7 +141,10 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
     ) internal {
         _warpToBoundary(epoch);
         bytes memory sig = _signEpochRoot(settlerPk, contextUID, epoch, root, address(client));
+        vm.deal(client.trustedSettler(), client.trustedSettler().balance + 1000 ether);
+        vm.startPrank(client.trustedSettler());
         client.postEpochRoot{ value: SETTLEMENT_BOND }(epoch, root, "", sig);
+        vm.stopPrank();
     }
 
     /// @dev As _postEpoch, but with an explicit settlement bond instead of the shared
@@ -152,7 +157,10 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
     ) internal {
         _warpToBoundary(epoch);
         bytes memory sig = _signEpochRoot(settlerPk, contextUID, epoch, root, address(client));
+        vm.deal(client.trustedSettler(), client.trustedSettler().balance + 1000 ether);
+        vm.startPrank(client.trustedSettler());
         client.postEpochRoot{ value: bondAmount }(epoch, root, "", sig);
+        vm.stopPrank();
     }
 
     function _rollPastFinalization() internal {
@@ -547,12 +555,15 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
             _signEpochRoot(settlerPk, freshClient.contextUID(), epoch, root, address(freshClient));
 
         vm.warp(freshClient.epochAnchorTimestamp() + freshClient.epochLength() * epoch);
+        vm.deal(freshClient.trustedSettler(), freshClient.trustedSettler().balance + 1000 ether);
+        vm.startPrank(freshClient.trustedSettler());
         vm.expectRevert(
             abi.encodeWithSelector(
                 IDRIFTSettler.WindowsExceedEpochLength.selector, uint256(3), uint256(2), uint256(2)
             )
         );
         freshClient.postEpochRoot{ value: SETTLEMENT_BOND }(epoch, root, "", sig);
+        vm.stopPrank();
     }
 
     // BOND FLOORS ==============================================================
@@ -589,12 +600,15 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
             _signEpochRoot(settlerPk, freshClient.contextUID(), epoch, root, address(freshClient));
 
         vm.warp(freshClient.epochAnchorTimestamp() + freshClient.epochLength() * epoch);
+        vm.deal(freshClient.trustedSettler(), freshClient.trustedSettler().balance + 1000 ether);
+        vm.startPrank(freshClient.trustedSettler());
         vm.expectRevert(
             abi.encodeWithSelector(
                 IDRIFTSettler.BondBelowFloor.selector, 0, freshClient.MIN_SETTLEMENT_BOND()
             )
         );
         freshClient.postEpochRoot(epoch, root, "", sig);
+        vm.stopPrank();
     }
 
     // GATING ===================================================================
@@ -1644,5 +1658,131 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
         vm.warp(vm.getBlockTimestamp() + RESPONSE_WINDOW + 1);
         client.claimUnansweredChallenge(epoch, node, ROLE_B);
         assertEq(client.epochRoots(epoch), bytes32(0));
+    }
+
+    // ROLLBACK REPLAY AND REFUSED PAYOUTS ====================================
+
+    /// @dev Posts a root omitting `missing`, has `challenger` (or a hostile contract) contest it,
+    ///      and lets the response window lapse. Returns the rejected root and its signature.
+    function _omitAndChallenge(
+        uint256 epoch,
+        address present,
+        address missing,
+        address challenger
+    ) internal returns (bytes32 badRoot, bytes memory badSig) {
+        badRoot = _leaf(present, 100, epoch);
+        badSig = _signEpochRoot(settlerPk, contextUID, epoch, badRoot, address(client));
+        _postEpoch(epoch, badRoot);
+        vm.deal(challenger, CHALLENGE_BOND);
+        vm.prank(challenger);
+        client.challengeOmission{ value: CHALLENGE_BOND }(epoch, missing, ROLE);
+    }
+
+    function _twoAdmittedNodes() internal returns (address present, address missing) {
+        present = makeAddr("presentNode");
+        missing = makeAddr("missingNode");
+        vm.prank(present);
+        core.registerNode(contextUID, "0x");
+        vm.prank(missing);
+        core.registerNode(contextUID, "0x");
+        vm.startPrank(admin);
+        client.assignRole(present, ROLE);
+        client.assignRole(missing, ROLE);
+        vm.stopPrank();
+    }
+
+    /// @notice A rolled-back root keeps a valid settler signature. Before posting was restricted to
+    ///         the settler, anyone holding the bond could re-post it and block the correction.
+    function test_RevertIf_RolledBackRoot_ReplayedByThirdParty() public {
+        (address present, address missing) = _twoAdmittedNodes();
+        uint256 epoch = 1;
+        (bytes32 badRoot, bytes memory badSig) =
+            _omitAndChallenge(epoch, present, missing, makeAddr("challenger"));
+        vm.warp(vm.getBlockTimestamp() + RESPONSE_WINDOW + 1);
+        client.claimUnansweredChallenge(epoch, missing, ROLE);
+        assertEq(client.epochRoots(epoch), bytes32(0));
+
+        address replayer = makeAddr("replayer");
+        vm.deal(replayer, SETTLEMENT_BOND);
+        vm.prank(replayer);
+        vm.expectRevert(abi.encodeWithSelector(IDRIFTSettler.NotTrustedSettler.selector, replayer));
+        client.postEpochRoot{ value: SETTLEMENT_BOND }(epoch, badRoot, "", badSig);
+
+        // The settler's correction still goes through.
+        bytes32 corrected = _hashPair(_leaf(present, 100, epoch), _leaf(missing, 100, epoch));
+        _postEpoch(epoch, corrected);
+        assertEq(client.epochRoots(epoch), corrected);
+    }
+
+    /// @notice A challenger that refuses its winnings cannot stall the rollback: the payout is
+    ///         credited, the epoch rolls back, and the challenger can collect later.
+    function test_UnansweredClaim_CreditsRefusingChallenger() public {
+        MockHostileRecipient.Mode[3] memory modes = [
+            MockHostileRecipient.Mode.Reject,
+            MockHostileRecipient.Mode.BurnGas,
+            MockHostileRecipient.Mode.ReturnBomb
+        ];
+        for (uint256 i = 0; i < modes.length; i++) {
+            uint256 snap = vm.snapshotState();
+            (address present, address missing) = _twoAdmittedNodes();
+            MockHostileRecipient hostile = new MockHostileRecipient(client);
+            hostile.register(IDRIFTCore(address(core)), contextUID);
+            hostile.setMode(modes[i]);
+
+            uint256 epoch = 1;
+            _omitAndChallenge(epoch, present, missing, address(hostile));
+            vm.warp(vm.getBlockTimestamp() + RESPONSE_WINDOW + 1);
+
+            vm.expectEmit(address(client));
+            emit IDRIFTSettler.PayoutDeferred(address(hostile), SETTLEMENT_BOND + CHALLENGE_BOND);
+            // Calibrated limit: the worst hostile mode needs ~115k here. An uncapped call would let
+            // BurnGas starve the credit, and copying ReturnBomb's revert data costs ~35k more, so
+            // either regression fails this call.
+            client.claimUnansweredChallenge{ gas: 120_000 }(epoch, missing, ROLE);
+
+            assertEq(client.epochRoots(epoch), bytes32(0), "rolled back");
+            assertEq(client.openChallengeCount(epoch), 0);
+            assertEq(address(hostile).balance, 0);
+            assertEq(client.pendingPayouts(address(hostile)), SETTLEMENT_BOND + CHALLENGE_BOND);
+
+            hostile.setMode(MockHostileRecipient.Mode.Accept);
+            hostile.withdraw();
+            assertEq(address(hostile).balance, SETTLEMENT_BOND + CHALLENGE_BOND);
+            assertEq(client.pendingPayouts(address(hostile)), 0);
+            vm.revertToState(snap);
+        }
+    }
+
+    /// @notice A moot challenge whose owner refuses the refund used to keep openChallengeCount
+    ///         above zero forever, so the reposted epoch could never finalize.
+    function test_MootReclaim_CreditsRefusingChallenger_RepostFinalizes() public {
+        (address present, address missing) = _twoAdmittedNodes();
+        MockHostileRecipient hostile = new MockHostileRecipient(client);
+        hostile.register(IDRIFTCore(address(core)), contextUID);
+
+        uint256 epoch = 1;
+        _omitAndChallenge(epoch, present, missing, makeAddr("challenger"));
+        // The hostile contract contests the present node too, then refuses every payment.
+        vm.deal(address(hostile), CHALLENGE_BOND);
+        hostile.challenge{ value: CHALLENGE_BOND }(epoch, present, ROLE);
+        hostile.setMode(MockHostileRecipient.Mode.Reject);
+
+        vm.warp(vm.getBlockTimestamp() + RESPONSE_WINDOW + 1);
+        client.claimUnansweredChallenge(epoch, missing, ROLE);
+        client.reclaimMootChallenge(epoch, present, ROLE);
+        assertEq(client.openChallengeCount(epoch), 0);
+        assertEq(client.pendingPayouts(address(hostile)), CHALLENGE_BOND);
+
+        bytes32 corrected = _hashPair(_leaf(present, 100, epoch), _leaf(missing, 100, epoch));
+        _postEpoch(epoch, corrected);
+        _rollPastFinalization();
+        client.withdrawSettlementBond(epoch); // reverts unless the epoch finalized
+    }
+
+    function test_RevertIf_WithdrawPendingPayout_NothingOwed() public {
+        address nobody = makeAddr("nobody");
+        vm.prank(nobody);
+        vm.expectRevert(abi.encodeWithSelector(IDRIFTSettler.NoPendingPayout.selector, nobody));
+        client.withdrawPendingPayout();
     }
 }

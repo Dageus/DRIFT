@@ -117,7 +117,10 @@ contract DRIFTDisputeGasTest is DRIFTTestHelper {
     ) internal {
         vm.warp(client.epochAnchorTimestamp() + client.epochLength() * epoch);
         bytes memory sig = _signEpochRoot(settlerPk, contextUID, epoch, root, address(client));
+        vm.deal(client.trustedSettler(), client.trustedSettler().balance + 1000 ether);
+        vm.startPrank(client.trustedSettler());
         client.postEpochRoot{ value: SETTLEMENT_BOND }(epoch, root, "", sig);
+        vm.stopPrank();
     }
 
     // ONE-TIME CONFIGURATION ===================================================

@@ -125,9 +125,12 @@ contract DRIFTSecurityBoundaryTest is Test {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(settlerPk, digest);
 
         vm.warp(client.epochAnchorTimestamp() + client.epochLength() * epoch);
+        vm.deal(client.trustedSettler(), client.trustedSettler().balance + 1000 ether);
+        vm.startPrank(client.trustedSettler());
         client.postEpochRoot{ value: SETTLEMENT_BOND }(
             epoch, setupLeaf, "", abi.encodePacked(r, s, v)
         );
+        vm.stopPrank();
         _rollPastFinalization(client);
 
         bytes32[] memory setupRoles = new bytes32[](1);
@@ -237,7 +240,10 @@ contract DRIFTSecurityBoundaryTest is Test {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(settlerPk, digest);
 
         vm.warp(client.epochAnchorTimestamp() + client.epochLength() * epoch);
+        vm.deal(client.trustedSettler(), client.trustedSettler().balance + 1000 ether);
+        vm.startPrank(client.trustedSettler());
         client.postEpochRoot{ value: SETTLEMENT_BOND }(epoch, root, "", abi.encodePacked(r, s, v));
+        vm.stopPrank();
         _rollPastFinalization(client);
 
         bytes32[][] memory proofs = new bytes32[][](1);
@@ -311,9 +317,12 @@ contract DRIFTSecurityBoundaryTest is Test {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(settlerPk, digest);
 
         vm.warp(client.epochAnchorTimestamp() + client.epochLength() * epoch2);
+        vm.deal(client.trustedSettler(), client.trustedSettler().balance + 1000 ether);
+        vm.startPrank(client.trustedSettler());
         client.postEpochRoot{ value: SETTLEMENT_BOND }(
             epoch2, aliceLeaf, "", abi.encodePacked(r, s, v)
         );
+        vm.stopPrank();
 
         bytes32[] memory roles = new bytes32[](1);
         roles[0] = ROLE;
@@ -367,9 +376,12 @@ contract DRIFTSecurityBoundaryTest is Test {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(settlerPk, digestB);
 
         vm.warp(clientB.epochAnchorTimestamp() + clientB.epochLength() * epoch);
+        vm.deal(clientB.trustedSettler(), clientB.trustedSettler().balance + 1000 ether);
+        vm.startPrank(clientB.trustedSettler());
         clientB.postEpochRoot{ value: SETTLEMENT_BOND }(
             epoch, leafFromContext1, "", abi.encodePacked(r, s, v)
         );
+        vm.stopPrank();
         _rollPastFinalization(clientB);
 
         // Replay context1's (leaf-producing) admin claim verbatim against clientB.
@@ -438,9 +450,12 @@ contract DRIFTSecurityBoundaryTest is Test {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(settlerPk, digest);
 
         vm.warp(client.epochAnchorTimestamp() + client.epochLength() * epoch2);
+        vm.deal(client.trustedSettler(), client.trustedSettler().balance + 1000 ether);
+        vm.startPrank(client.trustedSettler());
         client.postEpochRoot{ value: SETTLEMENT_BOND }(
             epoch2, futureLeaf, "", abi.encodePacked(r, s, v)
         );
+        vm.stopPrank();
 
         bytes32[] memory roles = new bytes32[](1);
         roles[0] = ROLE;
@@ -481,12 +496,15 @@ contract DRIFTSecurityBoundaryTest is Test {
         bytes32 digest = MessageHashUtils.toTypedDataHash(domainSeparator, structHash);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(settlerPk, digest);
 
+        vm.deal(client.trustedSettler(), client.trustedSettler().balance + 1000 ether);
+        vm.startPrank(client.trustedSettler());
         vm.expectRevert(
             abi.encodeWithSelector(
                 WeightedGovernanceClient.InvalidEpoch.selector, badEpoch, client.currentEpoch() + 1
             )
         );
         client.postEpochRoot(badEpoch, root, "", abi.encodePacked(r, s, v));
+        vm.stopPrank();
     }
 
     /// @notice Generalizes test_RevertIf_CrossContextProofReplay (P3 output isolation) beyond its
@@ -524,9 +542,12 @@ contract DRIFTSecurityBoundaryTest is Test {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(settlerPk, digestB);
 
         vm.warp(clientB.epochAnchorTimestamp() + clientB.epochLength() * epoch);
+        vm.deal(clientB.trustedSettler(), clientB.trustedSettler().balance + 1000 ether);
+        vm.startPrank(clientB.trustedSettler());
         clientB.postEpochRoot{ value: SETTLEMENT_BOND }(
             epoch, leafFromContext1, "", abi.encodePacked(r, s, v)
         );
+        vm.stopPrank();
         _rollPastFinalization(clientB);
 
         bytes32[] memory roles = new bytes32[](1);

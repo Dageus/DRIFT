@@ -101,6 +101,9 @@ contract WeightedGovernanceClient is
     ///         within `responseWindow` still leaves the response under-covered.
     uint256 public constant CHALLENGE_BOND_MARGIN_BPS = 12_000;
     uint256 public constant BPS_DENOMINATOR = 10_000;
+    /// @notice Gas forwarded when pushing a payout. Bounded so a recipient that burns its gas
+    ///         cannot starve the caller of what it needs to credit the payout instead.
+    uint256 public constant PAYOUT_GAS_STIPEND = 50_000;
 
     /// @notice Wei the settler must escrow per posted epoch, forfeited on a successful challenge.
     uint256 public settlementBond;
@@ -177,6 +180,9 @@ contract WeightedGovernanceClient is
 
     uint256 public proposalCount;
     mapping(uint256 => Proposal) public proposals;
+
+    /// @notice Wei owed to recipients whose payout could not be pushed (see `_payOrCredit`).
+    mapping(address => uint256) public pendingPayouts;
 
     // Events
     event RoleWeightsUpdated(uint32 indexed configVersion);
@@ -503,6 +509,9 @@ contract WeightedGovernanceClient is
         string calldata treeURI,
         bytes calldata sig
     ) external payable {
+        // A rolled-back root keeps a valid settler signature; restricting the caller is what stops
+        // a third party re-posting it (see IDRIFTSettler.postEpochRoot).
+        if (msg.sender != trustedSettler) revert NotTrustedSettler(msg.sender);
         if (epoch != currentEpoch + 1) {
             revert InvalidEpoch(epoch, currentEpoch + 1);
         }
@@ -726,8 +735,7 @@ contract WeightedGovernanceClient is
         uint256 bond = c.bond;
         c.bond = 0;
 
-        (bool sent,) = trustedSettler.call{ value: bond }("");
-        if (!sent) revert ExecutionFailed();
+        _payOrCredit(trustedSettler, bond);
 
         emit ChallengeDefeated(contextUID, epoch, node, role);
     }
@@ -765,8 +773,7 @@ contract WeightedGovernanceClient is
         uint256 challengeBondAmount = c.bond;
         c.bond = 0;
         uint256 payout = settlementBondAmount + challengeBondAmount;
-        (bool sent,) = challenger.call{ value: payout }("");
-        if (!sent) revert ExecutionFailed();
+        _payOrCredit(challenger, payout);
 
         emit NonInclusionProven(contextUID, epoch, node, role, challenger, payout, failCount);
     }
@@ -809,9 +816,19 @@ contract WeightedGovernanceClient is
         uint256 bond = c.bond;
         c.bond = 0;
 
-        address challenger = c.challenger;
-        (bool sent,) = challenger.call{ value: bond }("");
+        _payOrCredit(c.challenger, bond);
+    }
+
+    /// @inheritdoc IDRIFTSettler
+    function withdrawPendingPayout() external {
+        uint256 amount = pendingPayouts[msg.sender];
+        if (amount == 0) revert NoPendingPayout(msg.sender);
+        pendingPayouts[msg.sender] = 0;
+
+        (bool sent,) = msg.sender.call{ value: amount }("");
         if (!sent) revert ExecutionFailed();
+
+        emit PendingPayoutWithdrawn(msg.sender, amount);
     }
 
     /// @inheritdoc IDRIFTSettler
@@ -1136,6 +1153,27 @@ contract WeightedGovernanceClient is
     }
 
     // INTERNAL ================================================================
+
+    /// @dev Pays `amount` to a party other than the caller without letting that party block the
+    ///      caller. Reverting on a failed push let a challenger contract that rejects ETH keep its
+    ///      challenge open forever, and with it the epoch unfinalized. A failed push is credited to
+    ///      `pendingPayouts` instead. The call forwards at most PAYOUT_GAS_STIPEND and copies no
+    ///      return data, so neither burnt gas nor an oversized return can make crediting run out
+    ///      of gas. State is fully updated by every caller before this runs.
+    function _payOrCredit(
+        address to,
+        uint256 amount
+    ) internal {
+        if (amount == 0) return;
+        bool sent;
+        assembly ("memory-safe") {
+            sent := call(PAYOUT_GAS_STIPEND, to, amount, 0, 0, 0, 0)
+        }
+        if (!sent) {
+            pendingPayouts[to] += amount;
+            emit PayoutDeferred(to, amount);
+        }
+    }
 
     /// @dev Voting power adds one term per (role, score, proof) entry, so a repeated role would
     ///      count the same leaf twice. Requiring strictly increasing roles rules out repeats with one
