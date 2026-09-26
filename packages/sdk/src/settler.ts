@@ -222,24 +222,28 @@ export class DriftSettler {
     node: string,
     epoch: bigint
   ): ProofOfStatePayload {
-    const roles: string[] = [];
-    const scores: bigint[] = [];
-    const proofs: string[][] = [];
+    const entries: { role: string; score: bigint; proof: string[] }[] = [];
 
     for (const [i, v] of tree.entries()) {
       // v[0] = contextUID, v[1] = node, v[2] = role, v[3] = score, v[4] = epoch — always a 5-tuple.
       if (v[0] === contextUID && v[1]!.toLowerCase() === node.toLowerCase() && BigInt(v[4]!) === epoch) {
-        roles.push(v[2]!);
-        scores.push(BigInt(v[3]!));
-        proofs.push(tree.getProof(i));
+        entries.push({ role: v[2]!, score: BigInt(v[3]!), proof: tree.getProof(i) });
       }
     }
 
-    if (roles.length === 0) {
+    if (entries.length === 0) {
       throw new DriftNotFoundError(`DRIFT SDK: No reputation claims found for node ${node} at epoch ${epoch}`);
     }
 
-    return { roles, scores, proofs };
+    // The client rejects roles that are not strictly increasing (a repeated role would count its
+    // leaf twice), so emit them in ascending bytes32 order.
+    entries.sort((a, b) => (BigInt(a.role) < BigInt(b.role) ? -1 : BigInt(a.role) > BigInt(b.role) ? 1 : 0));
+
+    return {
+      roles: entries.map((e) => e.role),
+      scores: entries.map((e) => e.score),
+      proofs: entries.map((e) => e.proof)
+    };
   }
 
   /**

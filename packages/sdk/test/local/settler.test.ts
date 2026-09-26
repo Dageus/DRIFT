@@ -133,6 +133,27 @@ describe('DriftSettler Cryptographic Boundaries', () => {
     expect(payload.proofs[0]![0]).toMatch(/^0x[a-fA-F0-9]{64}$/);
   });
 
+  it('emits roles in strictly increasing order, keeping scores and proofs aligned', async () => {
+    const epoch = 3n;
+    const targetNode = '0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+    const [lo, hi] = BigInt(role1) < BigInt(role2) ? [role1, role2] : [role2, role1];
+    // Descending input: the payload must still come out ascending (the client rejects anything else).
+    const scores: ScoreEntry[] = [
+      { node: targetNode, role: hi, score: 7n },
+      { node: targetNode, role: lo, score: 3n }
+    ];
+
+    const { tree } = await settler.buildAndSignEpochRoot(clientAddress, contextUID, epoch, scores, mockUploader);
+    const payload = settler.generateProofOfStatePayload(tree, contextUID, targetNode, epoch);
+
+    expect(payload.roles).toEqual([lo, hi]);
+    expect(payload.scores).toEqual([3n, 7n]);
+    payload.roles.forEach((role, i) => {
+      const leaf = [contextUID, targetNode, role, payload.scores[i]!.toString(), epoch.toString()];
+      expect(tree.verify(leaf, payload.proofs[i]!)).toBe(true);
+    });
+  });
+
   it('should throw if attempting to generate a payload for an unregistered node/epoch', async () => {
     const epoch = 1n;
     const scores: ScoreEntry[] = [{ node: '0x1111111111111111111111111111111111111111', role: role1, score: 100n }];
