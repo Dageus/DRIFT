@@ -165,7 +165,7 @@ DRIFTNonInclusionDisputeTest:test_RevertIf_WithdrawSettlementBond_TooEarly() (ga
 DRIFTNonInclusionDisputeTest:test_RevertIf_WithdrawSettlementBond_Twice() (gas: 221897)
 DRIFTNonInclusionDisputeTest:test_SelfChallenge_IgnoresThirdPartyAgeGate() (gas: 552898)
 DRIFTNonInclusionDisputeTest:test_SelfChallenge_UnreputedFirstEpochNode_Succeeds() (gas: 522806)
-DRIFTNonInclusionDisputeTest:test_UnansweredClaim_CreditsRefusingChallenger() (gas: 2660960)
+DRIFTNonInclusionDisputeTest:test_UnansweredClaim_CreditsRefusingChallenger() (gas: 2662480)
 DRIFTNonInclusionDisputeTest:test_WithdrawSettlementBond_AfterFinalized() (gas: 222300)
 DRIFTSecurityBoundaryTest:testFuzz_RevertIf_CrossContextProofReplay(address,uint256) (runs: 1000, μ: 5617387, ~: 5617387)
 DRIFTSecurityBoundaryTest:testFuzz_RevertIf_MalformedProof(uint256,bytes32) (runs: 1000, μ: 45062, ~: 45068)

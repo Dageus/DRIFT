@@ -12,6 +12,7 @@ import { MockHostileRecipient } from "../mocks/MockHostileRecipient.sol";
 import { MockReentrantChallenger } from "../mocks/MockReentrantChallenger.sol";
 import { DRIFTTestHelper } from "../utils/DRIFTTestHelper.sol";
 import { ERC1967Proxy } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import { VmSafe } from "forge-std/Vm.sol";
 
 /// @title DRIFTNonInclusionDisputeTest
 /// @notice B1: interactive challenge-response non-inclusion disputes.
@@ -1737,8 +1738,10 @@ contract DRIFTNonInclusionDisputeTest is DRIFTTestHelper {
             emit IDRIFTSettler.PayoutDeferred(address(hostile), SETTLEMENT_BOND + CHALLENGE_BOND);
             // Calibrated limit: the worst hostile mode needs ~115k here. An uncapped call would let
             // BurnGas starve the credit, and copying ReturnBomb's revert data costs ~35k more, so
-            // either regression fails this call.
-            client.claimUnansweredChallenge{ gas: 120_000 }(epoch, missing, ROLE);
+            // either regression fails this call. Coverage instrumentation inflates gas, so the
+            // bound is only meaningful outside coverage runs.
+            uint256 gasLimit = vm.isContext(VmSafe.ForgeContext.Coverage) ? 1_000_000 : 120_000;
+            client.claimUnansweredChallenge{ gas: gasLimit }(epoch, missing, ROLE);
 
             assertEq(client.epochRoots(epoch), bytes32(0), "rolled back");
             assertEq(client.openChallengeCount(epoch), 0);
