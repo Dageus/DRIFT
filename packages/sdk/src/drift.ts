@@ -182,27 +182,35 @@ export class Drift {
   }
 
   /**
-   * Mirrors DRIFTCore.verifyAttestation's on-chain join-time filter off-chain, per record: a
-   * record predating either party's most recent registration in `contextUID` must not count, or
-   * leaving and rejoining a context would let a node keep the reputation history of its earlier
-   * membership. Applied per-(subject,attester) pair rather than against one fixed subject, since
-   * `records` may span the whole context graph, not just one node's edges.
+   * Mirrors DRIFTCore.verifyAttestation off-chain, per record: both parties must be current members
+   * of `contextUID` (registered and not banned), and the record must not predate either party's
+   * most recent registration. Without the membership check a never-registered address (whose
+   * registration time reads as 0) or a deregistered node (whose timestamp is kept) would pass the
+   * join-time test, letting outsiders shape a context's reputation. Applied per (subject, attester)
+   * pair, since `records` may span the whole context graph.
    */
   private async _dropPreJoinAttestations(
     contextUID: string,
     records: AttestationRecord[]
   ): Promise<AttestationRecord[]> {
     const parties = [...new Set(records.flatMap((r) => [r.subject.toLowerCase(), r.attester.toLowerCase()]))];
-    const joinedAtEntries = await Promise.all(
-      parties.map(async (p): Promise<[string, bigint]> => [p, await this.core.getNodeRegisteredAt(contextUID, p)])
+    const entries = await Promise.all(
+      parties.map(async (p): Promise<[string, bigint | null]> => {
+        const [member, joinedAt] = await Promise.all([
+          this.core.isRegistered(contextUID, p),
+          this.core.getNodeRegisteredAt(contextUID, p)
+        ]);
+        return [p, member ? joinedAt : null];
+      })
     );
-    const joinedAt = new Map(joinedAtEntries);
+    const joinedAt = new Map(entries);
 
     return records.filter((r) => {
+      const subjectJoined = joinedAt.get(r.subject.toLowerCase());
+      const attesterJoined = joinedAt.get(r.attester.toLowerCase());
+      if (subjectJoined == null || attesterJoined == null) return false;
       const ts = BigInt(r.timestamp);
-      return (
-        ts >= (joinedAt.get(r.subject.toLowerCase()) ?? 0n) && ts >= (joinedAt.get(r.attester.toLowerCase()) ?? 0n)
-      );
+      return ts >= subjectJoined && ts >= attesterJoined;
     });
   }
 
