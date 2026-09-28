@@ -17,7 +17,12 @@ export interface EigenTrustEngineConfig {
   alpha?: number;
 }
 
-const SCALE = 1000000n; // Fixed-point precision factor for BigInt math
+// Fixed-point precision factor for BigInt math. The power iteration accumulates terms of
+// magnitude ~SCALE/N^2 (both operands of the inner product are ~SCALE/N), so integer truncation
+// zeroes the whole vector once N > sqrt(SCALE). At the previous 1e6 this collapsed from N~200
+// and returned 0 for every node by N~2000, well inside the range the protocol targets. 1e18
+// moves that floor to N~1e9. Do not lower it without re-checking the largest supported context.
+const SCALE = 1000000000000000000n;
 const MULTIPLIER = 10000n; // Target score bounds normalization factor
 
 export class EigenTrustEngine implements IReputationEngine {
@@ -38,15 +43,19 @@ export class EigenTrustEngine implements IReputationEngine {
 
   calculateScore(records: AttestationRecord[], subject: string): bigint {
     const targetSubject = subject.toLowerCase();
+    return this.calculateAll(records, [targetSubject]).get(targetSubject) ?? 0n;
+  }
+
+  calculateAll(records: AttestationRecord[], extraNodes: string[] = []): Map<string, bigint> {
     const validRecords = records.filter((r) => !r.revoked);
-    if (validRecords.length === 0) return 0n;
+    if (validRecords.length === 0) return new Map();
 
     // Phase 1: Parse data and map the local interaction graph
     const allNodes = new Set<string>();
-    // Always include the queried subject, even with zero edges in this record set — an isolated
-    // but registered node should still resolve to a defined (pretrust-only) score, not silently
-    // 0n from never appearing in the graph.
-    allNodes.add(targetSubject);
+    // Always include explicitly requested nodes, even with zero edges in this record set — an
+    // isolated but registered node should still resolve to a defined (pretrust-only) score,
+    // not silently 0n from never appearing in the graph.
+    for (const n of extraNodes) allNodes.add(n.toLowerCase());
     const outboundScores = new Map<string, Map<string, bigint>>();
 
     for (const record of validRecords) {
@@ -72,7 +81,7 @@ export class EigenTrustEngine implements IReputationEngine {
       }
     }
 
-    if (allNodes.size === 0) return 0n;
+    if (allNodes.size === 0) return new Map();
 
     // Canonical iteration order (A5(iii)/A3 determinism): sort explicitly rather than relying on
     // Set insertion order, which tracks the caller-supplied `records` order. Row/column layout of
@@ -82,9 +91,6 @@ export class EigenTrustEngine implements IReputationEngine {
     // choice, not a guarantee — don't rely on it if the accumulation logic ever changes.
     const nodes = Array.from(allNodes).sort();
     const numNodes = nodes.length;
-
-    // targetSubject is unconditionally added to allNodes above, so it's always found.
-    const targetIndex = nodes.indexOf(targetSubject);
 
     // Precalculate row sums for transition matrix normalization
     const rowSums = new Map<string, bigint>();
@@ -123,9 +129,9 @@ export class EigenTrustEngine implements IReputationEngine {
     // Initialize steady-state vector (t) with the pre-trust baseline
     let t = [...pVector];
 
-    const alphaScaled = BigInt(Math.round(this.alpha * Number(SCALE)));
+    const alphaScaled = (BigInt(Math.round(this.alpha * 1e6)) * SCALE) / 1000000n;
     const oneMinusAlphaScaled = SCALE - alphaScaled;
-    const epsilonScaled = BigInt(Math.round(this.epsilon * Number(SCALE)));
+    const epsilonScaled = (BigInt(Math.round(this.epsilon * 1e6)) * SCALE) / 1000000n;
 
     // Phase 3: Run the EigenTrust power iteration loop
     for (let iter = 0; iter < this.iterations; iter++) {
@@ -173,8 +179,12 @@ export class EigenTrustEngine implements IReputationEngine {
       }
     }
 
-    // Phase 4: Output the targeted node's score normalized to the MULTIPLIER scale
+    // Phase 4: Output every node's score normalized to the MULTIPLIER scale.
     // This scales the relative steady-state rank vector back to a legible reputation range.
-    return (t[targetIndex]! * MULTIPLIER) / SCALE;
+    const out = new Map<string, bigint>();
+    for (let i = 0; i < numNodes; i++) {
+      out.set(nodes[i]!, (t[i]! * MULTIPLIER) / SCALE);
+    }
+    return out;
   }
 }

@@ -775,4 +775,65 @@ contract DRIFTCoreTest is Test {
             core.verifyAttestation(uid, SCHEMA_UID, keccak256("att.uid"), subject, attester);
         assertFalse(isValid);
     }
+
+    // ROLE HISTORY (dispute eligibility) ======================================
+
+    /// @notice A role is held from its assignment until its revocation, and not outside it.
+    function test_NodeHeldRoleAt_TracksAssignmentAndRevocation() public {
+        bytes32 uid = _registerWithClient();
+        bytes32 role = keccak256("ROLE_A");
+        uint256 t0 = vm.getBlockTimestamp();
+
+        vm.warp(t0 + 10);
+        vm.prank(creator);
+        core.assignRole(uid, node, role);
+        vm.warp(t0 + 20);
+        vm.prank(creator);
+        core.revokeRole(uid, node, role);
+
+        assertFalse(core.nodeHeldRoleAt(uid, node, role, t0 + 9), "before assignment");
+        assertTrue(core.nodeHeldRoleAt(uid, node, role, t0 + 10), "at assignment");
+        assertTrue(core.nodeHeldRoleAt(uid, node, role, t0 + 19), "while held");
+        assertFalse(core.nodeHeldRoleAt(uid, node, role, t0 + 20), "at revocation");
+        assertFalse(core.nodeHeldRoleAt(uid, node, role, t0 + 30), "after revocation");
+    }
+
+    /// @notice Deregistration removes every role, so it must also end each role's holding.
+    function test_NodeHeldRoleAt_DeregistrationEndsHolding() public {
+        bytes32 uid = _registerWithClient();
+        bytes32 role = keccak256("ROLE_A");
+        uint256 t0 = vm.getBlockTimestamp();
+
+        vm.warp(t0 + 10);
+        vm.prank(creator);
+        core.assignRole(uid, node, role);
+        vm.warp(t0 + 20);
+        vm.prank(node);
+        core.deregisterNode(uid);
+
+        assertTrue(core.nodeHeldRoleAt(uid, node, role, t0 + 15));
+        assertFalse(core.nodeHeldRoleAt(uid, node, role, t0 + 25));
+    }
+
+    /// @notice Only the latest assignment and removal are stored, so a revoke and re-assign after a
+    ///         timestamp can hide that the role was held then. That is the intended direction: the
+    ///         view may under-report a holding but never invents one.
+    function test_NodeHeldRoleAt_ReassignmentIsConservative() public {
+        bytes32 uid = _registerWithClient();
+        bytes32 role = keccak256("ROLE_A");
+        uint256 t0 = vm.getBlockTimestamp();
+
+        vm.startPrank(creator);
+        vm.warp(t0 + 10);
+        core.assignRole(uid, node, role);
+        vm.warp(t0 + 20);
+        core.revokeRole(uid, node, role);
+        vm.warp(t0 + 30);
+        core.assignRole(uid, node, role);
+        vm.stopPrank();
+
+        assertFalse(core.nodeHeldRoleAt(uid, node, role, t0 + 15), "held then, under-reported");
+        assertFalse(core.nodeHeldRoleAt(uid, node, role, t0 + 25), "not held then");
+        assertTrue(core.nodeHeldRoleAt(uid, node, role, t0 + 30), "held again");
+    }
 }

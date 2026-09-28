@@ -41,6 +41,27 @@ const ALL_QUERY = `
   }
 `;
 
+// Snapshot of the context graph at a past instant: revoked attestations are fetched too, since one
+// revoked after `asOf` was still live at `asOf`; revocation is resolved in _normalize.
+const AT_QUERY = `
+  query GetAttestationsAt($schema: String!, $asOf: Int!, $take: Int!, $skip: Int!) {
+    attestations(
+      where: { schemaId: { equals: $schema }, timeCreated: { lte: $asOf } }
+      orderBy: [{ time: asc }]
+      take: $take
+      skip: $skip
+    ) {
+      id
+      schemaId
+      attester
+      recipient
+      timeCreated
+      revocationTime
+      data
+    }
+  }
+`;
+
 const PAGE_SIZE = 1000;
 // Safety bound on pagination — 500 pages * PAGE_SIZE covers 500_000
 const MAX_PAGES = 500;
@@ -89,16 +110,17 @@ export class EASProvider implements IAttestationProvider {
    * attestation itself, and this provider is already bound to one schema at construction — so
    * filtering by schema alone already scopes the result to this context.
    */
-  async fetchAllContextRecords(_contextUID: string): Promise<AttestationRecord[]> {
+  async fetchAllContextRecords(_contextUID: string, asOf?: number): Promise<AttestationRecord[]> {
     const all: EasGraphQLAttestation[] = [];
+    const query = asOf === undefined ? ALL_QUERY : AT_QUERY;
 
     for (let page = 0; page < MAX_PAGES; page++) {
       const res = await fetch(this.graphqlEndpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          query: ALL_QUERY,
-          variables: { schema: this.schemaUID, take: PAGE_SIZE, skip: page * PAGE_SIZE }
+          query,
+          variables: { schema: this.schemaUID, asOf, take: PAGE_SIZE, skip: page * PAGE_SIZE }
         })
       });
 
@@ -112,10 +134,12 @@ export class EASProvider implements IAttestationProvider {
       if (batch.length < PAGE_SIZE) break;
     }
 
-    return this._normalize(all);
+    if (asOf === undefined) return this._normalize(all);
+    return this._normalize(all, asOf).filter((r) => !r.revoked && r.timestamp <= asOf);
   }
 
-  private _normalize(attestations?: EasGraphQLAttestation[]): AttestationRecord[] {
+  /** `asOf` resolves revocation at that instant; without it, any revocation counts. */
+  private _normalize(attestations?: EasGraphQLAttestation[], asOf?: number): AttestationRecord[] {
     if (!attestations) return [];
     return attestations.map(
       (a): AttestationRecord => ({
@@ -124,7 +148,7 @@ export class EASProvider implements IAttestationProvider {
         attester: a.attester,
         subject: a.recipient,
         timestamp: Number(a.timeCreated),
-        revoked: Number(a.revocationTime) > 0,
+        revoked: Number(a.revocationTime) > 0 && (asOf === undefined || Number(a.revocationTime) <= asOf),
         data: a.data
       })
     );

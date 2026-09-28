@@ -255,5 +255,12 @@ export class GovernanceModule {
     if (payload.roles.length !== payload.scores.length || payload.roles.length !== payload.proofs.length) {
       throw new DriftValidationError('DRIFT SDK: ProofOfStatePayload arrays must be perfectly parallel.');
     }
+    for (let i = 1; i < payload.roles.length; i++) {
+      if (BigInt(payload.roles[i]!) <= BigInt(payload.roles[i - 1]!)) {
+        throw new DriftValidationError(
+          'DRIFT SDK: ProofOfStatePayload roles must be strictly increasing (no repeats); use generateProofOfStatePayload.'
+        );
+      }
+    }
   }
 }

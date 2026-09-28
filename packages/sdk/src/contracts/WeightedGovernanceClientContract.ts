@@ -47,6 +47,7 @@ export interface WeightedGovernanceClientContract extends BaseContract {
   challengeOmission(
     epoch: bigint,
     missingNode: string,
+    role: string,
     overrides?: Overrides
   ): Promise<ContractTransactionResponse>;
   respondToChallenge(
@@ -56,9 +57,9 @@ export interface WeightedGovernanceClientContract extends BaseContract {
     score: bigint,
     merkleProof: string[]
   ): Promise<ContractTransactionResponse>;
-  claimUnansweredChallenge(epoch: bigint, node: string): Promise<ContractTransactionResponse>;
-  reclaimMootChallenge(epoch: bigint, node: string): Promise<ContractTransactionResponse>;
-  reclaimMootChallenges(epochs: bigint[], nodes: string[]): Promise<ContractTransactionResponse>;
+  claimUnansweredChallenge(epoch: bigint, node: string, role: string): Promise<ContractTransactionResponse>;
+  reclaimMootChallenge(epoch: bigint, node: string, role: string): Promise<ContractTransactionResponse>;
+  reclaimMootChallenges(epochs: bigint[], nodes: string[], roles: string[]): Promise<ContractTransactionResponse>;
   requiredChallengeBond(): Promise<bigint>;
   withdrawSettlementBond(epoch: bigint): Promise<ContractTransactionResponse>;
 

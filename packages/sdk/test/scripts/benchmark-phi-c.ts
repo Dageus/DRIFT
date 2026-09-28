@@ -94,6 +94,10 @@ async function benchmarkN(n: number, outDegree: number, trials: number): Promise
     engine.calculateScore(records, addr(0));
     const end = performance.now();
     times.push(end - start);
+    // stderr so it stays out of the CSV on stdout; long runs are otherwise silent for hours
+    process.stderr.write(
+      `  [${new Date().toISOString()}] N=${n} trial ${t + 1}/${trials}: ${((end - start) / 1000).toFixed(1)}s\n`
+    );
   }
 
   const m = mean(times);
@@ -116,11 +120,20 @@ async function main() {
 
   // Fixed out-degree of 5 keeps the graph sparse-ish and E = O(N) across all sizes, isolating
   // the effect of N on the dense O(N^2) transition-matrix pass rather than also varying E.
-  for (const [n, trials] of [
-    [100, 20],
-    [1000, 10],
-    [10000, 3]
-  ] as const) {
+  // PHI_C_SIZES overrides the default plan, as "N:trials" pairs separated by commas.
+  // e.g. PHI_C_SIZES="100000:1" to run the size the default plan only extrapolates.
+  const plan: Array<[number, number]> = process.env.PHI_C_SIZES
+    ? process.env.PHI_C_SIZES.split(',').map((pair) => {
+        const [n, t] = pair.split(':').map((x) => Number(x.trim()));
+        return [n!, t ?? 1] as [number, number];
+      })
+    : [
+        [100, 20],
+        [1000, 10],
+        [10000, 3]
+      ];
+
+  for (const [n, trials] of plan) {
     const r = await benchmarkN(n, 5, trials);
     results.push(r);
     console.log(
@@ -134,6 +147,11 @@ async function main() {
   // higher than at N=1000/10000 (observed: ~2.87e-3 vs ~1.04e-3/~1.16e-3 in this run) and
   // including it biases the extrapolation upward. The two largest points are closer to the true
   // asymptotic constant.
+  if (results.length < 2) {
+    console.log('\n(single-size run: no extrapolation attempted)');
+    return;
+  }
+
   const largest = results.slice(-2);
   const a = mean(largest.map((r) => r.meanMs / (r.n * r.n)));
   const predictedAt1e5 = a * 100000 * 100000;

@@ -69,4 +69,14 @@ export class TemporalDecayEngine implements IReputationEngine {
     if (totalWeight === 0n) return 0n;
     return weightedSum / totalWeight;
   }
+
+  calculateAll(records: AttestationRecord[], extraNodes: string[] = []): Map<string, bigint> {
+    const subjects = new Set<string>(extraNodes.map((n) => n.toLowerCase()));
+    for (const r of records) subjects.add(r.subject.toLowerCase());
+    const out = new Map<string, bigint>();
+    // Direct-aggregation engine: a subject's score depends only on edges into it, so there is no
+    // shared propagation state to hoist — per-subject evaluation is already the whole cost.
+    for (const s of subjects) out.set(s, this.calculateScore(records, s));
+    return out;
+  }
 }

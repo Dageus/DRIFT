@@ -39,7 +39,14 @@ abstract contract DRIFTCoreStorage {
 
     mapping(bytes32 => mapping(address => EnumerableSet.Bytes32Set)) internal _nodeRoles;
 
+    // Context UID => Node Address => role => block.timestamp of the most recent assignRole.
+    mapping(bytes32 => mapping(address => mapping(bytes32 => uint256))) internal _roleAssignedAt;
+
+    // Context UID => Node Address => role => block.timestamp of the most recent removal of that
+    // role, whether by revokeRole or by deregisterNode.
+    mapping(bytes32 => mapping(address => mapping(bytes32 => uint256))) internal _roleRevokedAt;
+
     /// @dev Reserved storage slots for future upgrades.
     ///      Each variable added above must reduce this by its slot count.
-    uint256[40] private __gap;
+    uint256[38] private __gap;
 }

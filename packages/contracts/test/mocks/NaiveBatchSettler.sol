@@ -7,7 +7,7 @@ import { IDRIFTCore } from "../../src/core/IDRIFTCore.sol";
 /// @notice Test-only reconstruction of the naive per-node on-chain settlement design DRIFT
 ///         explicitly rejected in favor of Merkle-based lazy settlement (see CLAUDE.md's
 ///         "Useful background" section: naive batch settlement is O(N) and exceeds the block gas
-///         limit at roughly 404 nodes). No such path exists in the shipped protocol — this exists
+///         limit at roughly 950 nodes, per measurements/naive-batch-regression.csv). No such path exists in the shipped protocol — this exists
 ///         solely to reproduce/extend the comparison dataset for the dissertation's Evaluation
 ///         chapter (Phase 3 item 4). It registers as a context's client and mints a reward
 ///         directly per node in a loop instead of settling a single Merkle root.

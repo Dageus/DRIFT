@@ -101,6 +101,9 @@ contract WeightedGovernanceClient is
     ///         within `responseWindow` still leaves the response under-covered.
     uint256 public constant CHALLENGE_BOND_MARGIN_BPS = 12_000;
     uint256 public constant BPS_DENOMINATOR = 10_000;
+    /// @notice Gas forwarded when pushing a payout. Bounded so a recipient that burns its gas
+    ///         cannot starve the caller of what it needs to credit the payout instead.
+    uint256 public constant PAYOUT_GAS_STIPEND = 50_000;
 
     /// @notice Wei the settler must escrow per posted epoch, forfeited on a successful challenge.
     uint256 public settlementBond;
@@ -131,9 +134,11 @@ contract WeightedGovernanceClient is
         bool resolved;
     }
 
-    /// @notice epoch => missing node => open/resolved challenge. Concurrent per-node, not
-    ///         serialized per-epoch — see `challengeOmission`.
-    mapping(uint256 => mapping(address => Challenge)) public challenges;
+    /// @notice epoch => missing node => role => open/resolved challenge. Keyed by the (node, role)
+    ///         pair because completeness is defined over pairs: a node holding several roles can be
+    ///         omitted for one while included for another. Concurrent per pair, not serialized per
+    ///         epoch — see `challengeOmission`.
+    mapping(uint256 => mapping(address => mapping(bytes32 => Challenge))) public challenges;
 
     /// @notice Settler's expected gas to answer one challenge, used to price the challenge bond
     ///         so that defending is profitable rather than merely obligatory. Admin-set because
@@ -175,6 +180,9 @@ contract WeightedGovernanceClient is
 
     uint256 public proposalCount;
     mapping(uint256 => Proposal) public proposals;
+
+    /// @notice Wei owed to recipients whose payout could not be pushed (see `_payOrCredit`).
+    mapping(address => uint256) public pendingPayouts;
 
     // Events
     event RoleWeightsUpdated(uint32 indexed configVersion);
@@ -501,6 +509,9 @@ contract WeightedGovernanceClient is
         string calldata treeURI,
         bytes calldata sig
     ) external payable {
+        // A rolled-back root keeps a valid settler signature; restricting the caller is what stops
+        // a third party re-posting it (see IDRIFTSettler.postEpochRoot).
+        if (msg.sender != trustedSettler) revert NotTrustedSettler(msg.sender);
         if (epoch != currentEpoch + 1) {
             revert InvalidEpoch(epoch, currentEpoch + 1);
         }
@@ -612,24 +623,32 @@ contract WeightedGovernanceClient is
     /// @inheritdoc IDRIFTSettler
     function challengeOmission(
         uint256 epoch,
-        address missingNode
+        address missingNode,
+        bytes32 role
     ) external payable {
         if (epoch != currentEpoch) revert EpochNotFound(epoch);
         if (block.timestamp > epochPostedAtTimestamp[epoch] + disputeWindow) {
             revert DisputeWindowClosed(epoch);
         }
         if (
-            challenges[epoch][missingNode].openedAtTimestamp != 0
-                && !challenges[epoch][missingNode].resolved
+            challenges[epoch][missingNode][role].openedAtTimestamp != 0
+                && !challenges[epoch][missingNode][role].resolved
         ) {
             // A resolved (or never-opened) slot can be reused: this matters after a rollback and
             // repost of the same epoch number, where a fresh challenge against the same node must
             // be possible if the corrected root still omits them.
-            revert ChallengeAlreadyOpen(epoch, missingNode);
+            revert ChallengeAlreadyOpen(epoch, missingNode, role);
         }
         uint256 boundary = _boundaryTimestampFor(epoch);
         if (!_disputeEligible(missingNode, boundary)) {
             revert NodeNotEligibleForDispute(missingNode);
+        }
+        // The pair must have existed at the boundary. Without this, a registered node holding no
+        // role (or not yet holding `role`) could "prove" an omission from a correct root: a
+        // correct settler never includes a leaf for a role the node does not hold, so no valid
+        // response exists and the unanswered challenge would forfeit an honest settler's bond.
+        if (!core.nodeHeldRoleAt(contextUID, missingNode, role, boundary)) {
+            revert RoleNotHeldAtBoundary(missingNode, role);
         }
 
         // Standing. Self-challenge is unconditional: P5' soundness rests on it, and gating it on
@@ -669,7 +688,7 @@ contract WeightedGovernanceClient is
         if (msg.value < requiredBond) revert InsufficientBond(msg.value, requiredBond);
 
         lastChallengedAt[epoch][msg.sender] = block.timestamp;
-        challenges[epoch][missingNode] = Challenge({
+        challenges[epoch][missingNode][role] = Challenge({
             openedAtTimestamp: block.timestamp,
             bond: requiredBond,
             challenger: msg.sender,
@@ -687,7 +706,7 @@ contract WeightedGovernanceClient is
             if (!refunded) revert ExecutionFailed();
         }
 
-        emit ChallengeOpened(contextUID, epoch, missingNode, msg.sender, msg.value);
+        emit ChallengeOpened(contextUID, epoch, missingNode, role, msg.sender, msg.value);
     }
 
     /// @inheritdoc IDRIFTSettler
@@ -698,12 +717,12 @@ contract WeightedGovernanceClient is
         uint256 score,
         bytes32[] calldata merkleProof
     ) external {
-        Challenge storage c = challenges[epoch][node];
-        if (c.openedAtTimestamp == 0) revert ChallengeNotFound(epoch, node);
-        if (c.resolved) revert ChallengeAlreadyResolved(epoch, node);
+        Challenge storage c = challenges[epoch][node][role];
+        if (c.openedAtTimestamp == 0) revert ChallengeNotFound(epoch, node, role);
+        if (c.resolved) revert ChallengeAlreadyResolved(epoch, node, role);
         if (epochRoots[epoch] == bytes32(0)) revert EpochAlreadyInvalidated(epoch);
         if (block.timestamp > c.openedAtTimestamp + responseWindow) {
-            revert ResponseWindowClosed(epoch, node);
+            revert ResponseWindowClosed(epoch, node, role);
         }
 
         bytes32 leaf = _canonicalLeaf(node, role, score, epoch);
@@ -716,23 +735,23 @@ contract WeightedGovernanceClient is
         uint256 bond = c.bond;
         c.bond = 0;
 
-        (bool sent,) = trustedSettler.call{ value: bond }("");
-        if (!sent) revert ExecutionFailed();
+        _payOrCredit(trustedSettler, bond);
 
-        emit ChallengeDefeated(contextUID, epoch, node);
+        emit ChallengeDefeated(contextUID, epoch, node, role);
     }
 
     /// @inheritdoc IDRIFTSettler
     function claimUnansweredChallenge(
         uint256 epoch,
-        address node
+        address node,
+        bytes32 role
     ) external {
-        Challenge storage c = challenges[epoch][node];
-        if (c.openedAtTimestamp == 0) revert ChallengeNotFound(epoch, node);
-        if (c.resolved) revert ChallengeAlreadyResolved(epoch, node);
+        Challenge storage c = challenges[epoch][node][role];
+        if (c.openedAtTimestamp == 0) revert ChallengeNotFound(epoch, node, role);
+        if (c.resolved) revert ChallengeAlreadyResolved(epoch, node, role);
         if (epochRoots[epoch] == bytes32(0)) revert EpochAlreadyInvalidated(epoch);
         if (block.timestamp <= c.openedAtTimestamp + responseWindow) {
-            revert ResponseWindowStillOpen(epoch, node);
+            revert ResponseWindowStillOpen(epoch, node, role);
         }
 
         c.resolved = true;
@@ -754,35 +773,42 @@ contract WeightedGovernanceClient is
         uint256 challengeBondAmount = c.bond;
         c.bond = 0;
         uint256 payout = settlementBondAmount + challengeBondAmount;
-        (bool sent,) = challenger.call{ value: payout }("");
-        if (!sent) revert ExecutionFailed();
+        _payOrCredit(challenger, payout);
 
-        emit NonInclusionProven(contextUID, epoch, node, challenger, payout, failCount);
+        emit NonInclusionProven(contextUID, epoch, node, role, challenger, payout, failCount);
     }
 
     /// @inheritdoc IDRIFTSettler
     function reclaimMootChallenge(
         uint256 epoch,
-        address node
+        address node,
+        bytes32 role
     ) external {
-        _reclaimMootChallenge(epoch, node);
+        _reclaimMootChallenge(epoch, node, role);
     }
 
     /// @inheritdoc IDRIFTSettler
     function reclaimMootChallenges(
         uint256[] calldata epochs,
-        address[] calldata nodes
+        address[] calldata nodes,
+        bytes32[] calldata roles
     ) external {
-        if (epochs.length != nodes.length) revert ArrayLengthMismatch();
+        if (epochs.length != nodes.length || epochs.length != roles.length) {
+            revert ArrayLengthMismatch();
+        }
         for (uint256 i = 0; i < epochs.length; i++) {
-            _reclaimMootChallenge(epochs[i], nodes[i]);
+            _reclaimMootChallenge(epochs[i], nodes[i], roles[i]);
         }
     }
 
-    function _reclaimMootChallenge(uint256 epoch, address node) internal {
-        Challenge storage c = challenges[epoch][node];
-        if (c.openedAtTimestamp == 0) revert ChallengeNotFound(epoch, node);
-        if (c.resolved) revert ChallengeAlreadyResolved(epoch, node);
+    function _reclaimMootChallenge(
+        uint256 epoch,
+        address node,
+        bytes32 role
+    ) internal {
+        Challenge storage c = challenges[epoch][node][role];
+        if (c.openedAtTimestamp == 0) revert ChallengeNotFound(epoch, node, role);
+        if (c.resolved) revert ChallengeAlreadyResolved(epoch, node, role);
         if (epochRoots[epoch] != bytes32(0)) revert EpochNotInvalidated(epoch);
 
         c.resolved = true;
@@ -790,9 +816,19 @@ contract WeightedGovernanceClient is
         uint256 bond = c.bond;
         c.bond = 0;
 
-        address challenger = c.challenger;
-        (bool sent,) = challenger.call{ value: bond }("");
+        _payOrCredit(c.challenger, bond);
+    }
+
+    /// @inheritdoc IDRIFTSettler
+    function withdrawPendingPayout() external {
+        uint256 amount = pendingPayouts[msg.sender];
+        if (amount == 0) revert NoPendingPayout(msg.sender);
+        pendingPayouts[msg.sender] = 0;
+
+        (bool sent,) = msg.sender.call{ value: amount }("");
         if (!sent) revert ExecutionFailed();
+
+        emit PendingPayoutWithdrawn(msg.sender, amount);
     }
 
     /// @inheritdoc IDRIFTSettler
@@ -828,7 +864,7 @@ contract WeightedGovernanceClient is
     /// @param target Address to call if proposal passes
     /// @param payload Calldata to execute on the target address
     /// @param durationInDays How many days the voting period lasts
-    /// @param roles Array of roles the caller is claiming power for
+    /// @param roles Roles the caller is claiming power for, in strictly increasing order
     /// @param scores Array of scores corresponding to those roles
     /// @param proofs Array of merkle proofs for those claims
     /// @return The newly created proposal ID
@@ -845,6 +881,7 @@ contract WeightedGovernanceClient is
         if (roles.length != scores.length || roles.length != proofs.length) {
             revert ArrayLengthMismatch();
         }
+        _requireStrictlyIncreasing(roles);
         if (!_isFinalized(currentEpoch)) revert EpochNotYetFinalized(currentEpoch);
 
         uint32 pinnedConfigVersion = epochConfigVersion[currentEpoch];
@@ -918,7 +955,7 @@ contract WeightedGovernanceClient is
     /// @notice Casts a vote on a proposal using state proofs for voting power
     /// @param proposalId The ID of the proposal
     /// @param support True for yes, false for no
-    /// @param roles Array of roles the caller is claiming power for
+    /// @param roles Roles the caller is claiming power for, in strictly increasing order
     /// @param scores Array of scores corresponding to those roles
     /// @param proofs Array of merkle proofs for those claims
     function castVoteWithProofs(
@@ -936,6 +973,7 @@ contract WeightedGovernanceClient is
         if (roles.length != scores.length || roles.length != proofs.length) {
             revert InvalidProofCount(roles.length, scores.length, proofs.length);
         }
+        _requireStrictlyIncreasing(roles);
 
         bytes32 root = epochRoots[p.snapshotEpoch];
         if (root == bytes32(0)) revert EpochNotFound(p.snapshotEpoch);
@@ -981,6 +1019,7 @@ contract WeightedGovernanceClient is
     ) external view returns (uint256 totalPower) {
         Proposal storage p = proposals[proposalId];
         if (!p.exists) revert ProposalNotFound(proposalId);
+        _requireStrictlyIncreasing(roles);
 
         bytes32 root = epochRoots[p.snapshotEpoch];
         if (root == bytes32(0)) revert EpochNotFound(p.snapshotEpoch);
@@ -1006,6 +1045,7 @@ contract WeightedGovernanceClient is
         if (roles.length != scores.length || roles.length != proofs.length) {
             revert ArrayLengthMismatch();
         }
+        _requireStrictlyIncreasing(roles);
 
         bytes32 root = epochRoots[epoch];
         if (root == bytes32(0)) revert EpochNotFound(epoch);
@@ -1113,6 +1153,38 @@ contract WeightedGovernanceClient is
     }
 
     // INTERNAL ================================================================
+
+    /// @dev Pays `amount` to a party other than the caller without letting that party block the
+    ///      caller. Reverting on a failed push let a challenger contract that rejects ETH keep its
+    ///      challenge open forever, and with it the epoch unfinalized. A failed push is credited to
+    ///      `pendingPayouts` instead. The call forwards at most PAYOUT_GAS_STIPEND and copies no
+    ///      return data, so neither burnt gas nor an oversized return can make crediting run out
+    ///      of gas. State is fully updated by every caller before this runs.
+    function _payOrCredit(
+        address to,
+        uint256 amount
+    ) internal {
+        if (amount == 0) return;
+        bool sent;
+        assembly ("memory-safe") {
+            sent := call(PAYOUT_GAS_STIPEND, to, amount, 0, 0, 0, 0)
+        }
+        if (!sent) {
+            pendingPayouts[to] += amount;
+            emit PayoutDeferred(to, amount);
+        }
+    }
+
+    /// @dev Voting power adds one term per (role, score, proof) entry, so a repeated role would
+    ///      count the same leaf twice. Requiring strictly increasing roles rules out repeats with one
+    ///      comparison per entry and gives every caller the same canonical order.
+    function _requireStrictlyIncreasing(
+        bytes32[] calldata roles
+    ) internal pure {
+        for (uint256 i = 1; i < roles.length; i++) {
+            if (roles[i] <= roles[i - 1]) revert RolesNotStrictlyIncreasing(i);
+        }
+    }
 
     /// @notice Generates a standardized leaf hash for verifying Merkle proofs
     /// @param node Address of the node

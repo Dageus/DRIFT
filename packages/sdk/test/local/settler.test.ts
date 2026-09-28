@@ -133,6 +133,27 @@ describe('DriftSettler Cryptographic Boundaries', () => {
     expect(payload.proofs[0]![0]).toMatch(/^0x[a-fA-F0-9]{64}$/);
   });
 
+  it('emits roles in strictly increasing order, keeping scores and proofs aligned', async () => {
+    const epoch = 3n;
+    const targetNode = '0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+    const [lo, hi] = BigInt(role1) < BigInt(role2) ? [role1, role2] : [role2, role1];
+    // Descending input: the payload must still come out ascending (the client rejects anything else).
+    const scores: ScoreEntry[] = [
+      { node: targetNode, role: hi, score: 7n },
+      { node: targetNode, role: lo, score: 3n }
+    ];
+
+    const { tree } = await settler.buildAndSignEpochRoot(clientAddress, contextUID, epoch, scores, mockUploader);
+    const payload = settler.generateProofOfStatePayload(tree, contextUID, targetNode, epoch);
+
+    expect(payload.roles).toEqual([lo, hi]);
+    expect(payload.scores).toEqual([3n, 7n]);
+    payload.roles.forEach((role, i) => {
+      const leaf = [contextUID, targetNode, role, payload.scores[i]!.toString(), epoch.toString()];
+      expect(tree.verify(leaf, payload.proofs[i]!)).toBe(true);
+    });
+  });
+
   it('should throw if attempting to generate a payload for an unregistered node/epoch', async () => {
     const epoch = 1n;
     const scores: ScoreEntry[] = [{ node: '0x1111111111111111111111111111111111111111', role: role1, score: 100n }];
@@ -148,22 +169,54 @@ describe('DriftSettler Cryptographic Boundaries', () => {
 describe('DriftSettler O1 Synchronization Check', () => {
   const clientAddress = '0x1234567890123456789012345678901234567890';
 
-  function makeSettler(observedHead: number, epochLength: bigint, epochAnchorTimestamp: bigint): DriftSettler {
-    const getBlock = (async () => ({ timestamp: observedHead })) as unknown as Provider['getBlock'];
+  let requestedTags: unknown[] = [];
+
+  function makeSettler(
+    observedHead: number | null,
+    epochLength: bigint,
+    epochAnchorTimestamp: bigint
+  ): DriftSettler {
+    requestedTags = [];
+    const getBlock = (async (tag: unknown) => {
+      requestedTags.push(tag);
+      return observedHead === null ? null : { timestamp: observedHead };
+    }) as unknown as Provider['getBlock'];
     const signer = Wallet.createRandom().connect(fakeProvider({ getBlock }));
     const settler = new DriftSettler(signer);
     mockInternals(settler)._fetchEpochBoundaryConfig = async () => ({ epochLength, epochAnchorTimestamp });
     return settler;
   }
 
-  it('reports synced once the observed head reaches the boundary timestamp', async () => {
+  it('reads the finalized head by default', async () => {
+    await makeSettler(200, 10n, 100n).isSynchronizedForEpoch(clientAddress, 3n);
+    expect(requestedTags).toEqual(['finalized']);
+  });
+
+  it('passes an explicit block tag through', async () => {
+    await makeSettler(200, 10n, 100n).isSynchronizedForEpoch(clientAddress, 3n, 'latest');
+    expect(requestedTags).toEqual(['latest']);
+  });
+
+  it('reports synced once the finalized head is strictly past the boundary timestamp', async () => {
     // boundary = 100 (anchor) + 10 (beta) * 3 (epoch) = 130
-    const settler = makeSettler(130, 10n, 100n);
+    const settler = makeSettler(131, 10n, 100n);
     const result = await settler.isSynchronizedForEpoch(clientAddress, 3n);
 
     expect(result.boundaryTimestamp).toBe(130n);
-    expect(result.observedHead).toBe(130n);
+    expect(result.observedHead).toBe(131n);
     expect(result.synced).toBe(true);
+  });
+
+  it('reports not synced while the finalized head sits exactly on the boundary', async () => {
+    // A later, unfinalized block can share timestamp 130 and still hold attestations dated t_E.
+    const result = await makeSettler(130, 10n, 100n).isSynchronizedForEpoch(clientAddress, 3n);
+    expect(result.synced).toBe(false);
+  });
+
+  it('fails loudly when the chain does not serve the requested tag', async () => {
+    await expect(makeSettler(null, 10n, 100n).isSynchronizedForEpoch(clientAddress, 3n)).rejects.toThrow(
+      /no 'finalized' block/
+    );
   });
 
   it('reports not synced while the observed head is behind the boundary timestamp', async () => {
@@ -201,11 +254,13 @@ describe('DriftSettler role-assignment precondition', () => {
   const role2 = id('PROFESSOR_ROLE');
   const nodeA = '0x1111111111111111111111111111111111111111';
   const nodeB = '0x2222222222222222222222222222222222222222';
+  const epoch = 3n;
 
   function makeSettler(hasRole: Record<string, boolean>): DriftSettler {
     const signer = Wallet.createRandom().connect(fakeProvider());
     const settler = new DriftSettler(signer);
-    mockInternals(settler)._fetchHasNodeRole = async (_client: string, node: string, role: string) =>
+    mockInternals(settler)._fetchEpochBoundaryConfig = async () => ({ epochLength: 10n, epochAnchorTimestamp: 1000n });
+    mockInternals(settler)._fetchHeldRoleAt = async (_client: string, node: string, role: string) =>
       hasRole[`${node.toLowerCase()}:${role}`] ?? false;
     return settler;
   }
@@ -220,36 +275,52 @@ describe('DriftSettler role-assignment precondition', () => {
       [`${nodeA.toLowerCase()}:${role1}`]: true,
       [`${nodeB.toLowerCase()}:${role2}`]: true
     });
-    await expect(settler.assertRolesAssigned(clientAddress, scores)).resolves.toBeUndefined();
+    await expect(settler.assertRolesAssigned(clientAddress, epoch, scores)).resolves.toBeUndefined();
   });
 
   it('throws DriftValidationError naming the first missing (node, role) pair', async () => {
     const settler = makeSettler({ [`${nodeA.toLowerCase()}:${role1}`]: true });
-    await expect(settler.assertRolesAssigned(clientAddress, scores)).rejects.toThrow(
-      new RegExp(`${nodeB}.*does not hold role`, 'i')
+    await expect(settler.assertRolesAssigned(clientAddress, epoch, scores)).rejects.toThrow(
+      new RegExp(`${nodeB}.*did not hold role`, 'i')
     );
   });
 
   it('checks each unique (node, role) pair only once', async () => {
     const settler = makeSettler({ [`${nodeA.toLowerCase()}:${role1}`]: true });
-    const spy = mockInternals(settler)._fetchHasNodeRole;
+    const spy = mockInternals(settler)._fetchHeldRoleAt;
     let callCount = 0;
-    mockInternals(settler)._fetchHasNodeRole = async (clientAddress: string, node: string, role: string) => {
+    mockInternals(settler)._fetchHeldRoleAt = async (clientAddress: string, node: string, role: string, t: bigint) => {
       callCount++;
-      return spy(clientAddress, node, role);
+      return spy(clientAddress, node, role, t);
     };
 
     const duplicated: ScoreEntry[] = [
       { node: nodeA, role: role1, score: 100n },
       { node: nodeA, role: role1, score: 100n }
     ];
-    await settler.assertRolesAssigned(clientAddress, duplicated);
+    await settler.assertRolesAssigned(clientAddress, epoch, duplicated);
     expect(callCount).toBe(1);
+  });
+
+  it('checks each pair at the epoch boundary, not at the current time', async () => {
+    const settler = makeSettler({
+      [`${nodeA.toLowerCase()}:${role1}`]: true,
+      [`${nodeB.toLowerCase()}:${role2}`]: true
+    });
+    const seen: bigint[] = [];
+    const inner = mockInternals(settler)._fetchHeldRoleAt;
+    mockInternals(settler)._fetchHeldRoleAt = async (c: string, n: string, r: string, t: bigint) => {
+      seen.push(t);
+      return inner(c, n, r, t);
+    };
+    await settler.assertRolesAssigned(clientAddress, epoch, scores);
+    // boundary = anchor 1000 + epochLength 10 * epoch 3
+    expect(new Set(seen)).toEqual(new Set([1030n]));
   });
 
   it('throws a plain error when the signer has no provider attached', async () => {
     const offlineSettler = new DriftSettler(Wallet.createRandom());
-    await expect(offlineSettler.assertRolesAssigned(clientAddress, scores)).rejects.toThrow(
+    await expect(offlineSettler.assertRolesAssigned(clientAddress, epoch, scores)).rejects.toThrow(
       /must have a provider/
     );
   });
