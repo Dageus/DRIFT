@@ -22,7 +22,11 @@ contract DeployScript is Script {
         address admin = vm.addr(deployerPrivateKey);
 
         string memory root = vm.projectRoot();
-        deploymentPath = string.concat(root, "/deployments/", vm.toString(block.chainid), ".json");
+        // DRIFT_DEPLOYMENT_FILE (a file name under deployments/) lets a throwaway deployment, such as
+        // the SDK's anvil e2e test, write elsewhere than the chain's canonical record.
+        string memory file =
+            vm.envOr("DRIFT_DEPLOYMENT_FILE", string.concat(vm.toString(block.chainid), ".json"));
+        deploymentPath = string.concat(root, "/deployments/", file);
 
         address existingProxy = _loadExistingProxyAddress();
 
