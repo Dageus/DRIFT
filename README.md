@@ -78,11 +78,17 @@ Contract addresses are stored in `packages/contracts/deployments/{chainId}.json`
 
 - [`/sdk`](./packages/sdk/) — Node.js/TypeScript SDK with data providers, off-chain computation engines, and EIP-712 settlement oracles.
 
+- [`/engines`](./packages/engines/): Rust workspace with the deterministic reputation engine, its gRPC server, and the RISC Zero zkVM guest. [`SPEC.md`](./packages/engines/SPEC.md) defines the engine protocol.
+
+- [`/protos`](./packages/protos/): the engine protocol's gRPC definition, shared by the Rust server and the SDK client.
+
 ## Prerequisites
 
 - [`NodeJS`](https://nodejs.org/)
 
 - [`Foundry`](https://www.getfoundry.sh/)
+
+- [`Rust`](https://www.rust-lang.org/) and `protoc`, only for `/engines` (`nix develop` in `packages/engines` provides both, and `nix develop .#risc0` adds the zkVM toolchain)
 
 ## License
 

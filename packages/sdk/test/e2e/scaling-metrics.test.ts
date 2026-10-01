@@ -66,7 +66,7 @@ describe('DRIFT Scaling & Latency Benchmarks', () => {
 
     const { root, signature, tree } = await measureAndLogMetric(
       'Tree Gen (Depth 10)',
-      Promise.resolve({}),
+      null,
       async () => await settler.buildAndSignEpochRoot(clientAddress, contextUID, 1n, scores, mockUploader)
     );
 
@@ -74,14 +74,14 @@ describe('DRIFT Scaling & Latency Benchmarks', () => {
 
     await measureAndLogMetric(
       'postEpochRoot O(1) (Depth 10)',
-      repContract.postEpochRoot(1n, root, '', signature).then((tx) => tx.wait())
+      repContract.postEpochRoot!(1n, root, '', signature).then((tx) => tx.wait())
     );
 
     const payload = settler.generateProofOfStatePayload(tree, contextUID, aliceAddr, 1n);
 
     await measureAndLogMetric(
       'claimReputation O(log n) (Depth 10)',
-      repContract.claimReputation(aliceAddr, role, 100n, 1n, payload.proofs[0]).then((tx) => tx.wait())
+      repContract.claimReputation!(aliceAddr, role, 100n, 1n, payload.proofs[0]).then((tx) => tx.wait())
     );
   });
 
@@ -117,7 +117,7 @@ describe('DRIFT Scaling & Latency Benchmarks', () => {
 
     const { root, signature, tree } = await measureAndLogMetric(
       'Tree Gen (Depth 20)',
-      Promise.resolve({}),
+      null,
       async () => await settler.buildAndSignEpochRoot(clientAddress, contextUID, 2n, scores, mockUploader)
     );
 
@@ -125,17 +125,17 @@ describe('DRIFT Scaling & Latency Benchmarks', () => {
 
     await measureAndLogMetric(
       'postEpochRoot O(1) (Depth 20)',
-      repContract.postEpochRoot(2n, root, '', signature).then((tx) => tx.wait())
+      repContract.postEpochRoot!(2n, root, '', signature).then((tx) => tx.wait())
     );
 
     const payload = settler.generateProofOfStatePayload(tree, contextUID, aliceAddr, 2n);
 
-    expect(payload.proofs[0].length).toBeGreaterThanOrEqual(19);
-    expect(payload.proofs[0].length).toBeLessThanOrEqual(21);
+    expect(payload.proofs[0]!.length).toBeGreaterThanOrEqual(19);
+    expect(payload.proofs[0]!.length).toBeLessThanOrEqual(21);
 
     const txReceipt = (await measureAndLogMetric(
       'claimReputation O(log n) (Depth 20)',
-      repContract.claimReputation(aliceAddr, role, 100n, 2n, payload.proofs[0]).then((tx) => tx.wait())
+      repContract.claimReputation!(aliceAddr, role, 100n, 2n, payload.proofs[0]).then((tx) => tx.wait())
     )) as any;
 
     expect(BigInt(txReceipt.gasUsed)).toBeLessThan(120000n);

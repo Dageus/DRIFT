@@ -60,15 +60,15 @@ async function floodBlock() {
     await provider.send('anvil_setBalance', [voter.address, '0x1000000000000000000']);
 
     const rand = Math.random();
-    let targetTree = trees[0];
-    if (rand < 0.1) targetTree = trees[3];
-    else if (rand < 0.3) targetTree = trees[2];
-    else if (rand < 0.6) targetTree = trees[1];
+    let targetTree = trees[0]!;
+    if (rand < 0.1) targetTree = trees[3]!;
+    else if (rand < 0.3) targetTree = trees[2]!;
+    else if (rand < 0.6) targetTree = trees[1]!;
 
     const payload = settler.generateProofOfStatePayload(targetTree.data, targetTree.ctx, '0xTARGET_NODE', 1n);
     const govContract = new Contract(clientAddress, IGovArtifact.abi, voter);
 
-    const tx = govContract.castVoteWithProofs(proposalId, true, payload.roles, payload.scores, payload.proofs, {
+    const tx = govContract.castVoteWithProofs!(proposalId, true, payload.roles, payload.scores, payload.proofs, {
       gasLimit: 150000
     });
     txPromises.push(tx);

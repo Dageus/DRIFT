@@ -1,4 +1,4 @@
-import { JsonRpcProvider, Contract, Interface, id, Wallet } from 'ethers';
+import { JsonRpcProvider, Contract, Interface, id, Wallet, type HDNodeWallet } from 'ethers';
 import * as fs from 'fs';
 import { performance } from 'perf_hooks';
 import IGovArtifact from '../../../contracts/out/IDRIFTGovernanceProofOfState.sol/IDRIFTGovernanceProofOfState.json' with { type: 'json' };
@@ -50,7 +50,7 @@ async function generateTreeAndRunBenchmarks() {
   if (!fs.existsSync('./drift-trees')) fs.mkdirSync('./drift-trees');
   fs.writeFileSync('./drift-trees/1M_node_benchmark.json', JSON.stringify(tree.dump()));
 
-  async function runBenchmark(networkName: string, deployer: Wallet, voterWallet: Wallet) {
+  async function runBenchmark(networkName: string, deployer: HDNodeWallet, voterWallet: HDNodeWallet) {
     console.log(`\n--- Initiating Voting Benchmark: ${networkName} ---`);
 
     const drift = new Drift(deployer, {
@@ -97,11 +97,11 @@ async function generateTreeAndRunBenchmarks() {
     );
 
     const repContract = new Contract(clientAddress, SettlerArtifact.abi, deployer);
-    await (await repContract.postEpochRoot(epoch, root, '', signature)).wait();
+    await (await repContract.postEpochRoot!(epoch, root, '', signature)).wait();
 
     const deployerPayload = settler.generateProofOfStatePayload(tree, contextUID, deployer.address, epoch);
     const govContractDeployer = new Contract(clientAddress, IGovArtifact.abi, deployer);
-    const txProp = await govContractDeployer.createProposalWithProofs(
+    const txProp = await govContractDeployer.createProposalWithProofs!(
       'Latency Test',
       deployer.address,
       '0x',
@@ -125,7 +125,7 @@ async function generateTreeAndRunBenchmarks() {
     const govContract = new Contract(clientAddress, IGovArtifact.abi, voterWallet);
 
     const tNetStart = performance.now();
-    const tx = await govContract.castVoteWithProofs(proposalId, true, payload.roles, payload.scores, payload.proofs);
+    const tx = await govContract.castVoteWithProofs!(proposalId, true, payload.roles, payload.scores, payload.proofs);
     const tNetMempool = performance.now();
 
     const receipt = await tx.wait(1);

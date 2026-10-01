@@ -1,0 +1,37 @@
+[package]
+name = "drift-engine-server"
+version = "0.1.0"
+description = "gRPC server for the DRIFT engine protocol (packages/protos/drift/engine/v1)"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "drift-engine"
+path = "src/main.rs"
+
+[features]
+default = []
+# Tier 3: prove each run in the RISC Zero zkVM. Needs the risc0 toolchain (rzup) to build the guest.
+risc0 = ["dep:risc0-zkvm", "dep:drift-engine-methods", "dep:bincode"]
+
+[dependencies]
+drift-engine-core = { workspace = true }
+alloy-primitives = { workspace = true, features = ["std", "k256"] }
+alloy-sol-types = { workspace = true, features = ["std"] }
+k256 = { version = "0.13", features = ["ecdsa"] }
+tonic = "0.14"
+tonic-prost = "0.14"
+prost = "0.14"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
+clap = { version = "4", features = ["derive", "env"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# `prove` links the prover in process, so no external r0vm binary is needed.
+risc0-zkvm = { version = "3.0", optional = true, features = ["prove"] }
+drift-engine-methods = { workspace = true, optional = true }
+bincode = { version = "1", optional = true }
+
+[build-dependencies]
+tonic-prost-build = "0.14"

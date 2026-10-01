@@ -16,7 +16,7 @@ type SettlerInternals = {
   _fetchEpochBoundaryConfig: (
     clientAddress: string
   ) => Promise<{ epochLength: bigint; epochAnchorTimestamp: bigint }>;
-  _fetchHasNodeRole: (clientAddress: string, node: string, role: string) => Promise<boolean>;
+  _fetchHeldRoleAt: (clientAddress: string, node: string, role: string, timestamp: bigint) => Promise<boolean>;
 };
 const mockInternals = (settler: DriftSettler): SettlerInternals => settler as unknown as SettlerInternals;
 const fakeProvider = (impl: Partial<Provider> = {}): Provider => impl as unknown as Provider;
@@ -260,7 +260,7 @@ describe('DriftSettler role-assignment precondition', () => {
     const signer = Wallet.createRandom().connect(fakeProvider());
     const settler = new DriftSettler(signer);
     mockInternals(settler)._fetchEpochBoundaryConfig = async () => ({ epochLength: 10n, epochAnchorTimestamp: 1000n });
-    mockInternals(settler)._fetchHeldRoleAt = async (_client: string, node: string, role: string) =>
+    mockInternals(settler)._fetchHeldRoleAt = async (_client: string, node: string, role: string, _t: bigint) =>
       hasRole[`${node.toLowerCase()}:${role}`] ?? false;
     return settler;
   }

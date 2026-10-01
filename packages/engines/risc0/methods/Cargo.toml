@@ -1,0 +1,12 @@
+[package]
+name = "drift-engine-methods"
+version = "0.1.0"
+description = "Builds the DRIFT engine zkVM guest and exposes its ELF and image ID"
+edition.workspace = true
+license.workspace = true
+
+[build-dependencies]
+risc0-build = "3.0"
+
+[package.metadata.risc0]
+methods = ["guest"]

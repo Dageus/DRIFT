@@ -32,6 +32,18 @@
       "import": "./dist/engines/index.js",
       "types": "./dist/engines/index.d.ts"
     },
+    "./engines/remote": {
+      "import": "./dist/engines/remote/index.js",
+      "types": "./dist/engines/remote/index.d.ts"
+    },
+    "./safe": {
+      "import": "./dist/safe/index.js",
+      "types": "./dist/safe/index.d.ts"
+    },
+    "./pipeline": {
+      "import": "./dist/pipeline/index.js",
+      "types": "./dist/pipeline/index.d.ts"
+    },
     "./providers": {
       "import": "./dist/providers/index.js",
       "types": "./dist/providers/index.d.ts"
@@ -55,6 +67,8 @@
     "test:e2e": "vitest run"
   },
   "dependencies": {
+    "@grpc/grpc-js": "^1.14.5",
+    "@grpc/proto-loader": "^0.8.1",
     "@openzeppelin/merkle-tree": "^1.0.8",
     "dotenv": "^17.4.2",
     "ethers": "^6.16.0"

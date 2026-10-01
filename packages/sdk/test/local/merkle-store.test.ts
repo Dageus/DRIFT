@@ -64,4 +64,35 @@ describe('LocalTreeStore', () => {
     const store = new LocalTreeStore(storageDir);
     await expect(store.loadTree(contextUID, 99n)).rejects.toThrow(/Tree not found/);
   });
+
+  it('loadLeaf needs the role when a node holds several, and loadLeaves returns them all', async () => {
+    const store = new LocalTreeStore(storageDir);
+    const roleB = id('TA_ROLE');
+    const values = [
+      [contextUID, nodeA, role, '100', epoch.toString()],
+      [contextUID, nodeA, roleB, '7', epoch.toString()],
+      [contextUID, nodeB, role, '200', epoch.toString()]
+    ];
+    await store.saveTree(contextUID, epoch, StandardMerkleTree.of(values, ['bytes32', 'address', 'bytes32', 'uint256', 'uint256']));
+
+    await expect(store.loadLeaf(contextUID, epoch, nodeA)).rejects.toThrow(/holds 2 roles/);
+    expect((await store.loadLeaf(contextUID, epoch, nodeA, roleB))[3]).toBe('7');
+    expect(await store.loadLeaves(contextUID, epoch, nodeA)).toHaveLength(2);
+    expect((await store.loadLeaf(contextUID, epoch, nodeB))[3]).toBe('200');
+  });
+
+  it('rejects a tampered file on load', async () => {
+    const store = new LocalTreeStore(storageDir);
+    const values = [[contextUID, nodeA, role, '100', epoch.toString()]];
+    await store.saveTree(contextUID, epoch, StandardMerkleTree.of(values, ['bytes32', 'address', 'bytes32', 'uint256', 'uint256']));
+    const file = path.join(storageDir, `${contextUID}_epoch_${epoch}.json`);
+    fs.writeFileSync(file, fs.readFileSync(file, 'utf-8').replace('"100"', '"1000000"'));
+
+    await expect(store.loadTree(contextUID, epoch)).rejects.toThrow(/not a valid settlement tree/);
+  });
+
+  it('refuses a contextUID that is not bytes32, which would otherwise shape the file path', async () => {
+    const store = new LocalTreeStore(storageDir);
+    await expect(store.loadTree('../../etc/passwd', epoch)).rejects.toThrow(/32-byte hex/);
+  });
 });

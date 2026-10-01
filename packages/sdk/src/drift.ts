@@ -23,6 +23,7 @@ import type {
 import { REPUTATION_ENGINES } from './engines/EnginesMapping.js';
 import { isSigner, errorMessage } from './utils.js';
 import { DriftConfigError, DriftValidationError } from './errors.js';
+import { filterContextRecords, recordParties } from './membership.js';
 
 export interface DriftConfig {
   coreAddress: string;
@@ -182,36 +183,24 @@ export class Drift {
   }
 
   /**
-   * Mirrors DRIFTCore.verifyAttestation off-chain, per record: both parties must be current members
-   * of `contextUID` (registered and not banned), and the record must not predate either party's
-   * most recent registration. Without the membership check a never-registered address (whose
-   * registration time reads as 0) or a deregistered node (whose timestamp is kept) would pass the
-   * join-time test, letting outsiders shape a context's reputation. Applied per (subject, attester)
-   * pair, since `records` may span the whole context graph.
+   * Keeps attestations between *current* members, made after both joined (see
+   * filterContextRecords). Local mode reads the registry as it is now; settlement reads it at the
+   * epoch boundary instead (src/pipeline/membership.ts).
    */
   private async _dropPreJoinAttestations(
     contextUID: string,
     records: AttestationRecord[]
   ): Promise<AttestationRecord[]> {
-    const parties = [...new Set(records.flatMap((r) => [r.subject.toLowerCase(), r.attester.toLowerCase()]))];
     const entries = await Promise.all(
-      parties.map(async (p): Promise<[string, bigint | null]> => {
+      recordParties(records).map(async (p): Promise<[string, bigint] | null> => {
         const [member, joinedAt] = await Promise.all([
           this.core.isRegistered(contextUID, p),
           this.core.getNodeRegisteredAt(contextUID, p)
         ]);
-        return [p, member ? joinedAt : null];
+        return member ? [p, joinedAt] : null;
       })
     );
-    const joinedAt = new Map(entries);
-
-    return records.filter((r) => {
-      const subjectJoined = joinedAt.get(r.subject.toLowerCase());
-      const attesterJoined = joinedAt.get(r.attester.toLowerCase());
-      if (subjectJoined == null || attesterJoined == null) return false;
-      const ts = BigInt(r.timestamp);
-      return ts >= subjectJoined && ts >= attesterJoined;
-    });
+    return filterContextRecords(records, new Map(entries.filter((e) => e !== null)));
   }
 
   // Voting Power ==============================================================
