@@ -13,3 +13,6 @@ export * from './engines/index.js';
 
 // Filesystem tree store, kept to answer omission challenges.
 export { LocalTreeStore } from './store/LocalTreeStore.js';
+
+// Operator daemon and its configuration.
+export * from './daemon/index.js';
