@@ -1,4 +1,5 @@
-import { mkdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { JsonRpcProvider, formatEther, formatUnits, parseEther } from 'ethers';
 import { parseExperimentConfig, type ExperimentConfig } from './config.js';
@@ -7,6 +8,10 @@ import { gasTable, loadMeasured } from './gas.js';
 import { buildPlan, topUps, type FundingPlan } from './plan.js';
 import { assertPlanMatches, readPlan, writeManifest, writePlan } from './planFile.js';
 import { balancesOf, fund, status, sweep, TRANSFER_GAS, type Log } from './ops.js';
+import { measure, writeMeasured } from './measure.js';
+import { feeHistory, feeReport, printFeeReport } from './fees.js';
+
+const CONTRACTS_DIR = fileURLToPath(new URL('../../contracts', import.meta.url));
 
 const USAGE = `usage: drift-e2e <command> [options]
 
@@ -16,6 +21,11 @@ const USAGE = `usage: drift-e2e <command> [options]
   fund    --config <file> [--yes]       top up every key to its planned target (dry run without --yes)
   status  --config <file>               balance vs target per key
   sweep   --config <file> [--yes] [--dust-eth <x>]   return leftovers to the funder
+  measure --config <file>               run every action once on a local anvil fork of the config's
+                                        chain (never broadcasts there); writes <out>/gas-measured.json
+  fees    --config <file> [--blocks <n>] [--caps 1,2,5]   base-fee percentiles from eth_feeHistory (read-only)
+
+  fund and sweep wait while the base fee is above the cap (--wait-minutes, default 60); they never pay more.
 
   common: --out <dir> (default ./e2e-run)
   environment: the variables the config names (RPC URL, experiment mnemonic, funder key)`;
@@ -64,6 +74,8 @@ function provider(cfg: ExperimentConfig, env: NodeJS.ProcessEnv): JsonRpcProvide
   // No read cache: balances must be current.
   return new JsonRpcProvider(url, undefined, { cacheTimeout: -1 });
 }
+
+const waitMs = (args: Args): number => Number(str(args, 'wait-minutes') ?? '60') * 60_000;
 
 const eth = (wei: bigint) => `${Number(formatEther(wei)).toFixed(6)} ETH`;
 
@@ -153,13 +165,33 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env,
       return 0;
     }
 
+    if (cmd === 'measure') {
+      const forkUrl = env[cfg.rpcUrlEnv];
+      if (!forkUrl) throw new Error(`environment variable ${cfg.rpcUrlEnv} is not set`);
+      // When a plan exists, the deployer must be the one it funds.
+      const existing = existsSync(planPath) ? readPlan(planPath) : undefined;
+      if (existing) assertPlanMatches(existing, slots);
+      const result = await measure({ forkUrl, experimentMnemonic: mnemonic, contractsDir: str(args, 'contracts') ?? CONTRACTS_DIR, plan: existing, log });
+      const out = join(dir, 'gas-measured.json');
+      writeMeasured(out, result);
+      log(`wrote ${out} (${result.samples.length} transactions, fork block ${result.forkBlock})`);
+      return 0;
+    }
+    if (cmd === 'fees') {
+      const blocks = Number(str(args, 'blocks') ?? '5000');
+      const caps = (str(args, 'caps') ?? '1,2,3,5,10,20').split(',');
+      const report = feeReport(await feeHistory(provider(cfg, env), blocks), cfg.gas.priorityFeeWei, caps);
+      printFeeReport(report, log, cfg.gas.priorityFeeWei);
+      return 0;
+    }
+
     const plan = readPlan(planPath);
     assertPlanMatches(plan, slots);
     const p = provider(cfg, env);
 
     if (cmd === 'fund') {
       const funder = loadFunder(cfg.funder, env).connect(p);
-      await fund(plan, funder, { yes: args.flags.has('yes'), priorityWei: cfg.gas.priorityFeeWei, journalPath: join(dir, 'funding-journal.jsonl'), log });
+      await fund(plan, funder, { yes: args.flags.has('yes'), priorityWei: cfg.gas.priorityFeeWei, journalPath: join(dir, 'funding-journal.jsonl'), log, waitMs: waitMs(args) });
       return 0;
     }
     if (cmd === 'status') {
@@ -175,7 +207,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env,
       const keys = plan.keys.map((k) => ({ role: k.role, ordinal: k.ordinal, signer: deriveWallet(mnemonic, k.index).connect(p) }));
       await sweep(keys, funder.address, plan.chainId, {
         yes: args.flags.has('yes'), maxFeeWei: plan.maxFeeWei, priorityWei: cfg.gas.priorityFeeWei,
-        dustWei: dust ? parseEther(dust) : 0n, journalPath: join(dir, 'funding-journal.jsonl'), log
+        dustWei: dust ? parseEther(dust) : 0n, journalPath: join(dir, 'funding-journal.jsonl'), log, waitMs: waitMs(args)
       });
       return 0;
     }

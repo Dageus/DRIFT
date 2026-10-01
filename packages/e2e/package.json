@@ -21,6 +21,8 @@
     "test": "vitest run --config vitest.config.ts"
   },
   "dependencies": {
+    "@drift-network/operator": "*",
+    "@drift-network/sdk": "*",
     "ethers": "^6.16.0"
   },
   "devDependencies": {

@@ -1,8 +1,14 @@
 {
+  // Typecheck and lint against the SDK's and operator's sources, so neither needs building first.
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": true,
-    "rootDir": "."
+    "rootDir": "..",
+    "paths": {
+      "@drift-network/sdk": ["../sdk/src/index.ts"],
+      "@drift-network/sdk/*": ["../sdk/src/*/index.ts"],
+      "@drift-network/operator": ["../operator/src/index.ts"]
+    }
   },
   "include": ["src/**/*.ts", "test/**/*.ts", "*.ts"],
   "exclude": ["node_modules", "dist"]

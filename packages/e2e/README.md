@@ -32,6 +32,52 @@ drift-e2e sweep  --config experiment.json --yes      # after the experiment
 
 Each key's target is `gas x maxFee x margin + bond capital`, plus one transfer so its leftovers can be swept. `plan` marks every action whose gas is still an estimate. Run `measure` on a Sepolia fork (Phase 2) before funding for real.
 
+## Measured gas and fees
+
+```sh
+drift-e2e measure --config <cfg>    # local anvil fork of the config's chain; writes e2e-run/gas-measured.json
+drift-e2e fees    --config <cfg>    # read-only eth_feeHistory: base-fee percentiles and how often each cap is exceeded
+drift-e2e plan    --config <cfg> --measured measurements/gas-sepolia.json
+```
+
+`measure` forks the chain at a recent block (with chain id 31337), checks that the URL it sends to is a local anvil, and runs one of every experiment action against the real EAS, schema registry and Safe v1.4.1 contracts:
+- the full `Deploy.s.sol` stack, run from the experiment mnemonic;
+- two contexts with client clones and configuration;
+- a 2-of-3 Safe, a schema, registrations and role assignments;
+- attestations, including `multiAttest` with 1, 4 and 12 items;
+- a Tier 1 epoch over a 128-leaf tree: challenge, response, bond withdrawal, claims, a proposal and votes;
+- a second epoch with an omission challenge that is claimed;
+- a one-round Safe settlement.
+
+It records each receipt's `gasUsed`. `measurements/gas-sepolia.json` is the table from Sepolia block 11823917.
+
+With `attestations.batch` > 1, each node's attestations of a round go out in `multiAttest` transactions. Every transaction is priced at its full batch size.
+
+`fund` and `sweep` never send above `gas.maxFeeGwei`. While the base fee is higher, they wait (`--wait-minutes`, default 60) and then give up rather than pay more.
+
+## Deployment key
+
+`Deploy.s.sol` deploys from index 0 of whatever `MNEMONIC` it sees, and in a typical shell `MNEMONIC` is the funded account. The tooling never lets forge inherit it:
+- `forgeEnv` replaces `MNEMONIC` with the experiment mnemonic;
+- `experimentDeployer` refuses when that mnemonic's deployer isn't the plan's;
+- after deploying, the core's admin must be the experiment deployer.
+
+## Budgets
+
+`examples/` holds two experiment shapes, planned from the measured table with a 3 gwei cap, 0.2 gwei priority fee and a 1.2 margin:
+
+| | `sepolia-0.8eth.json` | `sepolia-2.5eth.json` |
+|---|---|---|
+| nodes | 30 | 50 |
+| attestations (per node per round x rounds, batch) | 3 x 6, batch 3 | 3 x 12, batch 3 |
+| epochs, Tier 1 / Tier 2 | 24 / 24 | 72 / 72 |
+| omission / answered / watcher challenges | 2 / 2 / 2 | 6 / 6 / 6 |
+| dead Tier 2 rounds | 2 | 4 |
+| claims per epoch | 3 | 5 |
+| proposals x voters | 3 x 15 | 6 x 25 |
+| required (from empty keys, incl. 0.03 reserve) | 0.628 ETH | 1.914 ETH |
+| headroom | 21% | 23% |
+
 ## Safety
 
 `fund`:

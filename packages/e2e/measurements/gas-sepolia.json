@@ -1,0 +1,287 @@
+{
+  "version": 1,
+  "source": "measured",
+  "forkChainId": "11155111",
+  "forkBlock": 11823917,
+  "date": "2026-10-01T19:33:38.375Z",
+  "actions": {
+    "deployCoreImpl": {
+      "gas": "2502214",
+      "note": "max of 1 sample(s) on a Sepolia fork at block 11823917",
+      "samples": [
+        "2502214"
+      ]
+    },
+    "deployCoreProxy": {
+      "gas": "167330",
+      "note": "max of 1 sample(s) on a Sepolia fork at block 11823917",
+      "samples": [
+        "167330"
+      ]
+    },
+    "deployToken": {
+      "gas": "897829",
+      "note": "max of 1 sample(s) on a Sepolia fork at block 11823917",
+      "samples": [
+        "897829"
+      ]
+    },
+    "setDriftToken": {
+      "gas": "50922",
+      "note": "max of 1 sample(s) on a Sepolia fork at block 11823917",
+      "samples": [
+        "50922"
+      ]
+    },
+    "deployFactory": {
+      "gas": "301270",
+      "note": "max of 1 sample(s) on a Sepolia fork at block 11823917",
+      "samples": [
+        "301270"
+      ]
+    },
+    "grantFactoryRole": {
+      "gas": "56210",
+      "note": "max of 1 sample(s) on a Sepolia fork at block 11823917",
+      "samples": [
+        "56210"
+      ]
+    },
+    "deployTemplate": {
+      "gas": "5088966",
+      "note": "max of 1 sample(s) on a Sepolia fork at block 11823917",
+      "samples": [
+        "5088966"
+      ]
+    },
+    "createSafe": {
+      "gas": "306219",
+      "note": "max of 1 sample(s) on a Sepolia fork at block 11823917",
+      "samples": [
+        "306219"
+      ]
+    },
+    "fundSafe": {
+      "gas": "27329",
+      "note": "max of 1 sample(s) on a Sepolia fork at block 11823917",
+      "samples": [
+        "27329"
+      ]
+    },
+    "transfer": {
+      "gas": "21000",
+      "note": "max of 1 sample(s) on a Sepolia fork at block 11823917",
+      "samples": [
+        "21000"
+      ]
+    },
+    "registerSchema": {
+      "gas": "136259",
+      "note": "max of 1 sample(s) on a Sepolia fork at block 11823917",
+      "samples": [
+        "136259"
+      ]
+    },
+    "registerContext": {
+      "gas": "146648",
+      "note": "max of 2 sample(s) on a Sepolia fork at block 11823917",
+      "samples": [
+        "146648",
+        "146648"
+      ]
+    },
+    "deployClientClone": {
+      "gas": "436209",
+      "note": "max of 2 sample(s) on a Sepolia fork at block 11823917",
+      "samples": [
+        "436173",
+        "436209"
+      ]
+    },
+    "grantContextAdmin": {
+      "gas": "56210",
+      "note": "max of 2 sample(s) on a Sepolia fork at block 11823917",
+      "samples": [
+        "56210",
+        "56210"
+      ]
+    },
+    "setDisputeWindow": {
+      "gas": "63364",
+      "note": "max of 2 sample(s) on a Sepolia fork at block 11823917",
+      "samples": [
+        "63364",
+        "63364"
+      ]
+    },
+    "setResponseWindow": {
+      "gas": "62929",
+      "note": "max of 2 sample(s) on a Sepolia fork at block 11823917",
+      "samples": [
+        "62929",
+        "62929"
+      ]
+    },
+    "setSettlementBond": {
+      "gas": "63707",
+      "note": "max of 2 sample(s) on a Sepolia fork at block 11823917",
+      "samples": [
+        "63707",
+        "63707"
+      ]
+    },
+    "setChallengeBond": {
+      "gas": "63118",
+      "note": "max of 2 sample(s) on a Sepolia fork at block 11823917",
+      "samples": [
+        "63118",
+        "63118"
+      ]
+    },
+    "setResponseGasEstimate": {
+      "gas": "65598",
+      "note": "max of 2 sample(s) on a Sepolia fork at block 11823917",
+      "samples": [
+        "65598",
+        "65598"
+      ]
+    },
+    "registerNode": {
+      "gas": "78321",
+      "note": "max of 12 sample(s) on a Sepolia fork at block 11823917",
+      "samples": [
+        "78309",
+        "78309",
+        "78309",
+        "78309",
+        "78309",
+        "78309",
+        "78321",
+        "78321",
+        "78321",
+        "78321",
+        "78321",
+        "78321"
+      ]
+    },
+    "assignRole": {
+      "gas": "138917",
+      "note": "max of 12 sample(s) on a Sepolia fork at block 11823917",
+      "samples": [
+        "138917",
+        "138917",
+        "138917",
+        "138917",
+        "138917",
+        "138905",
+        "138917",
+        "138917",
+        "138917",
+        "138917",
+        "138917",
+        "138905"
+      ]
+    },
+    "setEpochLength": {
+      "gas": "87014",
+      "note": "max of 2 sample(s) on a Sepolia fork at block 11823917",
+      "samples": [
+        "87014",
+        "87014"
+      ]
+    },
+    "easAttest": {
+      "gas": "207769",
+      "note": "max of 2 sample(s) on a Sepolia fork at block 11823917",
+      "samples": [
+        "207769",
+        "207769"
+      ]
+    },
+    "postEpochRoot": {
+      "gas": "150255",
+      "note": "max of 2 sample(s) on a Sepolia fork at block 11823917",
+      "samples": [
+        "150255",
+        "142168"
+      ]
+    },
+    "challengeOmission": {
+      "gas": "181221",
+      "note": "max of 2 sample(s) on a Sepolia fork at block 11823917",
+      "samples": [
+        "181221",
+        "181221"
+      ]
+    },
+    "respondToChallenge": {
+      "gas": "60808",
+      "note": "max of 1 sample(s) on a Sepolia fork at block 11823917",
+      "samples": [
+        "60808"
+      ]
+    },
+    "withdrawSettlementBond": {
+      "gas": "49713",
+      "note": "max of 1 sample(s) on a Sepolia fork at block 11823917",
+      "samples": [
+        "49713"
+      ]
+    },
+    "claimReputation": {
+      "gas": "127335",
+      "note": "max of 2 sample(s) on a Sepolia fork at block 11823917",
+      "samples": [
+        "127335",
+        "127335"
+      ]
+    },
+    "createProposal": {
+      "gas": "175628",
+      "note": "max of 1 sample(s) on a Sepolia fork at block 11823917",
+      "samples": [
+        "175628"
+      ]
+    },
+    "castVote": {
+      "gas": "102817",
+      "note": "max of 2 sample(s) on a Sepolia fork at block 11823917",
+      "samples": [
+        "102817",
+        "85702"
+      ]
+    },
+    "claimUnansweredChallenge": {
+      "gas": "80540",
+      "note": "max of 1 sample(s) on a Sepolia fork at block 11823917",
+      "samples": [
+        "80540"
+      ]
+    },
+    "safeExecSettlement": {
+      "gas": "254919",
+      "note": "max of 1 sample(s) on a Sepolia fork at block 11823917",
+      "samples": [
+        "254919"
+      ]
+    },
+    "easMultiAttestBase": {
+      "gas": "42182",
+      "note": "fit over multiAttest k=1,4,12",
+      "samples": [
+        "1:209893",
+        "4:712940",
+        "12:2054708"
+      ]
+    },
+    "easMultiAttestPerItem": {
+      "gas": "167711",
+      "note": "per attestation in a multiAttest",
+      "samples": [
+        "1:209893",
+        "4:712940",
+        "12:2054708"
+      ]
+    }
+  }
+}

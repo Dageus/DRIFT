@@ -105,7 +105,8 @@ export function keyActions(cfg: ExperimentConfig, slot: KeySlot): { actions: [Ac
       const n = cfg.nodes;
       const epochs = cfg.tier1.epochs + cfg.tier2.epochs;
       a.push(['registerNode', contexts]);
-      a.push(['easAttest', cfg.attestations.perNodePerRound * cfg.attestations.rounds]);
+      if (cfg.attestations.batch > 1) a.push(['easMultiAttest', Math.ceil(cfg.attestations.perNodePerRound / cfg.attestations.batch) * cfg.attestations.rounds]);
+      else a.push(['easAttest', cfg.attestations.perNodePerRound * cfg.attestations.rounds]);
       a.push(['claimReputation', share(cfg.claims.perEpoch * epochs, n, i)]);
       a.push(['createProposal', share(cfg.governance.proposals, n, i)]);
       a.push(['castVote', share(cfg.governance.proposals * cfg.governance.votersPerProposal, n, i)]);
@@ -125,13 +126,25 @@ export function keyActions(cfg: ExperimentConfig, slot: KeySlot): { actions: [Ac
   return { actions: a.filter(([, c]) => c > 0), capitalWei, capitalNote };
 }
 
+/**
+ * The gas of one transaction of `action`. A multiAttest batch is priced at its largest size,
+ * base + perItem x min(batch, attestations per round), so a smaller last batch only overestimates.
+ */
+function batchedEntry(cfg: ExperimentConfig, table: GasTable, action: Action): { gas: bigint; source: 'estimate' | 'measured' } {
+  if (action !== 'easMultiAttest') return table[action];
+  const k = BigInt(Math.min(cfg.attestations.batch, cfg.attestations.perNodePerRound));
+  const base = table.easMultiAttestBase;
+  const per = table.easMultiAttestPerItem;
+  return { gas: base.gas + per.gas * k, source: base.source === 'measured' && per.source === 'measured' ? 'measured' : 'estimate' };
+}
+
 /** Builds the funding plan: every key's target balance, the funder's fees, and the total needed. */
 export function buildPlan(cfg: ExperimentConfig, slots: KeySlot[], table: GasTable): FundingPlan {
   const estimated = new Set<Action>();
   const keys: KeyPlan[] = slots.map((slot) => {
     const { actions, capitalWei, capitalNote } = keyActions(cfg, slot);
     const planned: PlannedAction[] = actions.map(([action, count]) => {
-      const e = table[action];
+      const e = batchedEntry(cfg, table, action);
       if (e.source === 'estimate') estimated.add(action);
       return { action, count, gasEach: e.gas, source: e.source };
     });

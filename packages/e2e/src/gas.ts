@@ -30,6 +30,9 @@ export type Action =
   | 'assignRole'
   | 'registerNode'
   | 'easAttest'
+  | 'easMultiAttest'
+  | 'easMultiAttestBase'
+  | 'easMultiAttestPerItem'
   | 'postEpochRoot'
   | 'safeExecSettlement'
   | 'respondToChallenge'
@@ -79,6 +82,9 @@ export const ESTIMATES: GasTable = {
   assignRole: snap(93_491, 100, 'AssignRole'),
   registerNode: snap(63_830, 200, 'RegisterNode'),
   easAttest: est(250_000, 'EAS.attest on Sepolia, no measurement yet'),
+  easMultiAttest: est(0, 'computed per batch from easMultiAttestBase + k x easMultiAttestPerItem'),
+  easMultiAttestBase: est(60_000, 'multiAttest fixed cost, no measurement yet'),
+  easMultiAttestPerItem: est(200_000, 'multiAttest cost per attestation, no measurement yet'),
   postEpochRoot: snap(125_375, 400, 'PostRoot_O1_Cost'),
   safeExecSettlement: snap(208_857, 1_300, 'PostRoot_Safe2of3_OneRound'),
   respondToChallenge: snap(20_758, 900, 'RespondToChallenge_Depth20'),
@@ -91,11 +97,12 @@ export const ESTIMATES: GasTable = {
   transfer: est(21_000, 'plain ETH transfer between EOAs (exact)')
 };
 
-/** A measured table, as `measure` writes it: { action: { gas: "123", note } }. */
+/** A measured table, as `measure` writes it: { actions: { action: { gas: "123", note } } }. */
 export function loadMeasured(path: string): Partial<GasTable> {
-  const raw = JSON.parse(readFileSync(path, 'utf8')) as Record<string, { gas: string | number; note?: string }>;
+  const file = JSON.parse(readFileSync(path, 'utf8')) as { actions?: Record<string, { gas: string | number; note?: string }> };
+  if (!file.actions) throw new Error(`${path}: not a measured gas table (no actions)`);
   const out: Partial<GasTable> = {};
-  for (const [k, v] of Object.entries(raw)) {
+  for (const [k, v] of Object.entries(file.actions)) {
     if (!(k in ESTIMATES)) throw new Error(`${path}: unknown action ${k}`);
     const gas = BigInt(v.gas);
     if (gas <= 0n) throw new Error(`${path}: ${k} has non-positive gas`);

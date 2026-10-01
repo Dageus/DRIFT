@@ -19,7 +19,8 @@ export interface ExperimentConfig {
   funder: FunderSource;
   /** Member nodes. */
   nodes: number;
-  attestations: { perNodePerRound: number; rounds: number };
+  /** batch > 1 sends each node's attestations of a round in multiAttest transactions of up to `batch`. */
+  attestations: { perNodePerRound: number; rounds: number; batch: number };
   tier1: { epochs: number };
   tier2: { epochs: number; owners: number; threshold: number };
   adversarial: {
@@ -136,7 +137,8 @@ export function parseExperimentConfig(input: unknown): ExperimentConfig {
   if (nodes === 0 && root.nodes !== undefined) c.fail('nodes', 'must be at least 1');
 
   const at = c.obj(root.attestations, 'attestations') ?? {};
-  const attestations = { perNodePerRound: c.int(at.perNodePerRound, 'attestations.perNodePerRound', 0), rounds: c.int(at.rounds, 'attestations.rounds', 0) };
+  const attestations = { perNodePerRound: c.int(at.perNodePerRound, 'attestations.perNodePerRound', 0), rounds: c.int(at.rounds, 'attestations.rounds', 0), batch: c.int(at.batch, 'attestations.batch', 1, 50) };
+  if (attestations.batch === 0) c.fail('attestations.batch', 'must be at least 1');
   if (attestations.perNodePerRound >= nodes && nodes > 0) c.fail('attestations.perNodePerRound', 'must be below nodes (a node attests to distinct other nodes)');
 
   const t1 = c.obj(root.tier1, 'tier1') ?? {};

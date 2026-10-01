@@ -3,6 +3,7 @@ import type { Provider, Signer, TransactionResponse } from 'ethers';
 import { formatEther, formatUnits } from 'ethers';
 import type { FundingPlan } from './plan.js';
 import { topUps } from './plan.js';
+import { waitForFeesUnderCap } from './fees.js';
 
 export const TRANSFER_GAS = 21_000n;
 /** Transfers sent before waiting for their receipts; public RPCs cap pending transactions per sender. */
@@ -38,15 +39,7 @@ export async function assertNoPending(provider: Provider, address: string): Prom
   return latest;
 }
 
-/** Refuses when the current base fee leaves no room under the cap, instead of sending transactions that would sit unmined. */
-export async function feesUnderCap(provider: Provider, maxFeeWei: bigint, priorityWei: bigint): Promise<{ maxFeePerGas: bigint; maxPriorityFeePerGas: bigint; baseFee: bigint }> {
-  const block = await provider.getBlock('latest');
-  const baseFee = block?.baseFeePerGas ?? 0n;
-  if (baseFee + priorityWei > maxFeeWei) {
-    throw new Error(`base fee ${formatUnits(baseFee, 'gwei')} gwei + priority ${formatUnits(priorityWei, 'gwei')} gwei exceeds the cap of ${formatUnits(maxFeeWei, 'gwei')} gwei; wait for fees to drop or raise gas.maxFeeGwei`);
-  }
-  return { maxFeePerGas: maxFeeWei, maxPriorityFeePerGas: priorityWei, baseFee };
-}
+export { waitForFeesUnderCap } from './fees.js';
 
 export interface FundResult {
   dryRun: boolean;
@@ -58,21 +51,21 @@ export interface FundResult {
 
 /**
  * Tops up every key in the plan to its target. Dry run unless `yes`. Refuses on a chain-id mismatch,
- * pending funder transactions, a base fee above the cap, or a funder balance below top-ups + fees +
- * reserve. Sends in batches with explicit nonces, waits for every receipt, stops at the first failure,
+ * pending funder transactions, or a funder balance below top-ups + fees + reserve; while the base fee
+ * is above the cap it waits up to `waitMs`, and never sends above the cap. Sends in batches with explicit nonces, waits for every receipt, stops at the first failure,
  * and journals each transfer.
  */
 export async function fund(
   plan: FundingPlan,
   funder: Signer,
-  opts: { yes: boolean; priorityWei: bigint; journalPath?: string; log: Log }
+  opts: { yes: boolean; priorityWei: bigint; journalPath?: string; log: Log; waitMs?: number; pollMs?: number }
 ): Promise<FundResult> {
   const provider = funder.provider;
   if (!provider) throw new Error('funder signer has no provider');
   await assertChain(provider, plan.chainId);
   const from = await funder.getAddress();
   let nonce = await assertNoPending(provider, from);
-  const fees = await feesUnderCap(provider, plan.maxFeeWei, opts.priorityWei);
+  const fees = await waitForFeesUnderCap(provider, plan.maxFeeWei, opts.priorityWei, { waitMs: opts.waitMs ?? 0, pollMs: opts.pollMs, log: opts.log });
 
   const balances = await balancesOf(provider, plan.keys.map((k) => k.address));
   const todo: FundResult['transfers'] = topUps(plan, balances);
@@ -168,12 +161,12 @@ export async function sweep(
   keys: { role: string; ordinal: number; signer: Signer }[],
   to: string,
   chainId: bigint,
-  opts: { yes: boolean; maxFeeWei: bigint; priorityWei: bigint; dustWei: bigint; journalPath?: string; log: Log }
+  opts: { yes: boolean; maxFeeWei: bigint; priorityWei: bigint; dustWei: bigint; journalPath?: string; log: Log; waitMs?: number; pollMs?: number }
 ): Promise<SweepResult> {
   const provider = keys[0]?.signer.provider;
   if (!provider) return { dryRun: !opts.yes, transfers: [], totalWei: 0n };
   await assertChain(provider, chainId);
-  const fees = await feesUnderCap(provider, opts.maxFeeWei, opts.priorityWei);
+  const fees = await waitForFeesUnderCap(provider, opts.maxFeeWei, opts.priorityWei, { waitMs: opts.waitMs ?? 0, pollMs: opts.pollMs, log: opts.log });
   const result: SweepResult = { dryRun: !opts.yes, transfers: [], totalWei: 0n };
   for (const k of keys) {
     const address = await k.signer.getAddress();
