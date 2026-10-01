@@ -26,7 +26,11 @@ export interface EpochSnapshotParams {
   pretrust?: { node: string; weight: bigint }[];
   /** Head used for the O1 check. Default 'finalized'; 'latest' only on chains that never finalize. */
   blockTag?: 'finalized' | 'safe' | 'latest';
-  /** First block to scan for registry logs, normally the core's deployment block. */
+  /**
+   * First block to scan for registry logs, normally the core's deployment block (default 0). Must
+   * not be after the block that registered the context: that would omit members and roles, a
+   * challengeable omission. loadBoundaryMembership checks this and throws.
+   */
   fromBlock?: number;
 }
 

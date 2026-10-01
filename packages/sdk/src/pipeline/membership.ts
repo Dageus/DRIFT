@@ -1,8 +1,10 @@
 import { Contract, Interface, type Log, type Provider } from 'ethers';
 import type { JoinTimes } from '../membership.js';
 import type { EpochMember } from '../engines/epoch/protocol.js';
+import { DriftConfigError } from '../errors.js';
 
 const CORE_IFACE = new Interface([
+  'event ContextRegistered(bytes32 indexed uid, string name, address indexed owner)',
   'event NodeRegistered(bytes32 indexed contextUID, address indexed node)',
   'event NodeDeregistered(bytes32 indexed contextUID, address indexed node)',
   'event RoleAssigned(bytes32 indexed contextUID, address indexed node, bytes32 role)',
@@ -71,6 +73,11 @@ async function logsUpTo(
  *
  * Reads are deterministic for any caller once the boundary is final (O1): only logs from blocks at
  * or before the boundary count, and the views take the boundary as their reference time.
+ *
+ * `fromBlock` must not be later than the block that registered the context. A later value would
+ * silently drop every registration and role assignment before it, so the root would omit pairs that
+ * anyone can challenge, losing the settlement bond. A nonzero `fromBlock` is therefore checked: the
+ * context's ContextRegistered event must lie at or after it, or this throws.
  */
 export async function loadBoundaryMembership(
   provider: Provider,
@@ -81,6 +88,20 @@ export async function loadBoundaryMembership(
 ): Promise<BoundaryMembership> {
   const clock = new BlockClock(provider);
   const fromBlock = opts.fromBlock ?? 0;
+  if (fromBlock > 0) {
+    const created = await provider.getLogs({
+      address: core,
+      topics: CORE_IFACE.encodeFilterTopics(CORE_IFACE.getEvent('ContextRegistered')!, [contextUID]),
+      fromBlock,
+      toBlock: 'latest'
+    });
+    if (created.length === 0) {
+      throw new DriftConfigError(
+        `DRIFT SDK: fromBlock ${fromBlock} is after the block that registered context ${contextUID}; ` +
+          'scanning from there would omit earlier members and roles. Use the core deployment block or 0.'
+      );
+    }
+  }
   const [registered, deregistered, assigned] = await Promise.all([
     logsUpTo(provider, clock, core, 'NodeRegistered', contextUID, boundary, fromBlock),
     logsUpTo(provider, clock, core, 'NodeDeregistered', contextUID, boundary, fromBlock),

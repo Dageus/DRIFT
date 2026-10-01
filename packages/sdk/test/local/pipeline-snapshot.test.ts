@@ -152,3 +152,27 @@ describe('loadEpochSnapshot', () => {
     expect(s.input.defaultWeight).toBe(1n);
   });
 });
+
+describe('loadBoundaryMembership fromBlock guard', () => {
+  function chainWithContextAt(block: number): Provider {
+    const base = fakeChain(5000);
+    const reg = iface.encodeEventLog(
+      new Interface(['event ContextRegistered(bytes32 indexed uid, string name, address indexed owner)']).getEvent('ContextRegistered')!,
+      [CTX, 'ctx', CORE]
+    );
+    return {
+      ...base,
+      getLogs: async (f: { topics: (string | null)[]; fromBlock: number }) =>
+        f.topics[0] === reg.topics[0] ? (block >= f.fromBlock ? [{ address: CORE, blockNumber: block, index: 0, ...reg }] : []) : base.getLogs(f)
+    } as unknown as Provider;
+  }
+
+  it('accepts a fromBlock at or before the context registration', async () => {
+    const m = await loadBoundaryMembership(chainWithContextAt(1), CORE, CTX, 1000n, { fromBlock: 1 });
+    expect(m.joinedAt.size).toBe(3);
+  });
+
+  it('throws when fromBlock is after the context registration', async () => {
+    await expect(loadBoundaryMembership(chainWithContextAt(1), CORE, CTX, 1000n, { fromBlock: 2 })).rejects.toThrow(/after the block that registered/);
+  });
+});

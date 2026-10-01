@@ -15,4 +15,6 @@ export interface ITreeTransport {
    * in `expected`: the transport is not trusted, the root is.
    */
   fetchTree(treeURI: string, expected?: TreeExpectation): Promise<EpochTree>;
+  /** Keeps `treeURI` available from this transport's backing store, where that is meaningful. */
+  pin?(treeURI: string): Promise<void>;
 }

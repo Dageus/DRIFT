@@ -37,6 +37,7 @@ export class ReputationModule {
    * and reverts with `InsufficientBond` if `msg.value` doesn't match exactly. The connected signer
    * must be the client's `trustedSettler`: the contract rejects any other sender
    * (`NotTrustedSettler`), so a rolled-back root cannot be re-posted by a third party.
+   * Returns the transaction hash once mined.
    */
   public async postEpochRoot(
     clientAddress: string,
@@ -45,12 +46,13 @@ export class ReputationModule {
     treeURI: string,
     signature: string,
     bondAmount: bigint
-  ): Promise<void> {
+  ): Promise<string> {
     try {
       const tx = await this._connected(clientAddress).postEpochRoot(epoch, merkleRoot, treeURI, signature, {
         value: bondAmount
       });
       await tx.wait();
+      return tx.hash;
     } catch (err) {
       handleContractError(err, this._interface);
     }

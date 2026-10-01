@@ -4,3 +4,5 @@ export { loadEpochSnapshot } from './snapshot.js';
 export type { EpochSnapshotParams, EpochSnapshot } from './snapshot.js';
 export { loadBoundaryMembership } from './membership.js';
 export type { BoundaryMembership } from './membership.js';
+export { settleEpochTier1 } from './tier1.js';
+export type { SettleEpochTier1Params, SettleEpochTier1Result } from './tier1.js';
