@@ -1,6 +1,7 @@
 import { Signer, Contract, TypedDataDomain } from 'ethers';
 import { StandardMerkleTree } from '@openzeppelin/merkle-tree';
 import { DriftError, DriftConfigError, DriftNotFoundError, DriftValidationError } from './errors.js';
+import { buildEpochTree } from './merkle/epochTree.js';
 
 const EIP712_ABI = [
   'function eip712Domain() external view returns (bytes1 fields, string name, string version, uint256 chainId, address verifyingContract, bytes32 salt, uint256[] extensions)'
@@ -214,8 +215,8 @@ export class DriftSettler {
     scores: ScoreEntry[],
     uploader: (tree: StandardMerkleTree<string[]>) => Promise<string>
   ): Promise<{ root: string; signature: string; tree: StandardMerkleTree<string[]>; treeURI: string }> {
-    const values = scores.map((s) => [contextUID, s.node, s.role, s.score.toString(), epoch.toString()]);
-    const tree = StandardMerkleTree.of(values, ['bytes32', 'address', 'bytes32', 'uint256', 'uint256']);
+    // Canonical order and case, so identical scores always publish identical bytes (and CID).
+    const tree = buildEpochTree(contextUID, epoch, scores);
 
     // The tree must be uploaded to resolve the URI before computing the signature
     const treeURI = await uploader(tree);
@@ -244,7 +245,11 @@ export class DriftSettler {
 
     for (const [i, v] of tree.entries()) {
       // v[0] = contextUID, v[1] = node, v[2] = role, v[3] = score, v[4] = epoch — always a 5-tuple.
-      if (v[0] === contextUID && v[1]!.toLowerCase() === node.toLowerCase() && BigInt(v[4]!) === epoch) {
+      if (
+        v[0]!.toLowerCase() === contextUID.toLowerCase() &&
+        v[1]!.toLowerCase() === node.toLowerCase() &&
+        BigInt(v[4]!) === epoch
+      ) {
         entries.push({ role: v[2]!, score: BigInt(v[3]!), proof: tree.getProof(i) });
       }
     }
@@ -281,9 +286,9 @@ export class DriftSettler {
     for (const [i, v] of tree.entries()) {
       // v[0] = contextUID, v[1] = node, v[2] = role, v[3] = score, v[4] = epoch — always a 5-tuple.
       if (
-        v[0] === contextUID &&
+        v[0]!.toLowerCase() === contextUID.toLowerCase() &&
         v[1]!.toLowerCase() === node.toLowerCase() &&
-        v[2] === role &&
+        v[2]!.toLowerCase() === role.toLowerCase() &&
         BigInt(v[4]!) === epoch
       ) {
         return { score: BigInt(v[3]!), proof: tree.getProof(i) };

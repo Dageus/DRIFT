@@ -86,4 +86,37 @@ describe('IPFSTreeTransport', () => {
     const transport = new IPFSTreeTransport();
     await expect(transport.fetchTree('ipfs://missing')).rejects.toThrow(DriftProviderError);
   });
+
+  it('fetchTree rejects a tree that is not the committed one', async () => {
+    const dump = StandardMerkleTree.of(values, types).dump();
+    global.fetch = vi.fn(async () => new Response(JSON.stringify(dump), { status: 200 }));
+
+    const transport = new IPFSTreeTransport();
+    await expect(transport.fetchTree('ipfs://cid', { root: '0x' + '11'.repeat(32) })).rejects.toThrow(/does not match the expected root/);
+  });
+
+  it('fetchTree rejects a tampered tree and a response that is not a tree', async () => {
+    // dump() shares arrays with `values`; tamper with a copy.
+    const dump = structuredClone(StandardMerkleTree.of(values, types).dump());
+    dump.values[1]!.value[3] = '5000';
+    global.fetch = vi.fn(async () => new Response(JSON.stringify(dump), { status: 200 }));
+    const transport = new IPFSTreeTransport();
+    await expect(transport.fetchTree('ipfs://cid')).rejects.toThrow(/not a valid settlement tree/);
+
+    global.fetch = vi.fn(async () => new Response(JSON.stringify({ hello: 'world' }), { status: 200 }));
+    await expect(transport.fetchTree('ipfs://cid')).rejects.toThrow(/not a valid settlement tree/);
+  });
+
+  it('pin posts the CID to /api/v0/pin/add', async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      expect(url).toBe('http://127.0.0.1:5001/api/v0/pin/add?arg=bafyFakeCID123');
+      expect(init?.method).toBe('POST');
+      return new Response('{}', { status: 200 });
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    await new IPFSTreeTransport({ apiUrl: 'http://127.0.0.1:5001' }).pin('ipfs://bafyFakeCID123');
+    expect(fetchMock).toHaveBeenCalledOnce();
+    await expect(new IPFSTreeTransport().pin('ipfs://x')).rejects.toThrow(DriftConfigError);
+  });
 });

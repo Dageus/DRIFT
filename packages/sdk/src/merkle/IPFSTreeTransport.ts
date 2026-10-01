@@ -1,5 +1,5 @@
-import { StandardMerkleTree } from '@openzeppelin/merkle-tree';
 import type { ITreeTransport } from './ITreeTransport.js';
+import { checkEpochTree, loadEpochTree, type EpochTree, type TreeExpectation } from './epochTree.js';
 import { DriftConfigError, DriftProviderError } from '../errors.js';
 
 export interface IPFSTreeTransportConfig {
@@ -22,11 +22,12 @@ const DEFAULT_GATEWAY = 'https://ipfs.io';
  * this package's minimum) against Kubo's HTTP RPC API — no IPFS client dependency, so any
  * Kubo-compatible node or pinning service works without adding a new SDK dependency.
  *
- * IPFS is a deliberate fit for `treeURI`, not an arbitrary choice: a CID is a hash of the tree's
- * own content, so the URI itself is a content-integrity check — a tampered or wrong tree simply
- * resolves to a different CID, before any Merkle proof is even checked. `ipfs://<cid>` is the
- * `treeURI` format this class produces and expects; a bare CID or a gateway URL containing
- * `/ipfs/<cid>` is also accepted on fetch, so a `treeURI` recorded by another tool still resolves.
+ * A CID names the tree's content, so `treeURI` cannot be repointed at a different tree after it
+ * is posted. A gateway, however, is not trusted to return the content its URL names, and this
+ * class does not recompute CIDs. Integrity instead comes from the tree itself: `fetchTree` checks
+ * that the tree is internally consistent and, given the on-chain root, that it is the committed
+ * tree. `ipfs://<cid>` is the `treeURI` format this class produces and expects; a bare CID or a
+ * gateway URL containing `/ipfs/<cid>` is also accepted on fetch.
  */
 export class IPFSTreeTransport implements ITreeTransport {
   private readonly apiUrl?: string;
@@ -39,7 +40,7 @@ export class IPFSTreeTransport implements ITreeTransport {
     this.authorization = config.authorization;
   }
 
-  public async uploadTree(tree: StandardMerkleTree<string[]>): Promise<string> {
+  public async uploadTree(tree: EpochTree): Promise<string> {
     if (!this.apiUrl) {
       throw new DriftConfigError(
         'DRIFT SDK: IPFSTreeTransport.uploadTree requires `apiUrl` (a Kubo-compatible /api/v0/add ' +
@@ -64,15 +65,44 @@ export class IPFSTreeTransport implements ITreeTransport {
     return `ipfs://${result.Hash}`;
   }
 
-  public async fetchTree(treeURI: string): Promise<StandardMerkleTree<string[]>> {
+  /**
+   * Fetches the tree behind `treeURI` from the gateway and checks it (see `checkEpochTree`).
+   * Pass `expected.root`, the root read from chain: without it, a dishonest gateway can return
+   * any well-formed tree.
+   */
+  public async fetchTree(treeURI: string, expected?: TreeExpectation): Promise<EpochTree> {
     const cid = this._extractCID(treeURI);
     const res = await fetch(`${this.gatewayUrl}/ipfs/${cid}`);
     if (!res.ok) {
       throw new DriftProviderError(`DRIFT SDK: IPFS fetch failed for ${treeURI} (${res.status} ${res.statusText})`);
     }
 
-    const data = await res.json();
-    return StandardMerkleTree.load(data);
+    let data: unknown;
+    try {
+      data = await res.json();
+    } catch (err) {
+      throw new DriftProviderError(`DRIFT SDK: ${treeURI} did not return JSON`, { cause: err });
+    }
+    return checkEpochTree(loadEpochTree(data), expected);
+  }
+
+  /**
+   * Pins `treeURI` on the configured node, so it stays available as long as that node does. A
+   * tree pinned only by the settler that uploaded it disappears with that settler; committee
+   * members and claimants who depend on it should pin it themselves.
+   */
+  public async pin(treeURI: string): Promise<void> {
+    if (!this.apiUrl) {
+      throw new DriftConfigError('DRIFT SDK: IPFSTreeTransport.pin requires `apiUrl`.');
+    }
+    const cid = this._extractCID(treeURI);
+    const res = await fetch(`${this.apiUrl}/api/v0/pin/add?arg=${encodeURIComponent(cid)}`, {
+      method: 'POST',
+      headers: this.authorization ? { Authorization: this.authorization } : undefined
+    });
+    if (!res.ok) {
+      throw new DriftProviderError(`DRIFT SDK: IPFS pin failed for ${treeURI} (${res.status} ${res.statusText}): ${await res.text()}`);
+    }
   }
 
   private _extractCID(treeURI: string): string {

@@ -1,45 +1,58 @@
-import { StandardMerkleTree } from '@openzeppelin/merkle-tree';
 import * as fs from 'fs';
 import * as path from 'path';
-import { IMerkleStore } from './IMerkleStore.js';
-import { DriftNotFoundError } from '../errors.js';
+import { isHexString } from 'ethers';
+import type { IMerkleStore } from './IMerkleStore.js';
+import { checkEpochTree, findLeaves, loadEpochTree, type EpochTree } from './epochTree.js';
+import { DriftNotFoundError, DriftValidationError } from '../errors.js';
 
 export class LocalTreeStore implements IMerkleStore {
-  private baseDir: string;
+  private readonly baseDir: string;
 
   constructor(storageDir: string = './drift-trees') {
     this.baseDir = storageDir;
-    if (!fs.existsSync(this.baseDir)) {
-      fs.mkdirSync(this.baseDir, { recursive: true });
+    fs.mkdirSync(this.baseDir, { recursive: true });
+  }
+
+  /** contextUID is part of the file name, so it must be exactly a bytes32 hex string. */
+  private _file(contextUID: string, epoch: bigint): string {
+    if (!isHexString(contextUID, 32)) {
+      throw new DriftValidationError(`DRIFT SDK: contextUID must be a 32-byte hex string, got ${contextUID}.`);
     }
+    return path.join(this.baseDir, `${contextUID.toLowerCase()}_epoch_${epoch}.json`);
   }
 
-  public async saveTree(contextUID: string, epoch: bigint, tree: StandardMerkleTree<string[]>): Promise<void> {
-    const filename = path.join(this.baseDir, `${contextUID}_epoch_${epoch}.json`);
-    fs.writeFileSync(filename, JSON.stringify(tree.dump(), null, 2));
+  public async saveTree(contextUID: string, epoch: bigint, tree: EpochTree): Promise<void> {
+    await fs.promises.writeFile(this._file(contextUID, epoch), JSON.stringify(tree.dump(), null, 2));
   }
 
-  public async loadTree(contextUID: string, epoch: bigint): Promise<StandardMerkleTree<string[]>> {
-    const filename = path.join(this.baseDir, `${contextUID}_epoch_${epoch}.json`);
-    if (!fs.existsSync(filename)) {
+  /** Loads and checks the tree: a file on disk is input like any other. */
+  public async loadTree(contextUID: string, epoch: bigint): Promise<EpochTree> {
+    const filename = this._file(contextUID, epoch);
+    let raw: string;
+    try {
+      raw = await fs.promises.readFile(filename, 'utf-8');
+    } catch {
       throw new DriftNotFoundError(`DRIFT SDK: Tree not found for context ${contextUID} at epoch ${epoch}`);
     }
-    const data = JSON.parse(fs.readFileSync(filename, 'utf-8'));
-    return StandardMerkleTree.load(data);
+    return checkEpochTree(loadEpochTree(JSON.parse(raw)), { contextUID, epoch });
   }
 
-  public async loadLeaf(contextUID: string, epoch: bigint, node: string): Promise<string[]> {
-    const tree = await this.loadTree(contextUID, epoch);
-    const nodeKey = node.toLowerCase();
+  public async loadLeaves(contextUID: string, epoch: bigint, node: string): Promise<string[][]> {
+    return findLeaves(await this.loadTree(contextUID, epoch), node).map((l) => l.value);
+  }
 
-    // v[0] = contextUID, v[1] = node, v[2] = role, v[3] = score, v[4] = epoch — always a 5-tuple,
-    // since every leaf is built from that exact shape (settler.ts's buildAndSignEpochRoot).
-    for (const [, v] of tree.entries()) {
-      if (v[0] === contextUID && v[1]!.toLowerCase() === nodeKey) {
-        return v;
-      }
+  public async loadLeaf(contextUID: string, epoch: bigint, node: string, role?: string): Promise<string[]> {
+    const leaves = findLeaves(await this.loadTree(contextUID, epoch), node, role);
+    if (leaves.length === 0) {
+      throw new DriftNotFoundError(
+        `DRIFT SDK: Leaf not found for node ${node}${role ? ` role ${role}` : ''} in context ${contextUID} at epoch ${epoch}`
+      );
     }
-
-    throw new DriftNotFoundError(`DRIFT SDK: Leaf not found for node ${node} in context ${contextUID} at epoch ${epoch}`);
+    if (leaves.length > 1) {
+      throw new DriftValidationError(
+        `DRIFT SDK: node ${node} holds ${leaves.length} roles at epoch ${epoch}; pass the role to loadLeaf, or use loadLeaves.`
+      );
+    }
+    return leaves[0]!.value;
   }
 }
