@@ -209,7 +209,7 @@ export class SafeSettler {
   private readonly safeContract: Contract;
 
   constructor(
-    private readonly runner: ContractRunner,
+    public readonly runner: ContractRunner,
     public readonly safe: string,
     public readonly client: string,
     private readonly libs: { multiSend: string; signMessageLib: string } = SAFE_V141
@@ -221,6 +221,19 @@ export class SafeSettler {
     const provider = this.runner.provider;
     if (!provider) throw new DriftConfigError('DRIFT SDK: SafeSettler needs a runner with a provider.');
     return (await provider.getNetwork()).chainId;
+  }
+
+  /** The Safe's owners, checksummed. */
+  async owners(): Promise<string[]> {
+    return ((await this.safeContract.getOwners!()) as string[]).map((o) => getAddress(o));
+  }
+
+  async threshold(): Promise<bigint> {
+    return BigInt(await this.safeContract.getThreshold!());
+  }
+
+  async nonce(): Promise<bigint> {
+    return BigInt(await this.safeContract.nonce!());
   }
 
   async clientDomain(): Promise<TypedDataDomain> {
