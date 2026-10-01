@@ -28,6 +28,8 @@ import { loadEpochSnapshot } from '../../src/pipeline/snapshot.js';
 import { settleEpochTier1 } from '../../src/pipeline/tier1.js';
 import { tier2ProposalId } from '../../src/pipeline/commitments.js';
 import { HttpSettlementRelay } from '../../src/relay/http.js';
+import { validateEvent, type RecorderEvent, type TxInfo } from '../../src/recorder/events.js';
+import { readdirSync } from 'node:fs';
 
 const OPERATOR = fileURLToPath(new URL('../..', import.meta.url));
 const REPO = fileURLToPath(new URL('../../../..', import.meta.url));
@@ -215,6 +217,7 @@ function startDaemon(s: DaemonSpec): string | undefined {
     trees: { kind: 'ipfs', apiUrl: ipfsUrl, gatewayUrl: ipfsUrl },
     relay: s.relay ?? { kind: 'file', dir: join(dir, 'relay') },
     api: s.apiPort ? { host: '127.0.0.1', port: s.apiPort, serveRelay: s.serveRelay ?? false } : undefined,
+    recorder: { dir: join(work, 'events'), runId: tag, process: s.name },
     contexts: [{ name: s.name, schemaUID: SCHEMA, fromBlock: 0, ...s.context }]
   };
   const file = join(dir, 'operator.json');
@@ -236,6 +239,20 @@ async function stopDaemon(name: string): Promise<void> {
   await Promise.race([exited, new Promise((r) => setTimeout(r, 5000))]);
   if (d.proc.exitCode === null) d.proc.kill('SIGKILL');
 }
+
+/** Every event a daemon recorded, after checking each line against the schema. */
+function eventsOf(name: string): RecorderEvent[] {
+  const dir = join(work, 'events');
+  const files = readdirSync(dir).filter((f) => f.startsWith(`${tag}.${name}.`));
+  expect(files).toHaveLength(1);
+  const events = readFileSync(join(dir, files[0]!), 'utf8').trim().split('\n').map((l) => JSON.parse(l) as RecorderEvent);
+  for (const e of events) expect(validateEvent(e), JSON.stringify(e)).toEqual([]);
+  expect(events.map((e) => e.seq)).toEqual(events.map((_, i) => i + 1));
+  return events;
+}
+const typesOf = (events: RecorderEvent[]) => new Set(events.map((e) => e.type));
+const mined = (events: RecorderEvent[], action: string) =>
+  events.filter((e) => e.type === 'tx.mined' && e.action === action).map((e) => e.tx as TxInfo);
 
 const tail = (name: string) => {
   const d = daemons.find((x) => x.name === name);
@@ -358,7 +375,36 @@ describe.skipIf(!enabled)('operator daemon on anvil', () => {
     const epoch = await getJson<{ finalized: boolean; treeURI: string }>(`${api}/contexts/settler/epochs/1`);
     expect(epoch).toMatchObject({ finalized: true, treeURI: status.lastSettled!.treeURI });
     expect((await getJson<{ ready: boolean }>(`${api}/ready`)).ready).toBe(true);
+    const metrics = await (await fetch(`${api}/metrics`)).text();
+    expect(metrics).toMatch(/drift_gas_used_total\{action="settle\.post",tier="tier1"\} [1-9]/);
     await stopDaemon('settler');
+
+    // The event log tells the whole story, with real receipts.
+    const events = eventsOf('settler');
+    for (const t of [
+      'epoch.due',
+      'o1.checked',
+      'snapshot.done',
+      'root.computed',
+      'tree.uploaded',
+      'tree.pinned',
+      'tx.sent',
+      'settle.posted',
+      'epoch.posted',
+      'challenge.detected',
+      'challenge.answered',
+      'epoch.finalized',
+      'bond.withdrawn'
+    ] as const) {
+      expect(typesOf(events), t).toContain(t);
+    }
+    const [post] = mined(events, 'settle.post');
+    expect(post).toMatchObject({ status: 1 });
+    expect(BigInt(post!.gasUsed)).toBeGreaterThan(100_000n);
+    expect(BigInt(post!.feeWei)).toBe(BigInt(post!.gasUsed) * BigInt(post!.effectiveGasPrice));
+    expect(mined(events, 'challenge.respond')).toHaveLength(1);
+    expect(mined(events, 'bond.withdraw')).toHaveLength(1);
+    expect(events.find((e) => e.type === 'snapshot.done')).toMatchObject({ records: 4, members: 3, epoch: '1', tier: 'tier1', context: 'settler' });
   }, 240_000);
 
   it('Tier 2: three owner daemons over the HTTP relay; round 0 dies, round 1 settles through the Safe', async () => {
@@ -415,7 +461,25 @@ describe.skipIf(!enabled)('operator daemon on anvil', () => {
     expect((await reader.listCommitments(pid(1n))).length).toBe(3);
     expect((await reader.listSignatures(pid(1n))).length).toBeGreaterThanOrEqual(2);
 
+    // Owners record the settlement when a tick first sees the root on chain.
+    await until('an owner recorded the settlement', async () =>
+      ['owner-a', 'owner-b', 'owner-c'].some((n) => readFileSync(join(work, 'events', readdirSync(join(work, 'events')).find((f) => f.startsWith(`${tag}.${n}.`))!), 'utf8').includes('"settle.posted"')), 20_000);
     await Promise.all(['owner-a', 'owner-b', 'owner-c'].map(stopDaemon));
+
+    const a = eventsOf('owner-a');
+    const all = [a, eventsOf('owner-b'), eventsOf('owner-c')].flat();
+    expect(a.filter((e) => e.type === 'tier2.proposed').map((e) => e.round)).toContain('0');
+    // Whichever owner ticked first after round 0's reveal deadline recorded its outcome.
+    expect(all.find((e) => e.type === 'tier2.round_outcome' && e.round === '0')).toMatchObject({ outcome: 'dead' });
+    expect(all.filter((e) => e.type === 'tier2.committed' && e.round === '1')).toHaveLength(3);
+    // Owners may race to publish; a second, identical write is a no-op success, so each records it.
+    const published = all.filter((e) => e.type === 'tier2.published' && e.round === '1');
+    expect(published.length).toBeGreaterThanOrEqual(1);
+    expect(new Set(published.map((e) => `${e.root as string}|${e.treeURI as string}`)).size).toBe(1);
+    expect(all.filter((e) => e.type === 'tier2.signed' && e.round === '1').length).toBeGreaterThanOrEqual(2);
+    const executes = all.flatMap((e) => (e.type === 'tx.mined' && e.action === 'tier2.execute' ? [e.tx as TxInfo] : []));
+    expect(executes.filter((t) => t.status === 1)).toHaveLength(1);
+    expect(all.some((e) => e.type === 'settle.posted' && (e.root as string).toLowerCase() === root.toLowerCase())).toBe(true);
   }, 300_000);
 
   it('Watcher: detects an omitting root, challenges it, and the omission is claimable', async () => {
@@ -464,6 +528,11 @@ describe.skipIf(!enabled)('operator daemon on anvil', () => {
     await new ReputationModule(signer(0)).claimUnansweredChallenge(client, 1n, omitted, ROLE);
     expect((await c.epochRoots!(1n)) as string).toBe(ZERO);
     await stopDaemon('watcher');
+
+    const w = eventsOf('watcher');
+    for (const t of ['watch.root_seen', 'watch.recomputed', 'watch.divergence', 'watch.challenge_opened'] as const) expect(typesOf(w), t).toContain(t);
+    expect(w.find((e) => e.type === 'watch.divergence')).toMatchObject({ omitted: 1, tier: 'watcher' });
+    expect(mined(w, 'challenge.open')).toHaveLength(1);
   }, 240_000);
 
   it('leaves no daemon or anvil process behind', async () => {

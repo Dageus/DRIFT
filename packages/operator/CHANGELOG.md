@@ -6,7 +6,15 @@ unpublished; versions follow the repository tags.
 
 ## [Unreleased]
 
+### Added
+- Event recorder: versioned JSONL log (one file per process, fsynced per line) of settlement,
+  Tier 2, dispute, watcher and transaction events with receipt gas and fees, plus Prometheus
+  metrics derived from the same events. Config `recorder`, off by default.
+
 ### Changed
+- The HTTP API moved to the `@drift-network/operator/api` entry point, Fastify became an optional
+  dependency, and the daemon loads the API only when `api` is configured. `buildOperator` is
+  now async.
 - Tier 2 proposals carry a `round` (signed in `EpochProposal`), and
   `tier2ProposalId(client, contextUID, epoch, safeNonce, round)` hashes it. A round with no quorum
   by its reveal deadline is dead and is replaced by the next round (`roundStatusTier2`,

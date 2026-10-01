@@ -8,6 +8,7 @@ import type { IMerkleStore } from '@drift-network/sdk/merkle';
 import type { EpochTree } from '@drift-network/sdk/merkle';
 import { DriftConfigError, DriftEngineError } from '@drift-network/sdk';
 import type { EpochSnapshot } from './snapshot.js';
+import { emitTrace, type Trace } from '../recorder/recorder.js';
 
 const CLIENT_ABI = [
   'function trustedSettler() view returns (address)',
@@ -28,6 +29,8 @@ export interface SettleEpochTier1Params {
   pin?: boolean;
   /** Settlement bond to attach. Default: the client's current settlementBond(). */
   bond?: bigint;
+  /** Recorder hook for root.computed, tree.uploaded and tree.pinned. Does not affect the result. */
+  trace?: Trace;
 }
 
 export interface SettleEpochTier1Result {
@@ -66,17 +69,33 @@ export async function settleEpochTier1(p: SettleEpochTier1Params): Promise<Settl
   }
 
   const { input } = p.snapshot;
+  let t = performance.now();
   const result = await p.engine.computeEpoch(input);
-  const signed = await p.settler.buildAndSignEpochRoot(p.client, input.contextUID, input.epoch, result.entries, (tree) =>
-    p.transport.uploadTree(tree)
-  );
+  emitTrace(p.trace, 'root.computed', {
+    epoch: input.epoch,
+    root: result.merkleRoot,
+    inputDigest: result.inputDigest,
+    nodes: result.scores.size,
+    members: input.members.length,
+    durationMs: performance.now() - t
+  });
+  const signed = await p.settler.buildAndSignEpochRoot(p.client, input.contextUID, input.epoch, result.entries, async (tree) => {
+    const u = performance.now();
+    const uri = await p.transport.uploadTree(tree);
+    emitTrace(p.trace, 'tree.uploaded', { epoch: input.epoch, root: tree.root, treeURI: uri, leaves: result.entries.length, durationMs: performance.now() - u });
+    return uri;
+  });
   if (signed.root.toLowerCase() !== result.merkleRoot.toLowerCase()) {
     throw new DriftEngineError(
       `DRIFT SDK: settlement tree root ${signed.root} differs from the engine's root ${result.merkleRoot}.`
     );
   }
 
-  if ((p.pin ?? true) && p.transport.pin) await p.transport.pin(signed.treeURI);
+  if ((p.pin ?? true) && p.transport.pin) {
+    t = performance.now();
+    await p.transport.pin(signed.treeURI);
+    emitTrace(p.trace, 'tree.pinned', { epoch: input.epoch, treeURI: signed.treeURI, durationMs: performance.now() - t });
+  }
   if (p.store) await p.store.saveTree(input.contextUID, input.epoch, signed.tree);
 
   const txHash = await new ReputationModule(p.settler.signer).postEpochRoot(

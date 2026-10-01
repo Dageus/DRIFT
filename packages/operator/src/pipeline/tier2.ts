@@ -54,6 +54,7 @@ import { buildEpochTree } from '@drift-network/sdk/merkle';
 import { EpochNotSynchronizedError } from '@drift-network/sdk';
 import { DriftConfigError, DriftEngineError, DriftValidationError } from '@drift-network/sdk';
 import { loadEpochSnapshot, type EpochSnapshotParams } from './snapshot.js';
+import { emitTrace, type Trace } from '../recorder/recorder.js';
 import type { ISettlementRelay, PublishedSettlement } from './relay.js';
 import {
   commitmentHash,
@@ -83,6 +84,8 @@ export interface Tier2Base {
   relay: ISettlementRelay;
   /** Current Unix time in seconds. Default: Date.now() / 1000. */
   now?: () => number;
+  /** Recorder hook for the tier2.* milestones and root.computed. Does not affect any step. */
+  trace?: Trace;
 }
 
 /** What an owner needs to compute the epoch itself. `client` and `epoch` come from the proposal. */
@@ -148,6 +151,11 @@ export async function proposeEpochTier2(p: ProposeEpochTier2Params): Promise<Tie
     revealDeadline: commitDeadline + revealWindow
   });
   await p.relay.putProposal(proposal);
+  emitTrace(p.trace, 'tier2.proposed', {
+    ...at(proposal),
+    commitDeadline: proposal.commitDeadline,
+    revealDeadline: proposal.revealDeadline
+  });
   return proposal;
 }
 
@@ -173,13 +181,27 @@ export async function loadProposal(b: Tier2Base, proposalId: string): Promise<Ti
 
 // SHARED CHECKS =============================================================
 
-async function computeOwn(proposal: Tier2Proposal, c: OwnerCompute): Promise<EpochResult> {
-  const snapshot = await loadEpochSnapshot({ ...c.snapshot, client: proposal.client, epoch: proposal.epoch });
+async function computeOwn(proposal: Tier2Proposal, c: OwnerCompute, trace?: Trace, step?: string): Promise<EpochResult> {
+  const snapshot = await loadEpochSnapshot({ ...c.snapshot, trace: c.snapshot.trace ?? trace, client: proposal.client, epoch: proposal.epoch });
   if (!same(snapshot.input.contextUID, proposal.contextUID)) {
     throw new DriftValidationError('DRIFT SDK: the client reports a different context than the proposal names.');
   }
-  return c.engine.computeEpoch(snapshot.input);
+  const t = performance.now();
+  const result = await c.engine.computeEpoch(snapshot.input);
+  emitTrace(trace, 'root.computed', {
+    ...at(proposal),
+    root: result.merkleRoot,
+    inputDigest: result.inputDigest,
+    nodes: result.scores.size,
+    members: snapshot.input.members.length,
+    durationMs: performance.now() - t,
+    step
+  });
+  return result;
 }
+
+/** Epoch, round and proposalId of a proposal, for recorder events. */
+const at = (p: Tier2Proposal) => ({ epoch: p.epoch, round: p.round, proposalId: p.proposalId });
 
 export interface RevealEvaluation {
   /** Reveals that open a timely commitment of a Safe owner. */
@@ -262,7 +284,7 @@ export async function commitEpochTier2(p: CommitRevealParams): Promise<{ status:
 
   let result: EpochResult;
   try {
-    result = await computeOwn(proposal, p.compute);
+    result = await computeOwn(proposal, p.compute, p.trace, 'commit');
   } catch (err) {
     if (err instanceof EpochNotSynchronizedError) return { status: 'waiting' };
     throw err;
@@ -274,6 +296,7 @@ export async function commitEpochTier2(p: CommitRevealParams): Promise<{ status:
     commitment: commitmentHash(result.merkleRoot, result.inputDigest, salt)
   });
   await p.relay.putCommitment(signed);
+  emitTrace(p.trace, 'tier2.committed', { ...at(proposal), owner });
   return { status: 'done' };
 }
 
@@ -298,7 +321,7 @@ export async function revealEpochTier2(p: CommitRevealParams): Promise<{ status:
   const own = seen.find((c) => same(c.owner, owner));
   if (!own) throw new DriftValidationError(`DRIFT SDK: ${owner} has no commitment for ${proposal.proposalId} to reveal.`);
 
-  const result = await computeOwn(proposal, p.compute);
+  const result = await computeOwn(proposal, p.compute, p.trace, 'reveal');
   const salt = p.salt ?? (await deriveSalt(p.owner, proposal.chainId, proposal.safe, proposal.proposalId));
   if (!same(commitmentHash(result.merkleRoot, result.inputDigest, salt), own.commitment)) {
     throw new DriftValidationError(
@@ -316,6 +339,7 @@ export async function revealEpochTier2(p: CommitRevealParams): Promise<{ status:
       seen
     })
   );
+  emitTrace(p.trace, 'tier2.revealed', { ...at(proposal), owner, seen: seen.length });
   return { status: 'done' };
 }
 
@@ -424,15 +448,21 @@ export async function publishEpochTreeTier2(p: PublishEpochTreeTier2Params): Pro
   const agreed = quorumRoot(await evaluate(p, proposal));
   if (!agreed) throw new DriftValidationError(`DRIFT SDK: no root reached the Safe threshold of valid reveals for ${proposal.proposalId}.`);
 
-  const result = await computeOwn(proposal, p.compute);
+  const result = await computeOwn(proposal, p.compute, p.trace, 'publish');
   if (!same(result.merkleRoot, agreed.root) || !same(result.inputDigest, agreed.inputDigest)) {
     throw new DriftValidationError('DRIFT SDK: this owner computed a different root than the agreed one; another owner must publish the tree.');
   }
   const tree = buildEpochTree(proposal.contextUID, proposal.epoch, result.entries);
   if (!same(tree.root, agreed.root)) throw new DriftEngineError(`DRIFT SDK: tree root ${tree.root} differs from the agreed root ${agreed.root}.`);
 
+  let t = performance.now();
   const treeURI = await p.transport.uploadTree(tree);
-  if ((p.pin ?? true) && p.transport.pin) await p.transport.pin(treeURI);
+  emitTrace(p.trace, 'tree.uploaded', { ...at(proposal), root: tree.root, treeURI, leaves: result.entries.length, durationMs: performance.now() - t });
+  if ((p.pin ?? true) && p.transport.pin) {
+    t = performance.now();
+    await p.transport.pin(treeURI);
+    emitTrace(p.trace, 'tree.pinned', { ...at(proposal), treeURI, durationMs: performance.now() - t });
+  }
   if (p.store) await p.store.saveTree(proposal.contextUID, proposal.epoch, tree);
 
   const { tx, hash, bond } = await expectedSettlementTx(p, proposal, agreed.root, treeURI);
@@ -446,6 +476,7 @@ export async function publishEpochTreeTier2(p: PublishEpochTreeTier2Params): Pro
     safeTxHash: hash
   };
   await p.relay.putSettlement(settlement);
+  emitTrace(p.trace, 'tier2.published', { ...at(proposal), root: settlement.root, treeURI });
   return { status: 'done', settlement };
 }
 
@@ -490,6 +521,7 @@ export async function signEpochTier2(p: SignEpochTier2Params): Promise<{ status:
     throw new DriftValidationError('DRIFT SDK: the published Safe transaction is not the settlement of the agreed root.');
   }
   await p.relay.putSignature(proposal.proposalId, await p.safeSettler.sign(p.owner, tx));
+  emitTrace(p.trace, 'tier2.signed', { ...at(proposal), owner });
   return { status: 'done' };
 }
 
@@ -520,5 +552,6 @@ export async function executeEpochTier2(
 
   const tx = await p.safeSettler.execute(p.sender, settlement.tx, signatures);
   await tx.wait();
+  emitTrace(p.trace, 'tier2.executed', { ...at(proposal), signatures: signatures.length });
   return { status: 'done', tx };
 }

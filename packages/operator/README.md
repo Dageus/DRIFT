@@ -106,6 +106,26 @@ Proofs are unverified operator data (header `x-drift-trust: unverified`). Check 
 
 With `api.serveRelay`, the API also serves the settlement relay under `/relay/v1`, backed by `relay.dir`, and other owners point `relay: { "kind": "http", "url": ... }` at it. Semantics match `FileSettlementRelay`: append-only, first-writer-wins (409 on a different rewrite), identical rewrites succeed. Reads are open. Writes are authenticated: each carries an EIP-191 signature by a Safe owner over the method, path and body (`relayRequestDigest`), and a message naming an owner must be written by that owner. Readers still verify every message themselves, so this is not about trusting relay content; it exists because first-writer-wins makes the first write to a slot permanent, and an unauthenticated relay would let anyone stall a round by writing junk first.
 
+## Recording
+
+With `recorder: { "dir": ..., "runId": ..., "process": ... }` in the config, the daemon writes an append-only event log: one JSON object per line, one file per process (`<runId>.<process>.<pid>.jsonl`), fsynced after every line. Several daemons can record into one directory; they never share a file. Recording is off by default, and a failing recorder never stops a job.
+
+Every event carries the schema version (`v: 1`), run id, process, a per-process sequence number, wall time in milliseconds, and where they apply the context, tier, epoch, round, chain time and block. The types (`EVENT_FIELDS` in `src/recorder/events.ts`, checked by `validateEvent`) cover:
+
+- settlement: `epoch.due` (chain time = t_E), `o1.checked`, `snapshot.done` (record and member counts), `root.computed` (N and compute time), `tree.uploaded`, `tree.pinned`, `settle.posted`, `epoch.posted`, `epoch.finalized`, `bond.withdrawn`;
+- Tier 2: `tier2.proposed`, `tier2.committed`, `tier2.revealed`, `tier2.published`, `tier2.signed`, `tier2.executed`, `tier2.round_outcome`;
+- disputes: `challenge.detected`, `challenge.answered`, `challenge.unanswerable`, `challenge.expired`, and the watcher's `watch.root_seen`, `watch.recomputed`, `watch.divergence`, `watch.challenge_opened`, `watch.challenge_skipped`, `challenge.claimed`;
+- transactions: `tx.sent` and `tx.mined` for every transaction the settler key or the hot wallet sends, labeled by action (`settle.post`, `challenge.respond`, `bond.withdraw`, `tier2.execute`, `challenge.open`), with `gasUsed`, the effective gas price and the fee from the receipt;
+- client side, for the experiment driver: `client.attest`, `client.claim`, `client.vote`.
+
+The same events feed Prometheus metrics on `/metrics`: latency histograms (`LATENCIES`: O1 wait, snapshot, compute, upload, pin, settlement, transaction inclusion, finalization, bond withdrawal, Tier 2 rounds, challenge detection and response, watcher detection and recomputation) and counters of gas, fees, transactions and Tier 2 round outcomes. The offline analysis uses the same definitions, so a live dashboard and the tables agree.
+
+The recorder is exported for reuse (`Recorder`, `JsonlSink`, `MetricsSink`, `RecordingWallet`, `validateEvent`).
+
+## API module
+
+The HTTP API is a separate entry point, `@drift-network/operator/api`, and Fastify is an optional dependency. The daemon imports the API only when the config has an `api` section, so an operator without one never loads Fastify.
+
 ## Tests
 
 ```sh

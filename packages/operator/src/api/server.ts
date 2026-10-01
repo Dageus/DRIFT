@@ -19,6 +19,8 @@ export interface ApiOptions {
   /** Readiness: RPC reachable and the loop ticking. */
   ready: () => Promise<{ ready: boolean; reason?: string }>;
   contexts: ApiContext[];
+  /** More Prometheus text appended to /metrics (the recorder's derived metrics). */
+  extraMetrics?: () => string;
   /** Serve the Tier 2 relay too. */
   relay?: RelayRoutesOptions;
   logger: Logger;
@@ -137,7 +139,7 @@ export function buildApi(o: ApiOptions): FastifyInstance {
       '# TYPE drift_operator_job_errors gauge',
       ...s.contexts.map((c) => `drift_operator_job_errors{context="${c.name}"} ${c.lastError ? 1 : 0}`)
     ];
-    return reply.type('text/plain; version=0.0.4').send(lines.join('\n') + '\n');
+    return reply.type('text/plain; version=0.0.4').send(lines.join('\n') + '\n' + (o.extraMetrics?.() ?? ''));
   });
 
   if (o.relay) registerRelayRoutes(app, o.relay);

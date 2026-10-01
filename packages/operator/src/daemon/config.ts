@@ -67,6 +67,11 @@ export interface OperatorConfig {
    * 'http': another operator's API; writes are signed with keys.owner.
    */
   relay: { kind: 'file'; dir: string } | { kind: 'http'; url: string };
+  /**
+   * Event recorder: one JSONL file per process under `dir`, named by run id and process name, plus
+   * derived metrics on the API's /metrics. Omitted: off.
+   */
+  recorder?: { dir: string; runId: string; process: string };
   /** HTTP API. Omitted: no API. */
   api?: {
     host: string;
@@ -253,6 +258,17 @@ export function parseConfig(raw: unknown): OperatorConfig {
       relaySafes
     };
   }
+  let recorder: OperatorConfig['recorder'];
+  if (root.recorder !== undefined) {
+    const rc = c.obj(root.recorder, 'recorder') ?? {};
+    const runId = c.str(rc.runId, 'recorder.runId') ?? '';
+    if (runId && !/^[A-Za-z0-9._-]+$/.test(runId)) c.fail('recorder.runId', 'use letters, digits, dot, dash and underscore only');
+    recorder = {
+      dir: c.str(rc.dir, 'recorder.dir') ?? '',
+      runId,
+      process: c.str(rc.process, 'recorder.process', true) ?? (contexts.map((x) => x.name).join('+') || 'operator')
+    };
+  }
   if (relay.kind === 'http' && contexts.some((x) => x.roles.includes('tier2-owner')) && !keys.owner) {
     c.fail('relay', 'an HTTP relay signs writes with keys.owner');
   }
@@ -260,5 +276,5 @@ export function parseConfig(raw: unknown): OperatorConfig {
   if (c.errors.length) {
     throw new DriftConfigError(`DRIFT operator: invalid configuration:\n  - ${c.errors.join('\n  - ')}`);
   }
-  return { rpcUrl, blockTag, pollIntervalSeconds, stateDir, bondScanDepth, keys, attestations, relay, api, trees, engine, contexts };
+  return { rpcUrl, blockTag, pollIntervalSeconds, stateDir, bondScanDepth, keys, attestations, relay, api, recorder, trees, engine, contexts };
 }

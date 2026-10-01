@@ -1,7 +1,19 @@
 import { EpochNotSynchronizedError } from '@drift-network/sdk';
 import type { ClientState } from '../chain.js';
 import type { ContextStatus } from '../status.js';
-import { alerter, recordClientState, answerChallenges, nextSettlement, revertName, same, withdrawBonds, type Alert, type DisputeDeps } from './disputes.js';
+import {
+  alerter,
+  answerChallenges,
+  nextSettlement,
+  observeEpoch,
+  recOf,
+  recordClientState,
+  revertName,
+  same,
+  withdrawBonds,
+  type Alert,
+  type DisputeDeps
+} from './disputes.js';
 
 export interface SettledEpoch {
   root: string;
@@ -39,6 +51,7 @@ export async function runTier1(d: Tier1JobDeps, status: ContextStatus): Promise<
   const alert = alerter(status, d.log, now);
 
   if (state.currentEpoch > 0n) await answerChallenges(d, state, now, status, alert);
+  await observeEpoch(d, state, now);
 
   const settlerOk = same(state.trustedSettler, d.settler);
   if (!settlerOk) {
@@ -63,8 +76,11 @@ async function settleNext(
     return;
   }
   const { epoch: next, boundary } = plan;
+  const rec = recOf(d);
+  rec.once(`due:${next}`, 'epoch.due', { epoch: next, chainTime: Number(boundary) });
   try {
-    const r = await d.settle(next);
+    const r = await rec.action('settle.post', () => d.settle(next), { epoch: next });
+    rec.once(`settled:${next}:${r.root.toLowerCase()}`, 'settle.posted', { epoch: next, root: r.root, treeURI: r.treeURI, txHash: r.txHash });
     status.lastSettled = { epoch: next.toString(), ...r };
     status.nextAction = `settled epoch ${next}`;
     d.log.info({ epoch: next.toString(), root: r.root, treeURI: r.treeURI, tx: r.txHash }, 'settled epoch');

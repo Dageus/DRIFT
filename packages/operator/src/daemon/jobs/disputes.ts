@@ -3,6 +3,7 @@ import { DriftContractRevertError, DriftNotFoundError } from '@drift-network/sdk
 import { findLeaves, type IMerkleStore } from '@drift-network/sdk/merkle';
 import { isFinalized, type ClientActions, type ClientChain, type ClientState } from '../chain.js';
 import type { ContextStatus } from '../status.js';
+import { NOOP_RECORDER, type ScopedRecorder } from '../../recorder/recorder.js';
 
 // Duties every settling role shares, whoever the trusted settler is: answering omission
 // challenges against the current root, and withdrawing the bonds of finalized epochs. Both go
@@ -16,6 +17,27 @@ export interface DisputeDeps {
   store: IMerkleStore;
   bondScanDepth: number;
   log: Logger;
+  /** Event recorder for this context and tier. Default: off. */
+  rec?: ScopedRecorder;
+}
+
+export const recOf = (d: { rec?: ScopedRecorder }): ScopedRecorder => d.rec ?? NOOP_RECORDER;
+
+/**
+ * Records, once each, the current epoch's root appearing on chain and its finalization, plus the
+ * settlement itself (`settle.posted`, unless the job already recorded it with its transaction).
+ * Reads only when recording is on.
+ */
+export async function observeEpoch(d: DisputeDeps, state: ClientState, now: bigint): Promise<void> {
+  const rec = recOf(d);
+  const epoch = state.currentEpoch;
+  if (!rec.active || epoch === 0n) return;
+  const [root, postedAt] = await Promise.all([d.chain.epochRoot(epoch), d.chain.epochPostedAt(epoch)]);
+  if (/^0x0+$/.test(root)) return;
+  const key = `${epoch}:${root.toLowerCase()}`;
+  rec.once(`posted:${key}`, 'epoch.posted', { epoch, root, disputeWindowEndsAt: postedAt + state.disputeWindow, chainTime: Number(postedAt) });
+  rec.once(`settled:${key}`, 'settle.posted', { epoch, root });
+  if (await isFinalized(d.chain, state, epoch, now)) rec.once(`final:${key}`, 'epoch.finalized', { epoch, chainTime: Number(now) });
 }
 
 export type Alert = (level: 'warn' | 'error', message: string) => void;
@@ -69,9 +91,14 @@ export async function answerChallenges(
     alert('error', `no stored tree for epoch ${epoch}; cannot answer ${open.length} open challenge(s)`);
   }
 
+  const rec = recOf(d);
   for (const c of open) {
     const base = { epoch: epoch.toString(), node: c.node, role: c.role, deadline: c.deadline.toString() };
+    const ckey = `${epoch}:${c.node}:${c.role}:${c.openedAt}`;
+    const at = { epoch, node: c.node, role: c.role };
+    rec.once(`detected:${ckey}`, 'challenge.detected', { ...at, openedAt: c.openedAt, deadline: c.deadline, chainTime: Number(now) });
     if (now > c.deadline) {
+      rec.once(`expired:${ckey}`, 'challenge.expired', at);
       alert('error', `challenge for ${c.node} role ${c.role} at epoch ${epoch} expired unanswered; the bond is forfeit`);
       status.challenges.push({ ...base, state: 'expired' });
       continue;
@@ -79,16 +106,18 @@ export async function answerChallenges(
     const leaf = tree ? findLeaves(tree, c.node, c.role)[0] : undefined;
     if (!leaf) {
       if (tree) alert('error', `no leaf for ${c.node} role ${c.role} at epoch ${epoch}: a genuine omission, the bond will be lost`);
+      rec.once(`unanswerable:${ckey}`, 'challenge.unanswerable', at);
       status.challenges.push({ ...base, state: 'unanswerable' });
       continue;
     }
     try {
-      await d.actions.respondToChallenge(epoch, c.node, c.role, BigInt(leaf.value[3]!), leaf.proof);
+      await rec.action('challenge.respond', () => d.actions.respondToChallenge(epoch, c.node, c.role, BigInt(leaf.value[3]!), leaf.proof), { epoch });
       d.log.info({ epoch: epoch.toString(), node: c.node, role: c.role }, 'answered challenge');
     } catch (err) {
       if (revertName(err) !== 'ChallengeAlreadyResolved') throw err;
       d.log.info({ epoch: epoch.toString(), node: c.node, role: c.role }, 'challenge already answered');
     }
+    rec.once(`answered:${ckey}`, 'challenge.answered', at);
     status.challenges.push({ ...base, state: 'answered' });
   }
 }
@@ -99,9 +128,11 @@ export async function withdrawBonds(d: DisputeDeps, state: ClientState, now: big
   for (let e = state.currentEpoch; e >= lowest; e--) {
     if ((await d.chain.epochBondAmount(e)) === 0n) continue;
     if (!(await isFinalized(d.chain, state, e, now))) continue;
+    const rec = recOf(d);
     try {
-      await d.actions.withdrawSettlementBond(e);
+      await rec.action('bond.withdraw', () => d.actions.withdrawSettlementBond(e), { epoch: e });
       d.log.info({ epoch: e.toString() }, 'withdrew settlement bond');
+      rec.once(`bond:${e}`, 'bond.withdrawn', { epoch: e });
     } catch (err) {
       if (revertName(err) !== 'NoBondToWithdraw') throw err;
     }

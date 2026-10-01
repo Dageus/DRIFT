@@ -28,7 +28,7 @@ export async function main(): Promise<void> {
   let op: Operator;
   try {
     const config = parseConfig(JSON.parse(readFileSync(args.config, 'utf8')));
-    op = buildOperator(config, log);
+    op = await buildOperator(config, log);
     log.info({ contexts: config.contexts.map((c) => ({ name: c.name, roles: c.roles })) }, 'starting');
   } catch (err) {
     log.fatal({ err }, (err as Error).message);
@@ -37,7 +37,10 @@ export async function main(): Promise<void> {
 
   const shutdown = (signal: string) => {
     log.info({ signal }, 'stopping after the current tick');
-    void Promise.all([op.daemon.stop(), op.api?.close()]).then(() => process.exit(0));
+    void Promise.all([op.daemon.stop(), op.api?.close()]).then(() => {
+      op.close();
+      process.exit(0);
+    });
   };
   process.on('SIGINT', () => shutdown('SIGINT'));
   process.on('SIGTERM', () => shutdown('SIGTERM'));

@@ -4,6 +4,7 @@ import { filterContextRecords } from '@drift-network/sdk';
 import { DEFAULT_EIGENTRUST_PARAMS, type EigenTrustParams, type EpochInput } from '@drift-network/sdk/engines';
 import type { IAttestationProvider } from '@drift-network/sdk';
 import { loadBoundaryMembership } from './membership.js';
+import { emitTrace, type Trace } from '../recorder/recorder.js';
 
 const CLIENT_ABI = [
   'function core() view returns (address)',
@@ -32,6 +33,8 @@ export interface EpochSnapshotParams {
    * challengeable omission. loadBoundaryMembership checks this and throws.
    */
   fromBlock?: number;
+  /** Recorder hook for o1.checked and snapshot.done. Does not affect the result. */
+  trace?: Trace;
 }
 
 export interface EpochSnapshot {
@@ -59,7 +62,9 @@ export async function loadEpochSnapshot(p: EpochSnapshotParams): Promise<EpochSn
     p.epoch,
     p.blockTag ?? 'finalized'
   );
+  emitTrace(p.trace, 'o1.checked', { epoch: p.epoch, synced, boundary: boundaryTimestamp, chainTime: Number(observedHead) });
   if (!synced) throw new EpochNotSynchronizedError(observedHead, boundaryTimestamp);
+  const started = performance.now();
 
   const client = new Contract(p.client, CLIENT_ABI, p.provider);
   const [core, contextUID] = (await Promise.all([client.core!(), client.contextUID!()])) as [string, string];
@@ -73,6 +78,13 @@ export async function loadEpochSnapshot(p: EpochSnapshotParams): Promise<EpochSn
     records.filter((r) => r.schemaUID.toLowerCase() === schema),
     membership.joinedAt
   );
+  emitTrace(p.trace, 'snapshot.done', {
+    epoch: p.epoch,
+    records: filtered.length,
+    rawRecords: records.length,
+    members: membership.members.length,
+    durationMs: performance.now() - started
+  });
 
   return {
     core,

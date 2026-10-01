@@ -23,8 +23,10 @@ import {
 } from '../pipeline/tier2.js';
 import { FileSettlementRelay, type ISettlementRelay } from '../pipeline/relay.js';
 import { HttpSettlementRelay } from '../relay/http.js';
-import { buildApi, type ApiContext } from '../api/server.js';
+import type { ApiContext } from '../api/server.js';
 import type { FastifyInstance } from 'fastify';
+import { JsonlSink, MetricsSink, NOOP_RECORDER, Recorder, type ScopedRecorder } from '../recorder/index.js';
+import type { Tier } from '../recorder/events.js';
 import { SafeSettler } from '../safe/SafeSettler.js';
 import { runTier2Owner, type Tier2Steps } from './jobs/tier2.js';
 import { createWatcher } from './jobs/watcher.js';
@@ -78,19 +80,14 @@ const refuse = async (): Promise<never> => {
 };
 const noActions = { respondToChallenge: refuse, withdrawSettlementBond: refuse, challengeOmission: refuse };
 
-export interface Operator {
-  daemon: OperatorDaemon;
-  /** Built (not listening) when config.api is set. */
-  api?: FastifyInstance;
-  listen?: { host: string; port: number };
-}
-
-/** Builds the daemon, and the API when configured. Keys are read from the environment here, once. */
-export function buildOperator(config: OperatorConfig, log: Logger, o: DaemonOverrides = {}): Operator {
+function assemble(config: OperatorConfig, log: Logger, o: DaemonOverrides): Assembled {
   const env = o.env ?? process.env;
   const provider = o.provider ?? new JsonRpcProvider(config.rpcUrl);
-  const settlerKey = config.keys.settler && loadKey(config.keys.settler, provider, env);
-  const hotWallet = config.keys.hotWallet && loadKey(config.keys.hotWallet, provider, env);
+  const recording = buildRecorder(config, log);
+  // Transactions sent outside a labeled action are recorded under the process scope.
+  const processRec = recording?.recorder.scope();
+  const settlerKey = config.keys.settler && loadKey(config.keys.settler, provider, env, processRec);
+  const hotWallet = config.keys.hotWallet && loadKey(config.keys.hotWallet, provider, env, processRec);
   const ownerKey = config.keys.owner && loadKey(config.keys.owner, provider, env);
   const relay =
     o.relay ??
@@ -122,8 +119,10 @@ export function buildOperator(config: OperatorConfig, log: Logger, o: DaemonOver
     };
     const jobs: ContextRuntime['jobs'] = [];
 
+    const recFor = (tier: Tier): ScopedRecorder => recording?.recorder.scope({ context: ctx.name, tier }) ?? NOOP_RECORDER;
     for (const role of ctx.roles) {
       if (role === 'tier1') {
+        const rec = recFor('tier1');
         const settler = new DriftSettler(settlerKey!);
         jobs.push({
           role,
@@ -136,9 +135,10 @@ export function buildOperator(config: OperatorConfig, log: Logger, o: DaemonOver
                 settler: settlerKey!.address,
                 bondScanDepth: config.bondScanDepth,
                 log: ctxLog.child({ role }),
+                rec,
                 settle: async (epoch) => {
-                  const snapshot = await loadEpochSnapshot({ ...snapshotParams, client: ctx.client, epoch });
-                  const r = await settleEpochTier1({ settler, client: ctx.client, snapshot, engine, transport, store });
+                  const snapshot = await loadEpochSnapshot({ ...snapshotParams, trace: rec.trace, client: ctx.client, epoch });
+                  const r = await settleEpochTier1({ settler, client: ctx.client, snapshot, engine, transport, store, trace: rec.trace });
                   return { root: r.root, treeURI: r.treeURI, txHash: r.txHash };
                 }
               },
@@ -146,9 +146,10 @@ export function buildOperator(config: OperatorConfig, log: Logger, o: DaemonOver
             )
         });
       } else if (role === 'tier2-owner') {
+        const rec = recFor('tier2');
         const safeSettler = new SafeSettler(provider, ctx.tier2!.safe, ctx.client);
         const steps = makeTier2Steps({
-          base: { safeSettler, relay, now: o.now },
+          base: { safeSettler, relay, now: o.now, trace: rec.trace },
           owner: ownerKey!,
           sender: hotWallet!,
           compute: { snapshot: snapshotParams, engine },
@@ -165,11 +166,13 @@ export function buildOperator(config: OperatorConfig, log: Logger, o: DaemonOver
           steps,
           maxRounds: ctx.tier2!.maxRounds,
           bondScanDepth: config.bondScanDepth,
-          log: ctxLog.child({ role })
+          log: ctxLog.child({ role }),
+          rec
         };
         jobs.push({ role, run: (status) => runTier2Owner(deps, status) });
       } else if (role === 'watcher') {
         const challenge = ctx.watcher?.challenge ?? false;
+        const rec = recFor('watcher');
         jobs.push({
           role,
           run: createWatcher({
@@ -177,13 +180,14 @@ export function buildOperator(config: OperatorConfig, log: Logger, o: DaemonOver
             // The hot wallet is required only when challenging (config validation).
             actions: hotWallet ? new ReputationClientActions(hotWallet, ctx.client) : noActions,
             compute: async (epoch) => {
-              const snapshot = await loadEpochSnapshot({ ...snapshotParams, client: ctx.client, epoch });
+              const snapshot = await loadEpochSnapshot({ ...snapshotParams, trace: rec.trace, client: ctx.client, epoch });
               return engine.computeEpoch(snapshot.input);
             },
             fetchPosted: async (epoch) => (await resolveEpochTree(provider, ctx.client, epoch, transport, { fromBlock: ctx.fromBlock })).tree,
             challenge,
             challenger: hotWallet?.address ?? '0x' + '00'.repeat(20),
-            log: ctxLog.child({ role })
+            log: ctxLog.child({ role }),
+            rec
           })
         });
       } else {
@@ -194,8 +198,59 @@ export function buildOperator(config: OperatorConfig, log: Logger, o: DaemonOver
   });
 
   const daemon = new OperatorDaemon(runtimes, log, config.pollIntervalSeconds * 1000);
-  if (!config.api) return { daemon };
+  return { daemon, provider, relay, apiContexts, recording };
+}
 
+interface Assembled {
+  daemon: OperatorDaemon;
+  provider: Provider;
+  relay: ISettlementRelay;
+  apiContexts: ApiContext[];
+  recording?: { recorder: Recorder; jsonl: JsonlSink; metrics: MetricsSink };
+}
+
+/** The JSONL file and the derived metrics, when config.recorder is set. */
+function buildRecorder(config: OperatorConfig, log: Logger): Assembled['recording'] {
+  if (!config.recorder) return undefined;
+  const r = config.recorder;
+  const jsonl = new JsonlSink(r.dir, r.runId, r.process);
+  const metrics = new MetricsSink();
+  const recorder = new Recorder([jsonl, metrics], r.runId, r.process, log.child({ component: 'recorder' }));
+  log.info({ file: jsonl.path }, 'recording events');
+  return { recorder, jsonl, metrics };
+}
+
+export interface Operator {
+  daemon: OperatorDaemon;
+  /** Built (not listening) when config.api is set. */
+  api?: FastifyInstance;
+  listen?: { host: string; port: number };
+  /** Path of this process's event log, when recording. */
+  recordingTo?: string;
+  /** Flushes and closes the event log. */
+  close(): void;
+}
+
+/**
+ * Builds the daemon, and the API when configured. Keys are read from the environment here, once.
+ * The API module, and with it Fastify (an optional dependency), is loaded only when `api` is set.
+ */
+export async function buildOperator(config: OperatorConfig, log: Logger, o: DaemonOverrides = {}): Promise<Operator> {
+  const a = assemble(config, log, o);
+  const base = {
+    daemon: a.daemon,
+    recordingTo: a.recording?.jsonl.path,
+    close: () => a.recording?.jsonl.close()
+  };
+  if (!config.api) return base;
+
+  let buildApi: typeof import('../api/server.js').buildApi;
+  try {
+    ({ buildApi } = await import('../api/server.js'));
+  } catch (err) {
+    throw new DriftConfigError(`DRIFT operator: 'api' is configured but the API could not be loaded (is the optional dependency fastify installed?): ${(err as Error).message}`);
+  }
+  const { provider, daemon } = a;
   const intervalMs = config.pollIntervalSeconds * 1000;
   const ownersCache = new Map<string, { at: number; owners: Promise<string[]> }>();
   const owners = (safe: string): Promise<string[]> => {
@@ -209,7 +264,8 @@ export function buildOperator(config: OperatorConfig, log: Logger, o: DaemonOver
   const api = buildApi({
     logger: log.child({ component: 'api' }),
     status: () => daemon.status(),
-    contexts: apiContexts,
+    contexts: a.apiContexts,
+    extraMetrics: a.recording ? () => a.recording!.metrics.render() : undefined,
     ready: async () => {
       const s = daemon.status();
       const nowS = Math.floor(Date.now() / 1000);
@@ -222,15 +278,12 @@ export function buildOperator(config: OperatorConfig, log: Logger, o: DaemonOver
       }
       return { ready: true };
     },
-    relay:
-      config.api.serveRelay && config.relay.kind === 'file'
-        ? { store: relay, safes: config.api.relaySafes, owners }
-        : undefined
+    relay: config.api.serveRelay && config.relay.kind === 'file' ? { store: a.relay, safes: config.api.relaySafes, owners } : undefined
   });
-  return { daemon, api, listen: { host: config.api.host, port: config.api.port } };
+  return { ...base, api, listen: { host: config.api.host, port: config.api.port } };
 }
 
 /** Builds a daemon from a validated config, without the API. */
 export function buildDaemon(config: OperatorConfig, log: Logger, o: DaemonOverrides = {}): OperatorDaemon {
-  return buildOperator(config, log, o).daemon;
+  return assemble(config, log, o).daemon;
 }

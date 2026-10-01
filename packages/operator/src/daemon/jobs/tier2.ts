@@ -1,7 +1,17 @@
 import { DriftValidationError } from '@drift-network/sdk';
 import type { RoundStatus, StepStatus } from '../../pipeline/tier2.js';
 import type { ContextStatus, Tier2RoundStatus } from '../status.js';
-import { alerter, recordClientState, answerChallenges, nextSettlement, same, withdrawBonds, type DisputeDeps } from './disputes.js';
+import {
+  alerter,
+  answerChallenges,
+  nextSettlement,
+  observeEpoch,
+  recOf,
+  recordClientState,
+  same,
+  withdrawBonds,
+  type DisputeDeps
+} from './disputes.js';
 
 /**
  * The Tier 2 pipeline steps for one owner of one Safe, bound to their relay, engine and keys.
@@ -56,6 +66,7 @@ export async function runTier2Owner(d: Tier2JobDeps, status: ContextStatus): Pro
   const alert = alerter(status, d.log, now);
 
   if (state.currentEpoch > 0n) await answerChallenges(d, state, now, status, alert);
+  await observeEpoch(d, state, now);
 
   if (!same(state.trustedSettler, d.safe)) {
     alert('error', `configured Safe ${d.safe} is not the client's trustedSettler ${state.trustedSettler}; not settling`);
@@ -64,6 +75,7 @@ export async function runTier2Owner(d: Tier2JobDeps, status: ContextStatus): Pro
     if (!plan.ready) {
       status.nextAction = plan.reason;
     } else {
+      recOf(d).once(`due:${plan.epoch}`, 'epoch.due', { epoch: plan.epoch, chainTime: Number(plan.boundary) });
       await driveRound(d, plan.epoch, status, alert);
     }
   }
@@ -85,6 +97,7 @@ async function driveRound(
     current = await d.steps.currentRound(epoch);
     if (!current) throw new Error(`round 0 of epoch ${epoch} is still missing after proposing it`);
   } else if ((await d.steps.roundStatus(current.proposalId)) === 'dead') {
+    outcome(d, epoch, current, 'dead');
     const next = current.round + 1n;
     if (next >= BigInt(d.maxRounds)) {
       status.tier2 = { epoch: epoch.toString(), round: current.round.toString(), proposalId: current.proposalId, state: 'dead', steps: emptySteps() };
@@ -106,11 +119,14 @@ async function driveRound(
     steps: { ...emptySteps(), propose: proposed }
   };
   status.tier2 = round;
+  if (round.state !== 'open') outcome(d, epoch, current, round.state);
   const log = d.log.child({ epoch: epoch.toString(), round: current.round.toString(), proposalId });
+  const rec = recOf(d);
 
   for (const step of STEPS) {
     try {
-      const result = await d.steps[step](proposalId);
+      const run = () => d.steps[step](proposalId);
+      const result = step === 'execute' ? await rec.action('tier2.execute', run, { epoch, round: current.round }) : await run();
       round.steps[step] = result;
       if (result === 'done') log.info({ step }, `${step} done`);
     } catch (err) {
@@ -149,4 +165,9 @@ async function propose(d: Tier2JobDeps, epoch: bigint, round: bigint): Promise<'
     if (current && current.round >= round) return 'already-done';
     throw err;
   }
+}
+
+/** Records a round's outcome the first time this process sees it. */
+function outcome(d: Tier2JobDeps, epoch: bigint, r: { round: bigint; proposalId: string }, value: string): void {
+  recOf(d).once(`outcome:${r.proposalId}`, 'tier2.round_outcome', { epoch, round: r.round, proposalId: r.proposalId, outcome: value });
 }

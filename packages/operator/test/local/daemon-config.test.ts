@@ -9,7 +9,7 @@ import { parseConfig } from '../../src/daemon/config.js';
 import { loadKey } from '../../src/daemon/keys.js';
 import { OperatorDaemon } from '../../src/daemon/daemon.js';
 import { parseArgs } from '../../src/cli.js';
-import { buildDaemon } from '../../src/daemon/wiring.js';
+import { buildDaemon, buildOperator } from '../../src/daemon/wiring.js';
 
 const valid = {
   rpcUrl: 'http://127.0.0.1:8545',
@@ -176,5 +176,35 @@ describe('cli', () => {
     expect(parseArgs(['run', '--config', 'op.json'])).toEqual({ command: 'run', config: 'op.json' });
     expect(() => parseArgs(['serve'])).toThrow(/usage/);
     expect(() => parseArgs(['run'])).toThrow(/usage/);
+  });
+});
+
+describe('buildOperator', () => {
+  it('loads the API only when configured, and records when asked', async () => {
+    const stateDir = mkdtempSync(join(tmpdir(), 'drift-op-'));
+    const env = { S: Wallet.createRandom().privateKey, H: Wallet.createRandom().privateKey };
+    const cfg = (extra: object) =>
+      parseConfig({ ...valid, stateDir, keys: { settler: { env: 'S' }, hotWallet: { env: 'H' } }, ...extra });
+    const provider = new JsonRpcProvider('http://127.0.0.1:1', 31337, { staticNetwork: true });
+    const silent = pino({ level: 'silent' });
+
+    const bare = await buildOperator(cfg({}), silent, { provider, env });
+    expect(bare.api).toBeUndefined();
+    expect(bare.recordingTo).toBeUndefined();
+
+    const full = await buildOperator(cfg({ api: { port: 0 }, recorder: { dir: join(stateDir, 'events'), runId: 'run-7' } }), silent, { provider, env });
+    expect(full.api).toBeDefined();
+    expect(full.recordingTo).toMatch(/run-7\.uni\.\d+\.jsonl$/);
+    const metrics = await full.api!.inject({ url: '/metrics' });
+    expect(metrics.body).toContain('drift_recorder_events_total');
+    await full.api!.close();
+    full.close();
+    provider.destroy();
+    rmSync(stateDir, { recursive: true, force: true });
+  });
+
+  it('validates the recorder section', () => {
+    expect(() => parseConfig({ ...valid, recorder: { dir: '/tmp/x', runId: 'bad id/1' } })).toThrow(/recorder.runId/);
+    expect(parseConfig({ ...valid, recorder: { dir: '/tmp/x', runId: 'r1' } }).recorder).toEqual({ dir: '/tmp/x', runId: 'r1', process: 'uni' });
   });
 });
