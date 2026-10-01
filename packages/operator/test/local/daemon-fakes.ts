@@ -39,6 +39,10 @@ export class FakeChain implements ClientChain {
   async openChallengeCount(e: bigint) { return this.open.get(e) ?? 0n; }
   async challenges(e: bigint) { return this.chs.filter((c) => c.epoch === e); }
   async requiredChallengeBond() { return this.bond; }
+  payouts = new Map<string, bigint>();
+  uris = new Map<bigint, string>();
+  async pendingPayouts(a: string) { return this.payouts.get(a.toLowerCase()) ?? 0n; }
+  async epochTreeURI(e: bigint) { return this.uris.get(e) ?? null; }
   post(epoch: bigint, root: string, at: bigint) {
     this.s.currentEpoch = epoch;
     this.roots.set(epoch, root);

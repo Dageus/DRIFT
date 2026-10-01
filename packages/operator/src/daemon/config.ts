@@ -59,8 +59,21 @@ export interface OperatorConfig {
     owner?: KeyRef;
   };
   attestations: { kind: 'eas'; graphqlUrl: string };
-  /** Tier 2 settlement relay shared by the Safe owners. Default: a directory under stateDir. */
-  relay: { kind: 'file'; dir: string };
+  /**
+   * Tier 2 settlement relay shared by the Safe owners. 'file': a directory (default under
+   * stateDir), for owners sharing a filesystem or for the owner that serves the relay over HTTP.
+   * 'http': another operator's API; writes are signed with keys.owner.
+   */
+  relay: { kind: 'file'; dir: string } | { kind: 'http'; url: string };
+  /** HTTP API. Omitted: no API. */
+  api?: {
+    host: string;
+    port: number;
+    /** Also serve the Tier 2 relay, backed by relay.dir. Requires relay.kind 'file'. */
+    serveRelay: boolean;
+    /** Safes the served relay accepts writes for. Default: every tier2.safe in contexts. */
+    relaySafes: string[];
+  };
   trees: { kind: 'ipfs'; apiUrl?: string; gatewayUrl?: string; authorizationEnv?: string };
   engine: { kind: 'local' } | { kind: 'grpc'; endpoint: string; evidence: 'none' | 'signed'; signers?: string[] };
   contexts: ContextConfig[];
@@ -133,8 +146,11 @@ export function parseConfig(raw: unknown): OperatorConfig {
   const keys = { settler: c.key(k.settler, 'keys.settler'), hotWallet: c.key(k.hotWallet, 'keys.hotWallet'), owner: c.key(k.owner, 'keys.owner') };
 
   const r = c.obj(root.relay ?? { kind: 'file' }, 'relay') ?? {};
-  c.oneOf(r.kind, 'relay.kind', ['file'] as const);
-  const relay = { kind: 'file' as const, dir: c.str(r.dir, 'relay.dir', true) ?? `${stateDir}/relay` };
+  const relayKind = c.oneOf(r.kind, 'relay.kind', ['file', 'http'] as const, 'file');
+  const relay: OperatorConfig['relay'] =
+    relayKind === 'http'
+      ? { kind: 'http', url: c.str(r.url, 'relay.url') ?? '' }
+      : { kind: 'file', dir: c.str(r.dir, 'relay.dir', true) ?? `${stateDir}/relay` };
 
   const a = c.obj(root.attestations, 'attestations') ?? {};
   c.oneOf(a.kind, 'attestations.kind', ['eas'] as const);
@@ -215,8 +231,31 @@ export function parseConfig(raw: unknown): OperatorConfig {
     });
   }
 
+  let api: OperatorConfig['api'];
+  if (root.api !== undefined) {
+    const ap = c.obj(root.api, 'api') ?? {};
+    const serveRelay = ap.serveRelay === undefined ? false : ap.serveRelay === true;
+    if (ap.serveRelay !== undefined && typeof ap.serveRelay !== 'boolean') c.fail('api.serveRelay', 'expected a boolean');
+    if (serveRelay && relay.kind !== 'file') c.fail('api.serveRelay', "serving the relay needs relay.kind 'file' as its store");
+    let relaySafes = contexts.flatMap((x) => (x.tier2 ? [x.tier2.safe] : []));
+    if (ap.relaySafes !== undefined) {
+      if (!Array.isArray(ap.relaySafes)) c.fail('api.relaySafes', 'expected an array of addresses');
+      else relaySafes = ap.relaySafes.map((s, i) => c.address(s, `api.relaySafes[${i}]`) ?? '');
+    }
+    if (serveRelay && relaySafes.length === 0) c.fail('api.relaySafes', 'serving the relay needs at least one Safe');
+    api = {
+      host: c.str(ap.host, 'api.host', true) ?? '127.0.0.1',
+      port: c.num(ap.port, 'api.port', 8080, 0),
+      serveRelay,
+      relaySafes
+    };
+  }
+  if (relay.kind === 'http' && contexts.some((x) => x.roles.includes('tier2-owner')) && !keys.owner) {
+    c.fail('relay', 'an HTTP relay signs writes with keys.owner');
+  }
+
   if (c.errors.length) {
     throw new DriftConfigError(`DRIFT operator: invalid configuration:\n  - ${c.errors.join('\n  - ')}`);
   }
-  return { rpcUrl, blockTag, pollIntervalSeconds, stateDir, bondScanDepth, keys, attestations, relay, trees, engine, contexts };
+  return { rpcUrl, blockTag, pollIntervalSeconds, stateDir, bondScanDepth, keys, attestations, relay, api, trees, engine, contexts };
 }

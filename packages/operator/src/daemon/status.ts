@@ -53,6 +53,8 @@ export interface ContextStatus {
   currentEpoch?: string;
   lastSettled?: { epoch: string; root: string; treeURI: string; txHash: string };
   challenges: ChallengeStatus[];
+  /** pendingPayouts(trustedSettler): owed to the settler, collectable only with its own key. */
+  pendingPayout?: string;
   tier2?: Tier2RoundStatus;
   watch?: WatchFinding;
   /** Human-readable description of what the daemon is waiting for or will do next. */

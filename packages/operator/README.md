@@ -75,6 +75,27 @@ The proposal announces only the epoch and the deadlines, never the root. Owners 
 
 `GrpcEpochEngine` calls an engine server over the protocol in `packages/protos/drift/engine/v1`. The Rust server is in `packages/engines`, and `packages/engines/SPEC.md` defines the protocol. The client treats the server as untrusted: it recomputes the input digest and the Merkle root from the returned scores, and checks the journal and any signature. `CommitteeEpochEngine` gathers t-of-n signed journals from several such servers as an off-chain audit trail.
 
+## Daemon and API
+
+`drift-operator run --config operator.json` runs a reconcile loop over the configured contexts, with one or more roles each: `tier1` (settle, answer challenges, withdraw bonds), `tier2-owner` (drive the Tier 2 round as one Safe owner) and `watcher` (recompute every posted root, report divergence and omissions, optionally challenge). Keys are named by environment variable in the config and never written in it.
+
+With `api` configured, the daemon also serves HTTP. The API holds no keys and signs nothing:
+
+| Route | Returns |
+|---|---|
+| `GET /health` | liveness |
+| `GET /ready` | 503 until a tick has completed recently and the RPC answers |
+| `GET /status` | per context: current epoch, last settlement, challenges, Tier 2 round, watcher finding, `pendingPayouts(trustedSettler)`, alerts |
+| `GET /contexts/:ctx/epochs/:epoch` | committed root, `treeURI`, dispute window, open challenges, bond, finalized |
+| `GET /contexts/:ctx/epochs/:epoch/proofs/:node` | the node's leaves and proofs from this operator's tree store |
+| `GET /metrics` | Prometheus text |
+
+Proofs are unverified operator data (header `x-drift-trust: unverified`). Check each against `epochRoots(epoch)` before use; the contract does so anyway on claims and votes.
+
+### Tier 2 relay over HTTP
+
+With `api.serveRelay`, the API also serves the settlement relay under `/relay/v1`, backed by `relay.dir`, and other owners point `relay: { "kind": "http", "url": ... }` at it. Semantics match `FileSettlementRelay`: append-only, first-writer-wins (409 on a different rewrite), identical rewrites succeed. Reads are open. Writes are authenticated: each carries an EIP-191 signature by a Safe owner over the method, path and body (`relayRequestDigest`), and a message naming an owner must be written by that owner. Readers still verify every message themselves, so this is not about trusting relay content; it exists because first-writer-wins makes the first write to a slot permanent, and an unauthenticated relay would let anyone stall a round by writing junk first.
+
 ## Tests
 
 ```sh

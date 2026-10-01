@@ -1,7 +1,7 @@
 import { DriftValidationError } from '@drift-network/sdk';
 import type { StepStatus } from '../../pipeline/tier2.js';
 import type { ContextStatus, Tier2RoundStatus } from '../status.js';
-import { alerter, answerChallenges, nextSettlement, same, withdrawBonds, type DisputeDeps } from './disputes.js';
+import { alerter, recordClientState, answerChallenges, nextSettlement, same, withdrawBonds, type DisputeDeps } from './disputes.js';
 
 /**
  * The Tier 2 pipeline steps for one owner of one Safe, bound to their relay, engine and keys.
@@ -47,8 +47,7 @@ const STEPS = ['commit', 'reveal', 'publish', 'sign', 'execute'] as const;
 export async function runTier2Owner(d: Tier2JobDeps, status: ContextStatus): Promise<void> {
   const state = await d.chain.state();
   const now = await d.chain.headTimestamp();
-  status.contextUID = state.contextUID;
-  status.currentEpoch = state.currentEpoch.toString();
+  await recordClientState(d.chain, state, status);
   const alert = alerter(status, d.log, now);
 
   if (state.currentEpoch > 0n) await answerChallenges(d, state, now, status, alert);

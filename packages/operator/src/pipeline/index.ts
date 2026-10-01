@@ -28,7 +28,7 @@ export type {
   ExecuteEpochTier2Params,
   RevealEvaluation
 } from './tier2.js';
-export { FileSettlementRelay } from './relay.js';
+export { FileSettlementRelay, encodeRelayJson, decodeRelayJson } from './relay.js';
 export type { ISettlementRelay, PublishedSettlement } from './relay.js';
 export {
   tier2ProposalId,

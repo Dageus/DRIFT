@@ -37,6 +37,10 @@ export interface ClientChain {
   challenges(epoch: bigint): Promise<ChallengeView[]>;
   /** Bond challengeOmission requires at the current base fee. */
   requiredChallengeBond(): Promise<bigint>;
+  /** Payouts the contract could not push to `account` and holds for withdrawPendingPayout. */
+  pendingPayouts(account: string): Promise<bigint>;
+  /** treeURI of the EpochRootPosted event whose root is still committed for `epoch`, if any. */
+  epochTreeURI(epoch: bigint): Promise<string | null>;
 }
 
 /** Write side, sent from the hot wallet. Faked in unit tests. */
@@ -71,6 +75,8 @@ const CLIENT_IFACE = new Interface([
   'function epochBondAmount(uint256) view returns (uint256)',
   'function openChallengeCount(uint256) view returns (uint256)',
   'function requiredChallengeBond() view returns (uint256)',
+  'function pendingPayouts(address) view returns (uint256)',
+  'event EpochRootPosted(bytes32 indexed contextUID, uint256 indexed epoch, bytes32 merkleRoot, string treeURI)',
   'function challenges(uint256 epoch, address node, bytes32 role) view returns (uint256 openedAtTimestamp, uint256 bond, address challenger, bool resolved)',
   'event ChallengeOpened(bytes32 indexed contextUID, uint256 indexed epoch, address indexed missingNode, bytes32 role, address challenger, uint256 bond)'
 ]);
@@ -122,6 +128,28 @@ export class EthersClientChain implements ClientChain {
   }
   async openChallengeCount(epoch: bigint): Promise<bigint> {
     return BigInt(await this.c.openChallengeCount!(epoch));
+  }
+
+  async pendingPayouts(account: string): Promise<bigint> {
+    return BigInt(await this.c.pendingPayouts!(account));
+  }
+
+  async epochTreeURI(epoch: bigint): Promise<string | null> {
+    const contextUID = this.contextUID ?? (await this.state()).contextUID;
+    const root = (await this.epochRoot(epoch)).toLowerCase();
+    if (root === ZERO_ROOT) return null;
+    const logs = await this.provider.getLogs({
+      address: this.client,
+      topics: CLIENT_IFACE.encodeFilterTopics(CLIENT_IFACE.getEvent('EpochRootPosted')!, [contextUID, epoch]),
+      fromBlock: this.fromBlock,
+      toBlock: 'latest'
+    });
+    // Newest first: a rolled-back and re-posted epoch has several events.
+    for (const log of [...logs].reverse()) {
+      const parsed = CLIENT_IFACE.parseLog(log);
+      if (parsed && (parsed.args.merkleRoot as string).toLowerCase() === root) return parsed.args.treeURI as string;
+    }
+    return null;
   }
 
   async requiredChallengeBond(): Promise<bigint> {

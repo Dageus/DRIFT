@@ -7,6 +7,9 @@ unpublished; versions follow the repository tags.
 ## [Unreleased]
 
 ### Added
+- Operator daemon (`drift-operator run --config`), roles `tier1`, `tier2-owner` and `watcher`.
+- HTTP API (`buildApi`): health, readiness, status, epochs, proofs, metrics; and the Tier 2 relay
+  over HTTP (`registerRelayRoutes`, `HttpSettlementRelay`) with owner-signed writes.
 - New package. Takes over from `@drift-network/sdk` everything that produces settlements: the
   settlement pipeline (`loadEpochSnapshot`, `settleEpochTier1`, the Tier 2 steps, relays), the Safe
   settler, `GrpcEpochEngine` and `CommitteeEpochEngine`, and `LocalTreeStore`. Code and tests are

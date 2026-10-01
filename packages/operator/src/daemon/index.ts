@@ -15,5 +15,5 @@ export type { Tier1JobDeps, SettledEpoch } from './jobs/tier1.js';
 export { OperatorDaemon } from './daemon.js';
 export type { Job, ContextRuntime, DaemonStatus } from './daemon.js';
 export type { ContextStatus, ChallengeStatus, Alert, Tier2RoundStatus, WatchFinding } from './status.js';
-export { buildDaemon, makeTier2Steps } from './wiring.js';
-export type { DaemonOverrides } from './wiring.js';
+export { buildDaemon, buildOperator, makeTier2Steps } from './wiring.js';
+export type { DaemonOverrides, Operator } from './wiring.js';

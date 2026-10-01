@@ -1,7 +1,7 @@
 import { EpochNotSynchronizedError } from '@drift-network/sdk';
 import type { ClientState } from '../chain.js';
 import type { ContextStatus } from '../status.js';
-import { alerter, answerChallenges, nextSettlement, revertName, same, withdrawBonds, type Alert, type DisputeDeps } from './disputes.js';
+import { alerter, recordClientState, answerChallenges, nextSettlement, revertName, same, withdrawBonds, type Alert, type DisputeDeps } from './disputes.js';
 
 export interface SettledEpoch {
   root: string;
@@ -35,8 +35,7 @@ export interface Tier1JobDeps extends DisputeDeps {
 export async function runTier1(d: Tier1JobDeps, status: ContextStatus): Promise<void> {
   const state = await d.chain.state();
   const now = await d.chain.headTimestamp();
-  status.contextUID = state.contextUID;
-  status.currentEpoch = state.currentEpoch.toString();
+  await recordClientState(d.chain, state, status);
   const alert = alerter(status, d.log, now);
 
   if (state.currentEpoch > 0n) await answerChallenges(d, state, now, status, alert);

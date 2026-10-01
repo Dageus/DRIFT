@@ -16,3 +16,10 @@ export { LocalTreeStore } from './store/LocalTreeStore.js';
 
 // Operator daemon and its configuration.
 export * from './daemon/index.js';
+
+// HTTP API (status, epochs, proofs, metrics) and the Tier 2 relay over HTTP.
+export { buildApi, PROOF_NOTICE } from './api/server.js';
+export type { ApiOptions, ApiContext } from './api/server.js';
+export { registerRelayRoutes } from './api/relayRoutes.js';
+export type { RelayRoutesOptions } from './api/relayRoutes.js';
+export { HttpSettlementRelay, relayRequestDigest, RELAY_PREFIX, SIGNER_HEADER, SIGNATURE_HEADER } from './relay/http.js';

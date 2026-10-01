@@ -37,9 +37,13 @@ export interface ISettlementRelay {
   listSignatures(proposalId: string): Promise<OwnerSignature[]>;
 }
 
-const toJson = (v: unknown) => JSON.stringify(v, (_, x) => (typeof x === 'bigint' ? { $bigint: x.toString() } : x), 2);
-const fromJson = <T>(s: string): T =>
+/** Relay wire format: JSON with bigints as { "$bigint": "<decimal>" }. Shared by the file and HTTP relays. */
+export const encodeRelayJson = (v: unknown) =>
+  JSON.stringify(v, (_, x) => (typeof x === 'bigint' ? { $bigint: x.toString() } : x), 2);
+export const decodeRelayJson = <T>(s: string): T =>
   JSON.parse(s, (_, x) => (x && typeof x === 'object' && typeof x.$bigint === 'string' ? BigInt(x.$bigint) : x)) as T;
+const toJson = encodeRelayJson;
+const fromJson = decodeRelayJson;
 
 /**
  * ISettlementRelay over a directory, one JSON file per message:

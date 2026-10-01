@@ -3,7 +3,7 @@ import type { EpochResult } from '@drift-network/sdk/engines';
 import { findLeaves, type EpochTree } from '@drift-network/sdk/merkle';
 import type { ClientActions, ClientChain } from '../chain.js';
 import type { ContextStatus, WatchFinding } from '../status.js';
-import { alerter, revertName, same } from './disputes.js';
+import { alerter, recordClientState, revertName, same } from './disputes.js';
 
 export interface WatcherJobDeps {
   chain: ClientChain;
@@ -53,8 +53,7 @@ export function createWatcher(d: WatcherJobDeps): (status: ContextStatus) => Pro
   return async (status) => {
     const state = await d.chain.state();
     const now = await d.chain.headTimestamp();
-    status.contextUID = state.contextUID;
-    status.currentEpoch = state.currentEpoch.toString();
+    await recordClientState(d.chain, state, status);
     const alert = alerter(status, d.log, now);
     const epoch = state.currentEpoch;
     if (epoch === 0n) {

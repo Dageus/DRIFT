@@ -23,6 +23,13 @@ export type Alert = (level: 'warn' | 'error', message: string) => void;
 export const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 export const revertName = (err: unknown) => (err instanceof DriftContractRevertError ? err.revertName : undefined);
 
+/** Fills the status fields every role reports from the client's state. */
+export async function recordClientState(chain: ClientChain, state: ClientState, status: ContextStatus): Promise<void> {
+  status.contextUID = state.contextUID;
+  status.currentEpoch = state.currentEpoch.toString();
+  status.pendingPayout = (await chain.pendingPayouts(state.trustedSettler)).toString();
+}
+
 /** Records an alert in this tick's status and logs it at the same level. */
 export function alerter(status: ContextStatus, log: Logger, now: bigint): Alert {
   return (level, message) => {
