@@ -64,3 +64,10 @@ export class DriftContractRevertError extends DriftError {
  * The original error is always available via `.cause`.
  */
 export class DriftUnknownRevertError extends DriftError {}
+
+/**
+ * A reputation engine behind the engine protocol (packages/protos/drift/engine/v1) failed, or
+ * returned output that does not check out against the input it was given: a digest, journal or
+ * Merkle root mismatch, or evidence from a signer the caller does not accept.
+ */
+export class DriftEngineError extends DriftError {}

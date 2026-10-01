@@ -26,7 +26,8 @@ export {
   DriftNotFoundError,
   DriftProviderError,
   DriftContractRevertError,
-  DriftUnknownRevertError
+  DriftUnknownRevertError,
+  DriftEngineError
 } from './errors.js';
 
 // Utilities

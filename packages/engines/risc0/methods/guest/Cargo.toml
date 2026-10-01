@@ -1,0 +1,18 @@
+[package]
+name = "drift-engine-guest"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+# The RISC Zero toolchain lags stable Rust; resolve dependencies for it.
+rust-version = "1.88"
+
+# The guest compiles for riscv32im-risc0-zkvm-elf through risc0-build, outside the host workspace.
+[workspace]
+
+[dependencies]
+drift-engine-core = { path = "../../../core" }
+alloy-sol-types = { version = "1", default-features = false }
+risc0-zkvm = { version = "3.0", default-features = false, features = ["std"] }
+
+[profile.release]
+lto = "thin"

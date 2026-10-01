@@ -1,0 +1,97 @@
+syntax = "proto3";
+
+// DRIFT engine protocol, version 1. The normative description, including the canonical input
+// encoding and the digest rule, is packages/engines/SPEC.md. Byte fields hold raw bytes, never
+// hex strings. Integers that can exceed 2^53 travel as decimal strings so JavaScript clients can
+// parse them into bigint without loss.
+package drift.engine.v1;
+
+service ReputationEngine {
+  // Computes Phi_c for one (context, epoch) and returns the per-pair scores, the Merkle root the
+  // settler will post, and evidence that binds the root to the input.
+  rpc ComputeEpoch(ComputeEpochRequest) returns (ComputeEpochResponse);
+
+  // Static description of the engine, used by clients to check engine_id and evidence kind before
+  // sending a large request.
+  rpc Describe(DescribeRequest) returns (DescribeResponse);
+}
+
+message Record {
+  bytes uid = 1;        // 32 bytes
+  bytes attester = 2;   // 20 bytes
+  bytes subject = 3;    // 20 bytes
+  uint64 timestamp = 4;
+  bool revoked = 5;
+  bytes data = 6;       // ABI-encoded attestation payload, decoded by the engine
+}
+
+// One admitted (node, role) pair. The engine emits exactly one Merkle leaf per member.
+message Member {
+  bytes node = 1;       // 20 bytes
+  bytes role = 2;       // 32 bytes
+}
+
+message Weight {
+  bytes node = 1;       // 20 bytes
+  string weight = 2;    // decimal uint256
+}
+
+message EigenTrustParams {
+  uint32 alpha_ppm = 1;     // damping, parts per million (150000 = 0.15)
+  uint32 epsilon_ppm = 2;   // L1 convergence threshold, parts per million
+  uint32 iterations = 3;
+}
+
+message ComputeEpochRequest {
+  bytes engine_id = 1;      // 32 bytes, keccak256 of the engine name, see SPEC.md
+  bytes context_uid = 2;    // 32 bytes
+  string epoch = 3;         // decimal uint256
+  uint64 t_e = 4;           // epoch boundary timestamp; records must not be newer
+  bytes schema_uid = 5;     // 32 bytes; every record belongs to this schema
+  string schema_definition = 6;
+  EigenTrustParams params = 7;
+  string default_weight = 8; // decimal uint256, pre-trust weight for nodes absent from pretrust
+  repeated Record records = 9;
+  repeated Member members = 10;
+  repeated Weight pretrust = 11;
+}
+
+message NodeScore {
+  bytes node = 1;
+  string score = 2;         // decimal uint256
+}
+
+// Tier 1 (single remote engine) and Tier 2 (threshold committee): each engine signs the journal.
+message SignedJournal {
+  bytes signer = 1;         // 20-byte address recovered from signature
+  bytes signature = 2;      // 65-byte EIP-191 signature over keccak256(journal)
+}
+
+// Tier 3: RISC Zero receipt. seal is the on-chain verifiable seal when the prover produced a
+// Groth16 receipt, and empty otherwise; receipt is the bincode-serialized full receipt.
+message Risc0Receipt {
+  bytes image_id = 1;       // 32 bytes
+  bytes seal = 2;
+  bytes receipt = 3;
+}
+
+message ComputeEpochResponse {
+  repeated NodeScore scores = 1;
+  bytes input_digest = 2;   // 32 bytes
+  bytes merkle_root = 3;    // 32 bytes
+  bytes journal = 4;        // ABI-encoded EngineJournal, see SPEC.md
+  oneof evidence {
+    SignedJournal signed = 10;
+    Risc0Receipt risc0 = 11;
+  }
+}
+
+message DescribeRequest {}
+
+message DescribeResponse {
+  bytes engine_id = 1;
+  string engine_name = 2;
+  string evidence_kind = 3; // "none" | "signed" | "risc0"
+  bytes signer = 4;         // set when evidence_kind == "signed"
+  bytes image_id = 5;       // set when evidence_kind == "risc0"
+}
