@@ -1,4 +1,4 @@
-import { Signer, Contract, TypedDataDomain } from 'ethers';
+import { Signer, Contract, TypedDataDomain, type Provider } from 'ethers';
 import { StandardMerkleTree } from '@openzeppelin/merkle-tree';
 import { DriftError, DriftConfigError, DriftNotFoundError, DriftValidationError } from './errors.js';
 import { buildEpochTree } from './merkle/epochTree.js';
@@ -62,6 +62,43 @@ export interface ProofOfStatePayload {
   proofs: string[][];
 }
 
+interface EpochBoundaryConfig {
+  epochLength: bigint;
+  epochAnchorTimestamp: bigint;
+}
+
+async function fetchEpochBoundaryConfig(provider: Provider, clientAddress: string): Promise<EpochBoundaryConfig> {
+  const contract = new Contract(clientAddress, EPOCH_BOUNDARY_ABI, provider);
+  // Dynamic ABI method access — always present, EPOCH_BOUNDARY_ABI declares both.
+  const [epochLength, epochAnchorTimestamp] = await Promise.all([
+    contract.epochLength!(),
+    contract.epochAnchorTimestamp!()
+  ]);
+  return { epochLength: BigInt(epochLength), epochAnchorTimestamp: BigInt(epochAnchorTimestamp) };
+}
+
+/**
+ * O1 synchronization check without a signer; DriftSettler.isSynchronizedForEpoch delegates here.
+ * Synced means the timestamp of the block the provider reports for `blockTag` is strictly past
+ * the epoch boundary.
+ */
+export async function checkEpochSynchronized(
+  provider: Provider,
+  clientAddress: string,
+  epoch: bigint,
+  blockTag: 'finalized' | 'safe' | 'latest' = 'finalized',
+  boundaryConfig: () => Promise<EpochBoundaryConfig> = () => fetchEpochBoundaryConfig(provider, clientAddress)
+): Promise<{ synced: boolean; observedHead: bigint; boundaryTimestamp: bigint }> {
+  const [{ epochLength, epochAnchorTimestamp }, head] = await Promise.all([boundaryConfig(), provider.getBlock(blockTag)]);
+  const boundaryTimestamp = epochAnchorTimestamp + epochLength * epoch;
+  if (!head) {
+    // No silent fallback to 'latest': an unfinalized head is exactly what O1 rules out.
+    throw new DriftConfigError(`DRIFT SDK: Provider returned no '${blockTag}' block; the chain may not support that tag.`);
+  }
+  const observedHead = BigInt(head.timestamp);
+  return { synced: observedHead > boundaryTimestamp, observedHead, boundaryTimestamp };
+}
+
 export class DriftSettler {
   public readonly signer: Signer;
 
@@ -96,34 +133,13 @@ export class DriftSettler {
     if (!provider) {
       throw new DriftConfigError('DRIFT SDK: Signer must have a provider to check epoch synchronization.');
     }
-
-    const [{ epochLength, epochAnchorTimestamp }, head] = await Promise.all([
-      this._fetchEpochBoundaryConfig(clientAddress),
-      provider.getBlock(blockTag)
-    ]);
-    if (!head) {
-      // No silent fallback to 'latest': an unfinalized head is exactly what O1 rules out.
-      throw new DriftConfigError(
-        `DRIFT SDK: Provider returned no '${blockTag}' block; the chain may not support that tag.`
-      );
-    }
-
-    const boundaryTimestamp = epochAnchorTimestamp + epochLength * epoch;
-    const observedHead = BigInt(head.timestamp);
-
-    return { synced: observedHead > boundaryTimestamp, observedHead, boundaryTimestamp };
+    return checkEpochSynchronized(provider, clientAddress, epoch, blockTag, () =>
+      this._fetchEpochBoundaryConfig(clientAddress)
+    );
   }
 
-  private async _fetchEpochBoundaryConfig(
-    clientAddress: string
-  ): Promise<{ epochLength: bigint; epochAnchorTimestamp: bigint }> {
-    const contract = new Contract(clientAddress, EPOCH_BOUNDARY_ABI, this.signer.provider);
-    // Dynamic ABI method access — always present, EPOCH_BOUNDARY_ABI declares both.
-    const [epochLength, epochAnchorTimestamp] = await Promise.all([
-      contract.epochLength!(),
-      contract.epochAnchorTimestamp!()
-    ]);
-    return { epochLength: BigInt(epochLength), epochAnchorTimestamp: BigInt(epochAnchorTimestamp) };
+  private async _fetchEpochBoundaryConfig(clientAddress: string): Promise<EpochBoundaryConfig> {
+    return fetchEpochBoundaryConfig(this.signer.provider!, clientAddress);
   }
 
   /**

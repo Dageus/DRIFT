@@ -40,6 +40,10 @@
       "import": "./dist/safe/index.js",
       "types": "./dist/safe/index.d.ts"
     },
+    "./pipeline": {
+      "import": "./dist/pipeline/index.js",
+      "types": "./dist/pipeline/index.d.ts"
+    },
     "./providers": {
       "import": "./dist/providers/index.js",
       "types": "./dist/providers/index.d.ts"

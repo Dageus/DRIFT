@@ -14,7 +14,7 @@ export type {
 } from './types.js';
 
 // Settler & Proofs
-export { DriftSettler, EpochNotSynchronizedError } from './settler.js';
+export { DriftSettler, EpochNotSynchronizedError, checkEpochSynchronized } from './settler.js';
 export type { ScoreEntry, ProofOfStatePayload } from './settler.js';
 
 // Errors — every error the SDK throws intentionally extends DriftError; catch that (or a
