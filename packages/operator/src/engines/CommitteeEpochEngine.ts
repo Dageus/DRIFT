@@ -1,6 +1,6 @@
-import { DriftConfigError, DriftEngineError } from '../../errors.js';
-import type { IEpochEngine } from '../epoch/IEpochEngine.js';
-import type { EpochInput, EpochResult } from '../epoch/protocol.js';
+import { DriftConfigError, DriftEngineError } from '@drift-network/sdk';
+import type { IEpochEngine } from '@drift-network/sdk/engines';
+import type { EpochInput, EpochResult } from '@drift-network/sdk/engines';
 
 export interface CommitteeEpochEngineConfig {
   /** One engine per committee member, each returning 'signed' evidence (e.g. GrpcEpochEngine). */

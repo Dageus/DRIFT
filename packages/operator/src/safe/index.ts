@@ -1,5 +1,5 @@
 // Tier 2 settlement through a Safe multisig acting as the ERC-1271 trusted settler.
-// Import from '@drift-network/sdk/safe'.
+// Part of '@drift-network/operator'.
 export {
   SafeSettler,
   SAFE_V141,

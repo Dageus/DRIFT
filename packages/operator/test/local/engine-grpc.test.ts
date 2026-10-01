@@ -5,10 +5,10 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { Wallet } from 'ethers';
-import { GrpcEpochEngine } from '../../src/engines/remote/GrpcEpochEngine.js';
-import { CommitteeEpochEngine } from '../../src/engines/remote/CommitteeEpochEngine.js';
-import { LocalEpochEngine } from '../../src/engines/epoch/LocalEpochEngine.js';
-import type { EpochInput } from '../../src/engines/epoch/protocol.js';
+import { GrpcEpochEngine } from '../../src/engines/GrpcEpochEngine.js';
+import { CommitteeEpochEngine } from '../../src/engines/CommitteeEpochEngine.js';
+import { LocalEpochEngine } from '@drift-network/sdk/engines';
+import type { EpochInput } from '@drift-network/sdk/engines';
 
 const BIN = process.env.DRIFT_ENGINE_BIN ?? fileURLToPath(new URL('../../../engines/target/debug/drift-engine', import.meta.url));
 const VECTORS = fileURLToPath(new URL('../../../engines/vectors', import.meta.url));

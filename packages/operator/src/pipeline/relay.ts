@@ -4,7 +4,7 @@ import { randomBytes } from 'crypto';
 import { isHexString } from 'ethers';
 import type { OwnerSignature, SafeTx } from '../safe/SafeSettler.js';
 import type { SignedCommitment, SignedReveal, Tier2Proposal } from './commitments.js';
-import { DriftValidationError } from '../errors.js';
+import { DriftValidationError } from '@drift-network/sdk';
 
 /** What publishEpochTreeTier2 puts on the relay once the reveals agree. */
 export interface PublishedSettlement {

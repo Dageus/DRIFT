@@ -9,16 +9,16 @@ import {
   type TransactionRequest,
   type TransactionResponse
 } from 'ethers';
-import { DriftSettler } from '../../src/settler.js';
+import { DriftSettler } from '@drift-network/sdk';
 import { settleEpochTier1 } from '../../src/pipeline/tier1.js';
-import { LocalEpochEngine } from '../../src/engines/epoch/LocalEpochEngine.js';
-import { DEFAULT_EIGENTRUST_PARAMS, type EpochInput } from '../../src/engines/epoch/protocol.js';
-import type { IEpochEngine } from '../../src/engines/epoch/IEpochEngine.js';
-import type { ITreeTransport } from '../../src/merkle/ITreeTransport.js';
-import type { IMerkleStore } from '../../src/merkle/IMerkleStore.js';
-import { checkEpochTree } from '../../src/merkle/epochTree.js';
+import { LocalEpochEngine } from '@drift-network/sdk/engines';
+import { DEFAULT_EIGENTRUST_PARAMS, type EpochInput } from '@drift-network/sdk/engines';
+import type { IEpochEngine } from '@drift-network/sdk/engines';
+import type { ITreeTransport } from '@drift-network/sdk/merkle';
+import type { IMerkleStore } from '@drift-network/sdk/merkle';
+import { checkEpochTree } from '@drift-network/sdk/merkle';
 import type { EpochSnapshot } from '../../src/pipeline/snapshot.js';
-import { DriftConfigError, DriftEngineError } from '../../src/errors.js';
+import { DriftConfigError, DriftEngineError } from '@drift-network/sdk';
 
 const iface = new Interface([
   'function trustedSettler() view returns (address)',

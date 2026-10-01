@@ -13,15 +13,15 @@ import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { readFileSync, rmSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { AbiCoder, Contract, HDNodeWallet, JsonRpcProvider, Mnemonic, NonceManager, keccak256, id, type Signer } from 'ethers';
-import { DriftSettler } from '../../src/settler.js';
+import { DriftSettler } from '@drift-network/sdk';
 import { SafeSettler, SAFE_V141 } from '../../src/safe/SafeSettler.js';
-import { LocalEpochEngine } from '../../src/engines/epoch/LocalEpochEngine.js';
-import type { IEpochEngine } from '../../src/engines/epoch/IEpochEngine.js';
-import { checkEpochTree, findLeaves, type EpochTree } from '../../src/merkle/epochTree.js';
-import type { ITreeTransport } from '../../src/merkle/ITreeTransport.js';
-import { resolveEpochTree } from '../../src/merkle/resolveEpochTree.js';
-import type { IAttestationProvider } from '../../src/providers/IAttestationProvider.js';
-import type { AttestationRecord } from '../../src/types.js';
+import { LocalEpochEngine } from '@drift-network/sdk/engines';
+import type { IEpochEngine } from '@drift-network/sdk/engines';
+import { checkEpochTree, findLeaves, type EpochTree } from '@drift-network/sdk/merkle';
+import type { ITreeTransport } from '@drift-network/sdk/merkle';
+import { resolveEpochTree } from '@drift-network/sdk/merkle';
+import type { IAttestationProvider } from '@drift-network/sdk';
+import type { AttestationRecord } from '@drift-network/sdk';
 import { loadEpochSnapshot, type EpochSnapshotParams } from '../../src/pipeline/snapshot.js';
 import { settleEpochTier1 } from '../../src/pipeline/tier1.js';
 import { FileSettlementRelay } from '../../src/pipeline/relay.js';
@@ -34,7 +34,7 @@ import {
   signEpochTier2,
   type OwnerCompute
 } from '../../src/pipeline/tier2.js';
-import { ReputationModule } from '../../src/modules/reputation.js';
+import { ReputationModule } from '@drift-network/sdk';
 
 const CONTRACTS = fileURLToPath(new URL('../../../contracts', import.meta.url));
 const FIXTURES = `${CONTRACTS}/test/fixtures/safe-v1.4.1`;

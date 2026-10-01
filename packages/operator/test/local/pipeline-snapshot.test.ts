@@ -2,10 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { AbiCoder, Interface, Wallet, id, type Log, type Provider } from 'ethers';
 import { loadBoundaryMembership } from '../../src/pipeline/membership.js';
 import { loadEpochSnapshot } from '../../src/pipeline/snapshot.js';
-import { filterContextRecords } from '../../src/membership.js';
-import { EpochNotSynchronizedError } from '../../src/settler.js';
-import type { IAttestationProvider } from '../../src/providers/IAttestationProvider.js';
-import type { AttestationRecord } from '../../src/types.js';
+import { filterContextRecords } from '@drift-network/sdk';
+import { EpochNotSynchronizedError } from '@drift-network/sdk';
+import type { IAttestationProvider } from '@drift-network/sdk';
+import type { AttestationRecord } from '@drift-network/sdk';
 
 const iface = new Interface([
   'event NodeRegistered(bytes32 indexed contextUID, address indexed node)',

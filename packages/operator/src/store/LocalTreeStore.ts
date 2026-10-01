@@ -1,9 +1,9 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { isHexString } from 'ethers';
-import type { IMerkleStore } from './IMerkleStore.js';
-import { checkEpochTree, findLeaves, loadEpochTree, type EpochTree } from './epochTree.js';
-import { DriftNotFoundError, DriftValidationError } from '../errors.js';
+import type { IMerkleStore } from '@drift-network/sdk/merkle';
+import { checkEpochTree, findLeaves, loadEpochTree, type EpochTree } from '@drift-network/sdk/merkle';
+import { DriftNotFoundError, DriftValidationError } from '@drift-network/sdk';
 
 export class LocalTreeStore implements IMerkleStore {
   private readonly baseDir: string;

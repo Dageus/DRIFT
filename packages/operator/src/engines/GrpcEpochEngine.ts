@@ -1,9 +1,10 @@
+import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import * as grpc from '@grpc/grpc-js';
 import * as protoLoader from '@grpc/proto-loader';
 import { getAddress, getBytes, hexlify, verifyMessage } from 'ethers';
-import { DriftEngineError } from '../../errors.js';
-import type { IEpochEngine } from '../epoch/IEpochEngine.js';
+import { DriftEngineError } from '@drift-network/sdk';
+import type { IEpochEngine } from '@drift-network/sdk/engines';
 import {
   ENGINE_ID,
   canonicalize,
@@ -15,10 +16,13 @@ import {
   type EngineEvidence,
   type EpochInput,
   type EpochResult
-} from '../epoch/protocol.js';
+} from '@drift-network/sdk/engines';
 
-// Resolves to packages/protos from both src/engines/remote and dist/engines/remote.
-const DEFAULT_PROTO_ROOT = fileURLToPath(new URL('../../../../protos', import.meta.url));
+// The build copies the protocol into the package (proto/); from src/ during development, fall
+// back to the repository copy. Both paths are the same depth from src/engines and dist/engines.
+const BUNDLED_PROTO_ROOT = fileURLToPath(new URL('../../proto', import.meta.url));
+const REPO_PROTO_ROOT = fileURLToPath(new URL('../../../protos', import.meta.url));
+const DEFAULT_PROTO_ROOT = existsSync(BUNDLED_PROTO_ROOT) ? BUNDLED_PROTO_ROOT : REPO_PROTO_ROOT;
 const PROTO_FILE = 'drift/engine/v1/engine.proto';
 
 export type EvidenceKind = 'none' | 'signed' | 'risc0';
@@ -34,7 +38,7 @@ export interface GrpcEpochEngineConfig {
   signers?: string[];
   /** Per-call deadline. Default: 10 minutes, since proving can take that long. */
   deadlineMs?: number;
-  /** Directory containing drift/engine/v1/engine.proto. Default: packages/protos in this repo. */
+  /** Directory containing drift/engine/v1/engine.proto. Default: the copy bundled with this package. */
   protoRoot?: string;
 }
 

@@ -109,7 +109,7 @@ contract DRIFTSafeSettlerTest is DRIFTTestHelper {
     bytes32 public contextUID;
     bytes32 constant ROLE = keccak256("ROLE");
 
-    // Owner keys are shared with the SDK vector (packages/sdk/test/local/safe-settler.test.ts).
+    // Owner keys are shared with the SDK vector (packages/operator/test/local/safe-settler.test.ts).
     uint256[3] internal ownerPks = [uint256(0x5afe01), uint256(0x5afe02), uint256(0x5afe03)];
 
     uint256 constant EPOCH_LENGTH = 10;
@@ -477,7 +477,7 @@ contract DRIFTSafeSettlerTest is DRIFTTestHelper {
     // SDK CROSS-CHECK =========================================================
 
     /// @notice Executes the transaction and signatures the TypeScript SafeSettler produced for
-    ///         this deployment (packages/sdk/test/local/safe-settler.test.ts writes the vector).
+    ///         this deployment (packages/operator/test/local/safe-settler.test.ts writes the vector).
     ///         A mismatch in any hash or encoding makes the Safe or the client reject it.
     function test_ExecutesSdkBuiltSettlement() public {
         string memory json = vm.readFile(

@@ -13,12 +13,12 @@ import {
   type TransactionResponse
 } from 'ethers';
 import { SafeSettler } from '../../src/safe/SafeSettler.js';
-import { LocalEpochEngine } from '../../src/engines/epoch/LocalEpochEngine.js';
-import type { IEpochEngine } from '../../src/engines/epoch/IEpochEngine.js';
-import type { ITreeTransport } from '../../src/merkle/ITreeTransport.js';
-import { checkEpochTree, type EpochTree } from '../../src/merkle/epochTree.js';
-import type { IAttestationProvider } from '../../src/providers/IAttestationProvider.js';
-import type { AttestationRecord } from '../../src/types.js';
+import { LocalEpochEngine } from '@drift-network/sdk/engines';
+import type { IEpochEngine } from '@drift-network/sdk/engines';
+import type { ITreeTransport } from '@drift-network/sdk/merkle';
+import { checkEpochTree, type EpochTree } from '@drift-network/sdk/merkle';
+import type { IAttestationProvider } from '@drift-network/sdk';
+import type { AttestationRecord } from '@drift-network/sdk';
 import { FileSettlementRelay } from '../../src/pipeline/relay.js';
 import {
   commitEpochTier2,

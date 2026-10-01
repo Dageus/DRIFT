@@ -6,6 +6,18 @@ and unpublished, so versions follow the repository tags (`v1.0.0`, ...), not npm
 
 ## [Unreleased]
 
+### Removed (moved to `@drift-network/operator`)
+- The `/pipeline`, `/safe` and `/engines/remote` subpaths, and `LocalTreeStore` from `/merkle`.
+  They produce settlements and need Node, so they now live in the operator package, which builds
+  on this one. Imports change from `@drift-network/sdk/{pipeline,safe,engines/remote}` to
+  `@drift-network/operator`. `@grpc/grpc-js` and `@grpc/proto-loader` are no longer dependencies.
+
+### Added
+- Root exports `ReputationModule`, `filterContextRecords` and `JoinTimes`, and `journalHash` in
+  `/engines`, which the operator package uses.
+
+## [1.1.0] (repository tag `v1.1.0`)
+
 ### Added
 - `@drift-network/sdk/pipeline`: `loadEpochSnapshot` builds an epoch's engine input from chain
   state at the boundary t_E, after the O1 check on the finalized head. It rebuilds membership at

@@ -14,9 +14,9 @@ import {
   type TransactionResponse,
   type TypedDataDomain
 } from 'ethers';
-import { DriftConfigError, DriftValidationError } from '../errors.js';
-import type { IEpochEngine } from '../engines/epoch/IEpochEngine.js';
-import type { EpochInput, EpochResult } from '../engines/epoch/protocol.js';
+import { DriftConfigError, DriftValidationError } from '@drift-network/sdk';
+import type { IEpochEngine } from '@drift-network/sdk/engines';
+import type { EpochInput, EpochResult } from '@drift-network/sdk/engines';
 
 /**
  * Canonical Safe v1.4.1 deployments. The same addresses hold the same bytecode on Ethereum,

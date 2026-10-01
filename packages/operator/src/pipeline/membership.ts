@@ -1,7 +1,7 @@
 import { Contract, Interface, type Log, type Provider } from 'ethers';
-import type { JoinTimes } from '../membership.js';
-import type { EpochMember } from '../engines/epoch/protocol.js';
-import { DriftConfigError } from '../errors.js';
+import type { JoinTimes } from '@drift-network/sdk';
+import type { EpochMember } from '@drift-network/sdk/engines';
+import { DriftConfigError } from '@drift-network/sdk';
 
 const CORE_IFACE = new Interface([
   'event ContextRegistered(bytes32 indexed uid, string name, address indexed owner)',

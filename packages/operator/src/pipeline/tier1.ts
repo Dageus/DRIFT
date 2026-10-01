@@ -1,12 +1,12 @@
 import { Contract } from 'ethers';
-import type { DriftSettler } from '../settler.js';
-import { ReputationModule } from '../modules/reputation.js';
-import type { IEpochEngine } from '../engines/epoch/IEpochEngine.js';
-import type { EpochResult } from '../engines/epoch/protocol.js';
-import type { ITreeTransport } from '../merkle/ITreeTransport.js';
-import type { IMerkleStore } from '../merkle/IMerkleStore.js';
-import type { EpochTree } from '../merkle/epochTree.js';
-import { DriftConfigError, DriftEngineError } from '../errors.js';
+import type { DriftSettler } from '@drift-network/sdk';
+import { ReputationModule } from '@drift-network/sdk';
+import type { IEpochEngine } from '@drift-network/sdk/engines';
+import type { EpochResult } from '@drift-network/sdk/engines';
+import type { ITreeTransport } from '@drift-network/sdk/merkle';
+import type { IMerkleStore } from '@drift-network/sdk/merkle';
+import type { EpochTree } from '@drift-network/sdk/merkle';
+import { DriftConfigError, DriftEngineError } from '@drift-network/sdk';
 import type { EpochSnapshot } from './snapshot.js';
 
 const CLIENT_ABI = [

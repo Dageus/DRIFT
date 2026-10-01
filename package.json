@@ -8,6 +8,7 @@
     "@types/node": "^25.9.1"
   },
   "scripts": {
-    "build": "npm run build --workspaces"
+    "build": "npm run build -w @drift-network/contracts && npm run build -w @drift-network/sdk && npm run build -w @drift-network/operator",
+    "test": "npm test -w @drift-network/sdk && npm test -w @drift-network/operator"
   }
 }

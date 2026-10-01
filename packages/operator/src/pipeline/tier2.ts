@@ -35,13 +35,13 @@
  */
 import { Contract, type Signer, type TransactionResponse } from 'ethers';
 import { buildOneRoundSettlement, safeTxHash, type SafeSettler } from '../safe/SafeSettler.js';
-import type { IEpochEngine } from '../engines/epoch/IEpochEngine.js';
-import type { EpochResult } from '../engines/epoch/protocol.js';
-import type { ITreeTransport } from '../merkle/ITreeTransport.js';
-import type { IMerkleStore } from '../merkle/IMerkleStore.js';
-import { buildEpochTree } from '../merkle/epochTree.js';
-import { EpochNotSynchronizedError } from '../settler.js';
-import { DriftConfigError, DriftEngineError, DriftValidationError } from '../errors.js';
+import type { IEpochEngine } from '@drift-network/sdk/engines';
+import type { EpochResult } from '@drift-network/sdk/engines';
+import type { ITreeTransport } from '@drift-network/sdk/merkle';
+import type { IMerkleStore } from '@drift-network/sdk/merkle';
+import { buildEpochTree } from '@drift-network/sdk/merkle';
+import { EpochNotSynchronizedError } from '@drift-network/sdk';
+import { DriftConfigError, DriftEngineError, DriftValidationError } from '@drift-network/sdk';
 import { loadEpochSnapshot, type EpochSnapshotParams } from './snapshot.js';
 import type { ISettlementRelay, PublishedSettlement } from './relay.js';
 import {

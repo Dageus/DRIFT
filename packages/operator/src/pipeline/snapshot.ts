@@ -1,8 +1,8 @@
 import { Contract, type Provider } from 'ethers';
-import { checkEpochSynchronized, EpochNotSynchronizedError } from '../settler.js';
-import { filterContextRecords } from '../membership.js';
-import { DEFAULT_EIGENTRUST_PARAMS, type EigenTrustParams, type EpochInput } from '../engines/epoch/protocol.js';
-import type { IAttestationProvider } from '../providers/IAttestationProvider.js';
+import { checkEpochSynchronized, EpochNotSynchronizedError } from '@drift-network/sdk';
+import { filterContextRecords } from '@drift-network/sdk';
+import { DEFAULT_EIGENTRUST_PARAMS, type EigenTrustParams, type EpochInput } from '@drift-network/sdk/engines';
+import type { IAttestationProvider } from '@drift-network/sdk';
 import { loadBoundaryMembership } from './membership.js';
 
 const CLIENT_ABI = [

@@ -4,7 +4,7 @@ import { id } from 'ethers';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { LocalTreeStore } from '../../src/merkle/LocalTreeStore.js';
+import { LocalTreeStore } from '../../src/store/LocalTreeStore.js';
 
 describe('LocalTreeStore', () => {
   let storageDir: string;
