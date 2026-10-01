@@ -1,10 +1,50 @@
 # Changelog
 
 All notable changes to `@drift-network/sdk` are documented here. Format follows
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this package has not yet cut a `0.1.0`
-release (still `"private": true`), so everything so far lives under **Unreleased**.
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The package is still `"private": true`
+and unpublished, so versions follow the repository tags (`v1.0.0`, ...), not npm releases.
 
 ## [Unreleased]
+
+### Added
+- `@drift-network/sdk/pipeline`: `loadEpochSnapshot` builds an epoch's engine input from chain
+  state at the boundary t_E, after the O1 check on the finalized head. It rebuilds membership at
+  t_E from the registry's events, so the leaf set is exactly the set of challengeable pairs.
+  `settleEpochTier1` computes, uploads, pins and stores the tree, then signs and posts with the
+  bond. The Tier 2 steps (`proposeEpochTier2`, `commitEpochTier2`, `revealEpochTier2`,
+  `publishEpochTreeTier2`, `signEpochTier2`, `executeEpochTier2`) settle through a Safe with
+  commit-reveal among its owners, over an `ISettlementRelay` (`FileSettlementRelay`).
+- `@drift-network/sdk/safe`: `SafeSettler` and helpers to settle with a t-of-n Safe v1.4.1 as
+  the ERC-1271 trusted settler, in one round (MultiSend + SignMessageLib) or two.
+- `IEpochEngine`, `LocalEpochEngine` and the engine protocol helpers in `/engines`; the
+  `GrpcEpochEngine` and `CommitteeEpochEngine` remote engines in `/engines/remote`, for the Rust
+  engine server in `packages/engines`.
+- `/merkle`: `buildEpochTree` (canonical order and case, so identical scores give identical
+  bytes and CIDs), `checkEpochTree`, `loadEpochTree`, `findLeaves`, `resolveEpochTree` (chain
+  state to a checked tree, handling rolled-back epochs), and `IPFSTreeTransport.pin`.
+- `IMerkleStore.loadLeaves`, and an optional `role` on `loadLeaf`.
+- `checkEpochSynchronized`, the O1 check without a signer.
+- `DriftEngineError` for engine output that fails verification.
+
+### Changed
+- `ITreeTransport.fetchTree(treeURI, expected?)` checks the fetched tree and, given the
+  committed root, rejects any other tree. `ITreeTransport` gains an optional `pin`.
+- `LocalTreeStore.loadLeaf` throws when the node holds several roles and no role is given,
+  instead of returning the first leaf; it also checks trees it loads from disk and rejects a
+  `contextUID` that is not bytes32.
+- `DriftSettler.buildAndSignEpochRoot` builds the tree with `buildEpochTree`. The root is
+  unchanged; the dumped tree is now canonical. Proof helpers compare hex case-insensitively.
+- `ReputationModule.postEpochRoot` returns the transaction hash.
+- Local mode's member filter is now the shared `filterContextRecords`; behaviour is unchanged.
+- Breaking for custom `IMerkleStore` implementations only: `loadLeaves` is a new required method.
+
+### Fixed
+- `IPFSTreeTransport.fetchTree` returned any tree a gateway served without checking it.
+- The tests, scenarios and scripts outside `src/` typecheck again (49 errors, including a test
+  typed against a renamed settler internal).
+
+
+## [1.0.0] (repository tag `v1.0.0`)
 
 ### Added
 - `Drift` entry point routing `getReputation` across `global` (on-chain balance), `local`
