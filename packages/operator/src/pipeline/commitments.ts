@@ -12,6 +12,7 @@ export const PROPOSAL_TYPES = {
     { name: 'contextUID', type: 'bytes32' },
     { name: 'epoch', type: 'uint256' },
     { name: 'safeNonce', type: 'uint256' },
+    { name: 'round', type: 'uint256' },
     { name: 'commitDeadline', type: 'uint64' },
     { name: 'revealDeadline', type: 'uint64' }
   ]
@@ -46,6 +47,12 @@ export interface Tier2Proposal {
   contextUID: string;
   epoch: bigint;
   safeNonce: bigint;
+  /**
+   * Attempt number for (client, contextUID, epoch, safeNonce), from 0. Round r+1 may be proposed
+   * only once round r is dead (tier2.ts, roundStatusTier2), so a round with no quorum does not
+   * stall the epoch.
+   */
+  round: bigint;
   /** Unix seconds. Commitments are accepted up to and including this time. */
   commitDeadline: bigint;
   /** Unix seconds. Reveals are accepted after commitDeadline, up to and including this time. */
@@ -74,9 +81,11 @@ export interface SignedReveal {
 
 const domain = (chainId: bigint, safe: string) => ({ chainId, verifyingContract: getAddress(safe) });
 
-/** keccak256(abi.encode(client, contextUID, epoch, safeNonce)). */
-export function tier2ProposalId(client: string, contextUID: string, epoch: bigint, safeNonce: bigint): string {
-  return keccak256(coder.encode(['address', 'bytes32', 'uint256', 'uint256'], [client, contextUID, epoch, safeNonce]));
+/** keccak256(abi.encode(client, contextUID, epoch, safeNonce, round)). */
+export function tier2ProposalId(client: string, contextUID: string, epoch: bigint, safeNonce: bigint, round: bigint): string {
+  return keccak256(
+    coder.encode(['address', 'bytes32', 'uint256', 'uint256', 'uint256'], [client, contextUID, epoch, safeNonce, round])
+  );
 }
 
 /** keccak256(abi.encode(root, inputDigest, salt)). */

@@ -14,10 +14,13 @@ export {
   publishEpochTreeTier2,
   signEpochTier2,
   executeEpochTier2,
-  evaluateReveals
+  evaluateReveals,
+  roundStatusTier2,
+  latestRoundTier2
 } from './tier2.js';
 export type {
   StepStatus,
+  RoundStatus,
   Tier2Base,
   OwnerCompute,
   OwnerStepParams,

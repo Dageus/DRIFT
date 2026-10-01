@@ -69,6 +69,16 @@ await signEpochTier2({ ...base, owner, proposalId, transport, store });         
 await executeEpochTier2({ ...base, sender: anyone, proposalId });                       // anyone with gas
 ```
 
+#### Rounds
+
+An epoch is attempted in rounds 0, 1, ... at one Safe nonce. The signed proposal (`EpochProposal`) carries `round`, and `proposalId = keccak256(abi.encode(client, contextUID, epoch, safeNonce, round))`, so each round has its own commitments, reveals and signatures. Every owner judges a round the same way, from the relay and the clock (`roundStatusTier2`):
+
+- **open** until its reveal deadline;
+- **agreed** after it, if at least `threshold` valid reveals agree on a root;
+- **dead** after it otherwise, including when fewer than `threshold` reveals arrived at all.
+
+Round r+1 may be proposed (`proposeEpochTier2({ ..., round })`), and committed to, only while round r is dead. The current round (`latestRoundTier2`) is the highest round whose predecessors are all dead, so a round written early by an owner ignoring the rule is not followed. An agreed round is never abandoned however slowly it publishes and signs, and a root already executed on chain ends the epoch. The daemon proposes the next round automatically and stops with an error alert after `tier2.maxRounds` (default 5) dead rounds.
+
 The proposal announces only the epoch and the deadlines, never the root. Owners commit to their own root before any reveal exists. An owner whose root differs from the agreed one cannot publish or sign, and `executeEpochTier2` counts only signatures from owners with a matching, timely reveal. `FileSettlementRelay` suits owners who share a directory; any `ISettlementRelay` implementation works, and the relay is not trusted.
 
 ### Remote and committee engines

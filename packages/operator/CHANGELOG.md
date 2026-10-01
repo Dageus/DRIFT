@@ -6,6 +6,13 @@ unpublished; versions follow the repository tags.
 
 ## [Unreleased]
 
+### Changed
+- Tier 2 proposals carry a `round` (signed in `EpochProposal`), and
+  `tier2ProposalId(client, contextUID, epoch, safeNonce, round)` hashes it. A round with no quorum
+  by its reveal deadline is dead and is replaced by the next round (`roundStatusTier2`,
+  `latestRoundTier2`); previously a failed round stalled the epoch until the Safe nonce moved.
+  Proposals written before this change do not verify.
+
 ### Added
 - Operator daemon (`drift-operator run --config`), roles `tier1`, `tier2-owner` and `watcher`.
 - HTTP API (`buildApi`): health, readiness, status, epochs, proofs, metrics; and the Tier 2 relay

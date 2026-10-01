@@ -1,7 +1,7 @@
 /**
  * Tier 2 settlement through a Safe whose owners each run their own engine, in six steps:
  *
- *   propose      announces (client, safe, contextUID, epoch, safeNonce, commitDeadline,
+ *   propose      announces (client, safe, contextUID, epoch, safeNonce, round, commitDeadline,
  *                revealDeadline), signed by an owner. It discloses nothing that determines the
  *                root, so no owner can learn the root before committing to its own.
  *   commit       each owner, until commitDeadline: computes its own snapshot and root and posts a
@@ -27,6 +27,17 @@
  * or its inputs are not on the relay yet, 'already-done' when its output is already there, and
  * throws on a permanent failure (window passed, no quorum, mismatch). A scheduler can call them
  * repeatedly; time comes from `now` (Unix seconds), injectable for tests.
+ *
+ * Rounds. An epoch is attempted in rounds 0, 1, ... at one Safe nonce, each a separate proposal
+ * with its own id, commitments, reveals and signatures. Every owner decides a round's fate the
+ * same way from the relay and the clock (roundStatusTier2):
+ *   open     until its revealDeadline;
+ *   agreed   after the revealDeadline, if at least `threshold` valid reveals agree on a root;
+ *   dead     after the revealDeadline otherwise, including when fewer than `threshold` reveals
+ *            arrived at all.
+ * Round r+1 may be proposed, and committed to, only while round r is dead. An agreed round is never
+ * abandoned, however slowly it publishes and signs, and a root already executed on chain ends the
+ * epoch whatever round produced it.
  *
  * Enforcement is off-chain. The Safe accepts any `threshold` owner signatures over a transaction,
  * whatever happened on the relay. Commit-reveal gives honest owners and an honest executor a rule
@@ -96,6 +107,8 @@ async function requireOwner(safeSettler: SafeSettler, who: Signer): Promise<stri
 export interface ProposeEpochTier2Params extends Tier2Base {
   proposer: Signer;
   epoch: bigint;
+  /** Default 0. A round above 0 is refused unless the previous round is dead. */
+  round?: bigint;
   /** Seconds from now until commitDeadline. Default 600. */
   commitWindow?: number;
   /** Seconds from commitDeadline until revealDeadline. Default 600. */
@@ -114,10 +127,12 @@ export async function proposeEpochTier2(p: ProposeEpochTier2Params): Promise<Tie
     p.safeSettler.nonce(),
     p.safeSettler.chainId()
   ])) as [string, bigint, bigint];
-  const proposalId = tier2ProposalId(p.safeSettler.client, contextUID, p.epoch, safeNonce);
+  const round = p.round ?? 0n;
+  const proposalId = tier2ProposalId(p.safeSettler.client, contextUID, p.epoch, safeNonce, round);
 
   const existing = await p.relay.getProposal(proposalId);
   if (existing) return loadProposal(p, proposalId);
+  if (round > 0n) await requirePreviousRoundDead(p, p.safeSettler.client, contextUID, p.epoch, safeNonce, round);
 
   const commitDeadline = nowOf(p) + commitWindow;
   const proposal = await signProposal(p.proposer, {
@@ -128,6 +143,7 @@ export async function proposeEpochTier2(p: ProposeEpochTier2Params): Promise<Tie
     contextUID,
     epoch: p.epoch,
     safeNonce,
+    round,
     commitDeadline,
     revealDeadline: commitDeadline + revealWindow
   });
@@ -145,7 +161,8 @@ export async function loadProposal(b: Tier2Base, proposalId: string): Promise<Ti
     proposal.chainId === chainId &&
     same(proposal.safe, b.safeSettler.safe) &&
     same(proposal.client, b.safeSettler.client) &&
-    same(proposal.proposalId, tier2ProposalId(proposal.client, proposal.contextUID, proposal.epoch, proposal.safeNonce)) &&
+    typeof proposal.round === 'bigint' &&
+    same(proposal.proposalId, tier2ProposalId(proposal.client, proposal.contextUID, proposal.epoch, proposal.safeNonce, proposal.round)) &&
     proposal.commitDeadline < proposal.revealDeadline &&
     signer !== null &&
     same(signer, proposal.proposer) &&
@@ -237,6 +254,11 @@ export async function commitEpochTier2(p: CommitRevealParams): Promise<{ status:
   if (nowOf(p) > proposal.commitDeadline) {
     throw new DriftValidationError(`DRIFT SDK: the commit window of ${proposal.proposalId} closed at ${proposal.commitDeadline}.`);
   }
+  // A round written to the relay before its predecessor died (by an owner not following the rule)
+  // is not committed to: the earlier round may still succeed.
+  if (proposal.round > 0n) {
+    await requirePreviousRoundDead(p, proposal.client, proposal.contextUID, proposal.epoch, proposal.safeNonce, proposal.round);
+  }
 
   let result: EpochResult;
   try {
@@ -315,6 +337,58 @@ function quorumRoot(e: RevealEvaluation & { threshold: bigint }): { root: string
     }
   }
   return null;
+}
+
+// ROUNDS ====================================================================
+
+export type RoundStatus = 'open' | 'agreed' | 'dead';
+
+/** The rule in the module comment: open until revealDeadline, then agreed or dead. */
+export async function roundStatusTier2(b: Tier2Base, proposalId: string): Promise<RoundStatus> {
+  const proposal = await loadProposal(b, proposalId);
+  if (nowOf(b) <= proposal.revealDeadline) return 'open';
+  return quorumRoot(await evaluate(b, proposal)) ? 'agreed' : 'dead';
+}
+
+async function requirePreviousRoundDead(
+  b: Tier2Base,
+  client: string,
+  contextUID: string,
+  epoch: bigint,
+  safeNonce: bigint,
+  round: bigint
+): Promise<void> {
+  const previous = tier2ProposalId(client, contextUID, epoch, safeNonce, round - 1n);
+  if (!(await b.relay.getProposal(previous))) {
+    throw new DriftValidationError(`DRIFT SDK: round ${round} of epoch ${epoch} needs round ${round - 1n} to exist first.`);
+  }
+  const status = await roundStatusTier2(b, previous);
+  if (status !== 'dead') {
+    throw new DriftValidationError(`DRIFT SDK: round ${round - 1n} of epoch ${epoch} is ${status}; round ${round} may start only once it is dead.`);
+  }
+}
+
+/**
+ * The current round of `epoch` at the Safe's current nonce: the highest round r such that rounds
+ * 0..r all exist and each of 0..r-1 is dead. Null when round 0 has not been proposed. A round
+ * written to the relay before its predecessor died does not count, so it cannot pull honest
+ * owners away from a round that may still succeed.
+ */
+export async function latestRoundTier2(
+  b: Tier2Base,
+  epoch: bigint,
+  maxRounds = 64
+): Promise<{ round: bigint; proposalId: string } | null> {
+  const client = new Contract(b.safeSettler.client, CLIENT_ABI, b.safeSettler.runner);
+  const [contextUID, safeNonce] = (await Promise.all([client.contextUID!(), b.safeSettler.nonce()])) as [string, bigint];
+  let latest: { round: bigint; proposalId: string } | null = null;
+  for (let round = 0n; round < BigInt(maxRounds); round++) {
+    const proposalId = tier2ProposalId(b.safeSettler.client, contextUID, epoch, safeNonce, round);
+    if (!(await b.relay.getProposal(proposalId))) break;
+    if (latest && (await roundStatusTier2(b, latest.proposalId)) !== 'dead') break;
+    latest = { round, proposalId };
+  }
+  return latest;
 }
 
 async function expectedSettlementTx(

@@ -3,7 +3,7 @@ import { id, Wallet } from 'ethers';
 import { pino } from 'pino';
 import { DriftValidationError } from '@drift-network/sdk';
 import { buildEpochTree } from '@drift-network/sdk/merkle';
-import type { StepStatus } from '../../src/pipeline/tier2.js';
+import type { RoundStatus, StepStatus } from '../../src/pipeline/tier2.js';
 import { runTier2Owner, type Tier2Steps } from '../../src/daemon/jobs/tier2.js';
 import { newContextStatus } from '../../src/daemon/status.js';
 import { FakeActions, FakeChain, MemoryStore } from './daemon-fakes.js';
@@ -16,30 +16,35 @@ const log = pino({ level: 'silent' });
 
 type Step = 'commit' | 'reveal' | 'publish' | 'sign' | 'execute';
 
-/** Steps backed by a shared in-memory relay; `results` scripts each step's outcome. */
+/** Steps over an in-memory relay; `results` scripts each step's outcome, `states` each round's. */
 class FakeSteps implements Tier2Steps {
-  proposals = new Set<string>();
-  proposeCalls = 0;
-  calls: Step[] = [];
+  rounds: string[] = []; // proposalIds by round, for one epoch
+  states = new Map<string, RoundStatus>();
+  proposeCalls: bigint[] = [];
+  calls: { step: Step; proposalId: string }[] = [];
   results: Partial<Record<Step, StepStatus | Error>> = {};
   raceOnPropose = false;
-  async proposalId(epoch: bigint) { return id(`proposal-${epoch}`); }
-  async hasProposal(pid: string) { return this.proposals.has(pid); }
-  async propose(epoch: bigint) {
-    this.proposeCalls++;
-    this.proposals.add(await this.proposalId(epoch));
+  pid = (round: bigint) => id(`proposal-${round}`);
+  async currentRound() {
+    const r = this.rounds.length - 1;
+    return r < 0 ? null : { round: BigInt(r), proposalId: this.rounds[r]! };
+  }
+  async roundStatus(proposalId: string) { return this.states.get(proposalId) ?? 'open'; }
+  async propose(_epoch: bigint, round: bigint) {
+    this.proposeCalls.push(round);
+    if (BigInt(this.rounds.length) === round) this.rounds.push(this.pid(round));
     if (this.raceOnPropose) throw new DriftValidationError('relay already holds a different proposal');
   }
-  private run(step: Step): Promise<StepStatus> {
-    this.calls.push(step);
+  private run(step: Step, proposalId: string): Promise<StepStatus> {
+    this.calls.push({ step, proposalId });
     const r = this.results[step] ?? 'waiting';
     return r instanceof Error ? Promise.reject(r) : Promise.resolve(r);
   }
-  commit() { return this.run('commit'); }
-  reveal() { return this.run('reveal'); }
-  publish() { return this.run('publish'); }
-  sign() { return this.run('sign'); }
-  execute() { return this.run('execute'); }
+  commit(p: string) { return this.run('commit', p); }
+  reveal(p: string) { return this.run('reveal', p); }
+  publish(p: string) { return this.run('publish', p); }
+  sign(p: string) { return this.run('sign', p); }
+  execute(p: string) { return this.run('execute', p); }
 }
 
 function setup() {
@@ -48,7 +53,7 @@ function setup() {
   const store = new MemoryStore();
   const steps = new FakeSteps();
   const status = newContextStatus('ctx', '0x' + 'c1'.repeat(20), ['tier2-owner']);
-  const deps = { chain, actions, store, safe: SAFE, steps, bondScanDepth: 64, log };
+  const deps = { chain, actions, store, safe: SAFE, steps, bondScanDepth: 64, maxRounds: 3, log };
   return { chain, actions, store, steps, status, deps };
 }
 
@@ -57,7 +62,7 @@ describe('runTier2Owner', () => {
     const t = setup();
     t.chain.now = 1050n;
     await runTier2Owner(t.deps, t.status);
-    expect(t.steps.proposeCalls).toBe(0);
+    expect(t.steps.proposeCalls).toEqual([]);
     expect(t.status.nextAction).toMatch(/after its boundary/);
   });
 
@@ -65,14 +70,14 @@ describe('runTier2Owner', () => {
     const t = setup();
     t.chain.now = 1101n;
     await runTier2Owner(t.deps, t.status);
-    expect(t.steps.proposeCalls).toBe(1);
-    expect(t.steps.calls).toEqual(['commit', 'reveal', 'publish', 'sign', 'execute']);
-    expect(t.status.tier2).toMatchObject({ epoch: '1', steps: { propose: 'done', commit: 'waiting' } });
-    expect(t.status.nextAction).toBe('epoch 1: waiting to commit');
+    expect(t.steps.proposeCalls).toEqual([0n]);
+    expect(t.steps.calls.map((c) => c.step)).toEqual(['commit', 'reveal', 'publish', 'sign', 'execute']);
+    expect(t.status.tier2).toMatchObject({ epoch: '1', round: '0', state: 'open', steps: { propose: 'done', commit: 'waiting' } });
+    expect(t.status.nextAction).toBe('epoch 1 round 0: waiting to commit');
 
     t.steps.results = { commit: 'already-done', reveal: 'done', publish: 'done', sign: 'done', execute: 'done' };
     await runTier2Owner(t.deps, t.status);
-    expect(t.steps.proposeCalls).toBe(1);
+    expect(t.steps.proposeCalls).toEqual([0n]);
     expect(t.status.tier2!.steps.propose).toBe('already-done');
     expect(t.status.nextAction).toBe('epoch 1 settled through the Safe');
   });
@@ -89,17 +94,17 @@ describe('runTier2Owner', () => {
   it('reports a step that cannot succeed and still runs the rest', async () => {
     const t = setup();
     t.chain.now = 1101n;
-    t.steps.proposals.add(id('proposal-1'));
+    t.steps.rounds.push(t.steps.pid(0n));
     t.steps.results = {
       commit: 'already-done',
       reveal: 'already-done',
-      publish: new DriftValidationError('DRIFT SDK: no root reached the Safe threshold of valid reveals for x.'),
+      publish: new DriftValidationError('DRIFT SDK: this owner computed a different root than the agreed one.'),
       sign: 'waiting'
     };
     await runTier2Owner(t.deps, t.status);
-    expect(t.steps.calls).toEqual(['commit', 'reveal', 'publish', 'sign', 'execute']);
+    expect(t.steps.calls.map((c) => c.step)).toEqual(['commit', 'reveal', 'publish', 'sign', 'execute']);
     expect(t.status.tier2!.steps.publish).toBe('failed');
-    expect(t.status.alerts.find((a) => a.level === 'error')!.message).toMatch(/cannot be retried while the Safe nonce is unchanged/);
+    expect(t.status.alerts.find((a) => a.level === 'error')!.message).toMatch(/publish for epoch 1 round 0: .*different root/);
   });
 
   it('refuses to settle when the Safe is not the trusted settler, but still answers challenges', async () => {
@@ -113,8 +118,46 @@ describe('runTier2Owner', () => {
     t.chain.now = 1105n; // inside the response window
     t.chain.s.epochLength = 1n; // so the next boundary has passed and the job would otherwise settle
     await runTier2Owner(t.deps, t.status);
-    expect(t.steps.proposeCalls).toBe(0);
+    expect(t.steps.proposeCalls).toEqual([]);
     expect(t.actions.responses).toHaveLength(1);
     expect(t.status.alerts.some((a) => /not the client's trustedSettler/.test(a.message))).toBe(true);
+  });
+
+  it('replaces a dead round with the next one and drives the new round', async () => {
+    const t = setup();
+    t.chain.now = 1101n;
+    t.steps.rounds.push(t.steps.pid(0n));
+    t.steps.states.set(t.steps.pid(0n), 'dead');
+    await runTier2Owner(t.deps, t.status);
+    expect(t.steps.proposeCalls).toEqual([1n]);
+    expect(t.status.tier2).toMatchObject({ round: '1', proposalId: t.steps.pid(1n), steps: { propose: 'done' } });
+    expect(new Set(t.steps.calls.map((c) => c.proposalId))).toEqual(new Set([t.steps.pid(1n)]));
+    expect(t.status.alerts.some((a) => a.level === 'warn' && /round 0 reached no quorum/.test(a.message))).toBe(true);
+  });
+
+  it('keeps driving a round that is open or agreed, however slow', async () => {
+    const t = setup();
+    t.chain.now = 1101n;
+    t.steps.rounds.push(t.steps.pid(0n));
+    for (const state of ['open', 'agreed'] as const) {
+      t.steps.states.set(t.steps.pid(0n), state);
+      await runTier2Owner(t.deps, t.status);
+      expect(t.steps.proposeCalls).toEqual([]);
+      expect(t.status.tier2).toMatchObject({ round: '0', state });
+    }
+  });
+
+  it('stops for an operator decision once maxRounds rounds are dead', async () => {
+    const t = setup();
+    t.chain.now = 1101n;
+    for (const r of [0n, 1n, 2n]) {
+      t.steps.rounds.push(t.steps.pid(r));
+      t.steps.states.set(t.steps.pid(r), 'dead');
+    }
+    await runTier2Owner(t.deps, t.status);
+    expect(t.steps.proposeCalls).toEqual([]);
+    expect(t.steps.calls).toEqual([]);
+    expect(t.status.tier2).toMatchObject({ round: '2', state: 'dead' });
+    expect(t.status.alerts.find((a) => a.level === 'error')!.message).toMatch(/maxRounds \(3\) is reached; it needs an operator decision/);
   });
 });

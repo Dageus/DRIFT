@@ -32,6 +32,8 @@ export interface ContextConfig {
     /** Commit and reveal windows a proposal from this owner sets. Default 600 each. */
     commitWindowSeconds: number;
     revealWindowSeconds: number;
+    /** Rounds tried per epoch before stopping for an operator decision. Default 5. */
+    maxRounds: number;
   };
   /** Options for role 'watcher'. */
   watcher?: {
@@ -208,7 +210,8 @@ export function parseConfig(raw: unknown): OperatorConfig {
         tier2 = {
           safe: c.address(t2.safe, `${p}.tier2.safe`) ?? '',
           commitWindowSeconds: c.num(t2.commitWindowSeconds, `${p}.tier2.commitWindowSeconds`, 600, 1),
-          revealWindowSeconds: c.num(t2.revealWindowSeconds, `${p}.tier2.revealWindowSeconds`, 600, 1)
+          revealWindowSeconds: c.num(t2.revealWindowSeconds, `${p}.tier2.revealWindowSeconds`, 600, 1),
+          maxRounds: c.num(t2.maxRounds, `${p}.tier2.maxRounds`, 5, 1)
         };
       }
       let watcher: ContextConfig['watcher'];

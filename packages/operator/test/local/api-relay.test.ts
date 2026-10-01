@@ -24,6 +24,7 @@ const proposal = (over: Partial<Tier2Proposal> = {}): Tier2Proposal => ({
   contextUID: id('ctx'),
   epoch: 1n,
   safeNonce: 0n,
+  round: 0n,
   commitDeadline: 100n,
   revealDeadline: 200n,
   proposer: owners[0].address,

@@ -66,7 +66,7 @@ describe('parseConfig: Tier 2 and watcher', () => {
       contexts: [{ ...ctx, roles: ['tier2-owner', 'watcher'], tier2: { safe: '0x' + '5a'.repeat(20) }, watcher: { challenge: true } }]
     });
     expect(c.relay).toEqual({ kind: 'file', dir: './drift-operator/relay' });
-    expect(c.contexts[0]).toMatchObject({ tier2: { commitWindowSeconds: 600, revealWindowSeconds: 600 }, watcher: { challenge: true } });
+    expect(c.contexts[0]).toMatchObject({ tier2: { commitWindowSeconds: 600, revealWindowSeconds: 600, maxRounds: 5 }, watcher: { challenge: true } });
 
     expect(() => parseConfig({ ...valid, keys: { ...valid.keys, owner: { env: 'O' } }, contexts: [{ ...ctx, roles: ['tier2-owner'] }] })).toThrow(
       /contexts\[0\]\.tier2: expected an object/

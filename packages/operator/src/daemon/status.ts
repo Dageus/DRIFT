@@ -19,7 +19,10 @@ export interface ChallengeStatus {
 
 export interface Tier2RoundStatus {
   epoch: string;
+  round: string;
   proposalId: string;
+  /** open, agreed or dead, as every owner computes it. */
+  state: string;
   steps: Record<'propose' | 'commit' | 'reveal' | 'publish' | 'sign' | 'execute', string>;
 }
 

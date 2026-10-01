@@ -28,9 +28,11 @@ import {
   publishEpochTreeTier2,
   revealEpochTier2,
   signEpochTier2,
+  latestRoundTier2,
+  roundStatusTier2,
   type OwnerCompute
 } from '../../src/pipeline/tier2.js';
-import { commitmentHash, signCommitment, signReveal } from '../../src/pipeline/commitments.js';
+import { commitmentHash, signCommitment, signProposal, signReveal, tier2ProposalId } from '../../src/pipeline/commitments.js';
 
 const iface = new Interface([
   'function getOwners() view returns (address[])',
@@ -179,7 +181,7 @@ describe('Tier 2 settlement steps', () => {
   it('the proposal discloses nothing that determines the root', async () => {
     const p = await propose();
     expect(Object.keys(p).sort()).toEqual(
-      ['chainId', 'client', 'commitDeadline', 'contextUID', 'epoch', 'proposalId', 'proposer', 'revealDeadline', 'safe', 'safeNonce', 'signature'].sort()
+      ['chainId', 'client', 'commitDeadline', 'contextUID', 'epoch', 'proposalId', 'proposer', 'revealDeadline', 'round', 'safe', 'safeNonce', 'signature'].sort()
     );
     expect(await relay.getSettlement(p.proposalId)).toBeNull();
     expect(await propose()).toEqual(p); // idempotent
@@ -240,6 +242,74 @@ describe('Tier 2 settlement steps', () => {
     await expect(publishEpochTreeTier2({ ...base(), owner: owners[0]!, proposalId, compute: compute(), transport })).rejects.toThrow(
       /no root reached the Safe threshold/
     );
+  });
+
+  describe('rounds', () => {
+    const splitEngines = (): IEpochEngine[] => [
+      new LocalEpochEngine(),
+      skewed,
+      { computeEpoch: (input) => new LocalEpochEngine().computeEpoch({ ...input, records: input.records.slice(0, 1) }) }
+    ];
+
+    it('replaces a dead round: round 1 settles after round 0 reached no quorum', async () => {
+      const r0 = await propose();
+      expect(r0.round).toBe(0n);
+      await commitAndReveal(r0.proposalId, splitEngines());
+      expect(await roundStatusTier2(base(), r0.proposalId)).toBe('dead');
+      expect(await latestRoundTier2(base(), 1n)).toEqual({ round: 0n, proposalId: r0.proposalId });
+
+      const r1 = await proposeEpochTier2({ ...base(), proposer: owners[1]!, epoch: 1n, round: 1n, commitWindow: 10, revealWindow: 10 });
+      expect(r1.proposalId).not.toBe(r0.proposalId);
+      expect(r1.proposalId).toBe(tier2ProposalId(CLIENT, CTX, 1n, 4n, 1n));
+      expect(await latestRoundTier2(base(), 1n)).toEqual({ round: 1n, proposalId: r1.proposalId });
+
+      await commitAndReveal(r1.proposalId, [new LocalEpochEngine(), new LocalEpochEngine(), new LocalEpochEngine()]);
+      expect(await roundStatusTier2(base(), r1.proposalId)).toBe('agreed');
+      expect((await publishEpochTreeTier2({ ...base(), owner: owners[0]!, proposalId: r1.proposalId, compute: compute(), transport })).status).toBe('done');
+    });
+
+    it('does not abandon a round that is merely slow, or one that agreed', async () => {
+      const r0 = await propose();
+      const next = () => proposeEpochTier2({ ...base(), proposer: owners[1]!, epoch: 1n, round: 1n, commitWindow: 10, revealWindow: 10 });
+      expect(await roundStatusTier2(base(), r0.proposalId)).toBe('open');
+      await expect(next()).rejects.toThrow(/round 0 of epoch 1 is open/);
+
+      // No reveals at all by the reveal deadline: dead, even though nobody disagreed.
+      t += 21;
+      expect(await roundStatusTier2(base(), r0.proposalId)).toBe('dead');
+
+      // A round that reached quorum stays the round, however slowly it publishes and signs.
+      const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'drift-relay-'));
+      relay = new FileSettlementRelay(dir2);
+      t = 6000;
+      const a0 = await propose();
+      await commitAndReveal(a0.proposalId, [new LocalEpochEngine(), new LocalEpochEngine(), new LocalEpochEngine()]);
+      t += 10_000;
+      expect(await roundStatusTier2(base(), a0.proposalId)).toBe('agreed');
+      await expect(next()).rejects.toThrow(/is agreed/);
+      fs.rmSync(dir2, { recursive: true, force: true });
+    });
+
+    it('ignores a next round written before its predecessor died, and refuses to commit to it', async () => {
+      const r0 = await propose();
+      const early = await signProposal(owners[2]!, {
+        proposalId: tier2ProposalId(CLIENT, CTX, 1n, 4n, 1n),
+        chainId: 31337n,
+        safe: SAFE,
+        client: CLIENT,
+        contextUID: CTX,
+        epoch: 1n,
+        safeNonce: 4n,
+        round: 1n,
+        commitDeadline: BigInt(t + 5),
+        revealDeadline: BigInt(t + 10)
+      });
+      await relay.putProposal(early);
+      expect(await latestRoundTier2(base(), 1n)).toEqual({ round: 0n, proposalId: r0.proposalId });
+      await expect(commitEpochTier2({ ...base(), owner: owners[0]!, proposalId: early.proposalId, compute: compute() })).rejects.toThrow(
+        /round 1 may start only once it is dead/
+      );
+    });
   });
 
   it('refuses commits after the deadline and reveals after the reveal deadline', async () => {
@@ -318,7 +388,7 @@ describe('FileSettlementRelay', () => {
   it('round-trips bigints', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'drift-relay-'));
     const relay = new FileSettlementRelay(dir);
-    const p = { proposalId: id('p2'), chainId: 31337n, safe: SAFE, client: CLIENT, contextUID: CTX, epoch: 3n, safeNonce: 0n, commitDeadline: 1n, revealDeadline: 2n, proposer: owners[0]!.address, signature: '0x' };
+    const p = { proposalId: id('p2'), chainId: 31337n, safe: SAFE, client: CLIENT, contextUID: CTX, epoch: 3n, safeNonce: 0n, round: 0n, commitDeadline: 1n, revealDeadline: 2n, proposer: owners[0]!.address, signature: '0x' };
     await relay.putProposal(p);
     expect(await relay.getProposal(p.proposalId)).toEqual(p);
     fs.rmSync(dir, { recursive: true, force: true });

@@ -12,7 +12,9 @@ import { settleEpochTier1 } from '../pipeline/tier1.js';
 import {
   commitEpochTier2,
   executeEpochTier2,
+  latestRoundTier2,
   proposeEpochTier2,
+  roundStatusTier2,
   publishEpochTreeTier2,
   revealEpochTier2,
   signEpochTier2,
@@ -23,7 +25,6 @@ import { FileSettlementRelay, type ISettlementRelay } from '../pipeline/relay.js
 import { HttpSettlementRelay } from '../relay/http.js';
 import { buildApi, type ApiContext } from '../api/server.js';
 import type { FastifyInstance } from 'fastify';
-import { tier2ProposalId } from '../pipeline/commitments.js';
 import { SafeSettler } from '../safe/SafeSettler.js';
 import { runTier2Owner, type Tier2Steps } from './jobs/tier2.js';
 import { createWatcher } from './jobs/watcher.js';
@@ -54,16 +55,15 @@ export function makeTier2Steps(p: {
   compute: OwnerCompute;
   transport: ITreeTransport;
   store: IMerkleStore;
-  contextUID: () => Promise<string>;
   commitWindow: number;
   revealWindow: number;
 }): Tier2Steps {
   const { base, owner, compute, transport, store } = p;
   return {
-    proposalId: async (epoch) => tier2ProposalId(base.safeSettler.client, await p.contextUID(), epoch, await base.safeSettler.nonce()),
-    hasProposal: async (id) => (await base.relay.getProposal(id)) !== null,
-    propose: async (epoch) => {
-      await proposeEpochTier2({ ...base, proposer: owner, epoch, commitWindow: p.commitWindow, revealWindow: p.revealWindow });
+    currentRound: (epoch) => latestRoundTier2(base, epoch),
+    roundStatus: (proposalId) => roundStatusTier2(base, proposalId),
+    propose: async (epoch, round) => {
+      await proposeEpochTier2({ ...base, proposer: owner, epoch, round, commitWindow: p.commitWindow, revealWindow: p.revealWindow });
     },
     commit: async (proposalId) => (await commitEpochTier2({ ...base, owner, proposalId, compute })).status,
     reveal: async (proposalId) => (await revealEpochTier2({ ...base, owner, proposalId, compute })).status,
@@ -154,7 +154,6 @@ export function buildOperator(config: OperatorConfig, log: Logger, o: DaemonOver
           compute: { snapshot: snapshotParams, engine },
           transport,
           store,
-          contextUID: async () => (await chain.state()).contextUID,
           commitWindow: ctx.tier2!.commitWindowSeconds,
           revealWindow: ctx.tier2!.revealWindowSeconds
         });
@@ -164,6 +163,7 @@ export function buildOperator(config: OperatorConfig, log: Logger, o: DaemonOver
           store,
           safe: ctx.tier2!.safe,
           steps,
+          maxRounds: ctx.tier2!.maxRounds,
           bondScanDepth: config.bondScanDepth,
           log: ctxLog.child({ role })
         };
