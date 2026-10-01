@@ -2,9 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { id, Wallet } from 'ethers';
 import { pino } from 'pino';
 import { StandardMerkleTree } from '@openzeppelin/merkle-tree';
-import { DriftContractRevertError, DriftNotFoundError, EpochNotSynchronizedError } from '@drift-network/sdk';
-import { buildEpochTree, EPOCH_LEAF_ENCODING, type EpochTree, type IMerkleStore } from '@drift-network/sdk/merkle';
-import type { ChallengeView, ClientActions, ClientChain, ClientState } from '../../src/daemon/chain.js';
+import { EpochNotSynchronizedError } from '@drift-network/sdk';
+import { buildEpochTree, EPOCH_LEAF_ENCODING } from '@drift-network/sdk/merkle';
+import { FakeActions, FakeChain, MemoryStore, revert } from './daemon-fakes.js';
 import { runTier1, type Tier1JobDeps } from '../../src/daemon/jobs/tier1.js';
 import { newContextStatus } from '../../src/daemon/status.js';
 
@@ -12,69 +12,7 @@ const CTX = id('daemon.tier1').toLowerCase();
 const ROLE = id('MEMBER').toLowerCase();
 const SETTLER = Wallet.createRandom().address;
 const [A, B, OMITTED] = [1, 2, 3].map(() => Wallet.createRandom().address.toLowerCase()) as [string, string, string];
-const ZERO = '0x' + '00'.repeat(32);
 const log = pino({ level: 'silent' });
-const revert = (name: string) => new DriftContractRevertError(name, name, {});
-
-/** A governance client held in memory; times are chain seconds. */
-class FakeChain implements ClientChain {
-  now = 0n;
-  s: ClientState = {
-    contextUID: CTX,
-    currentEpoch: 0n,
-    epochLength: 100n,
-    epochAnchorTimestamp: 1000n,
-    disputeWindow: 10n,
-    responseWindow: 10n,
-    trustedSettler: SETTLER,
-    settlementBond: 1n
-  };
-  roots = new Map<bigint, string>();
-  postedAt = new Map<bigint, bigint>();
-  bonds = new Map<bigint, bigint>();
-  open = new Map<bigint, bigint>();
-  chs: ChallengeView[] = [];
-  async state() { return { ...this.s }; }
-  async headTimestamp() { return this.now; }
-  async epochRoot(e: bigint) { return this.roots.get(e) ?? ZERO; }
-  async epochPostedAt(e: bigint) { return this.postedAt.get(e) ?? 0n; }
-  async epochBondAmount(e: bigint) { return this.bonds.get(e) ?? 0n; }
-  async openChallengeCount(e: bigint) { return this.open.get(e) ?? 0n; }
-  async challenges(e: bigint) { return this.chs.filter((c) => c.epoch === e); }
-  post(epoch: bigint, root: string, at: bigint) {
-    this.s.currentEpoch = epoch;
-    this.roots.set(epoch, root);
-    this.postedAt.set(epoch, at);
-    this.bonds.set(epoch, 1n);
-  }
-}
-
-class FakeActions implements ClientActions {
-  responses: { epoch: bigint; node: string; role: string; score: bigint; proof: string[] }[] = [];
-  withdrawn: bigint[] = [];
-  respondError?: Error;
-  withdrawError?: Error;
-  async respondToChallenge(epoch: bigint, node: string, role: string, score: bigint, proof: string[]) {
-    if (this.respondError) throw this.respondError;
-    this.responses.push({ epoch, node, role, score, proof });
-  }
-  async withdrawSettlementBond(epoch: bigint) {
-    if (this.withdrawError) throw this.withdrawError;
-    this.withdrawn.push(epoch);
-  }
-}
-
-class MemoryStore implements IMerkleStore {
-  trees = new Map<string, EpochTree>();
-  async saveTree(c: string, e: bigint, t: EpochTree) { this.trees.set(`${c}:${e}`, t); }
-  async loadTree(c: string, e: bigint) {
-    const t = this.trees.get(`${c}:${e}`);
-    if (!t) throw new DriftNotFoundError('missing');
-    return t;
-  }
-  async loadLeaf(): Promise<string[]> { throw new Error('unused'); }
-  async loadLeaves(): Promise<string[][]> { throw new Error('unused'); }
-}
 
 const treeFor = (epoch: bigint) =>
   buildEpochTree(CTX, epoch, [
@@ -83,7 +21,7 @@ const treeFor = (epoch: bigint) =>
   ]);
 
 function setup() {
-  const chain = new FakeChain();
+  const chain = new FakeChain(CTX, SETTLER);
   const actions = new FakeActions();
   const store = new MemoryStore();
   const settled: bigint[] = [];

@@ -35,12 +35,15 @@ export interface ClientChain {
   openChallengeCount(epoch: bigint): Promise<bigint>;
   /** Every (node, role) challenge ever opened against `epoch`, with its current on-chain state. */
   challenges(epoch: bigint): Promise<ChallengeView[]>;
+  /** Bond challengeOmission requires at the current base fee. */
+  requiredChallengeBond(): Promise<bigint>;
 }
 
 /** Write side, sent from the hot wallet. Faked in unit tests. */
 export interface ClientActions {
   respondToChallenge(epoch: bigint, node: string, role: string, score: bigint, proof: string[]): Promise<void>;
   withdrawSettlementBond(epoch: bigint): Promise<void>;
+  challengeOmission(epoch: bigint, node: string, role: string, bond: bigint): Promise<void>;
 }
 
 const ZERO_ROOT = '0x' + '00'.repeat(32);
@@ -67,6 +70,7 @@ const CLIENT_IFACE = new Interface([
   'function epochPostedAtTimestamp(uint256) view returns (uint256)',
   'function epochBondAmount(uint256) view returns (uint256)',
   'function openChallengeCount(uint256) view returns (uint256)',
+  'function requiredChallengeBond() view returns (uint256)',
   'function challenges(uint256 epoch, address node, bytes32 role) view returns (uint256 openedAtTimestamp, uint256 bond, address challenger, bool resolved)',
   'event ChallengeOpened(bytes32 indexed contextUID, uint256 indexed epoch, address indexed missingNode, bytes32 role, address challenger, uint256 bond)'
 ]);
@@ -120,6 +124,10 @@ export class EthersClientChain implements ClientChain {
     return BigInt(await this.c.openChallengeCount!(epoch));
   }
 
+  async requiredChallengeBond(): Promise<bigint> {
+    return BigInt(await this.c.requiredChallengeBond!());
+  }
+
   async challenges(epoch: bigint): Promise<ChallengeView[]> {
     const contextUID = this.contextUID ?? (await this.state()).contextUID;
     const responseWindow = BigInt(await this.c.responseWindow!());
@@ -163,5 +171,8 @@ export class ReputationClientActions implements ClientActions {
   }
   withdrawSettlementBond(epoch: bigint): Promise<void> {
     return this.m.withdrawSettlementBond(this.client, epoch);
+  }
+  challengeOmission(epoch: bigint, node: string, role: string, bond: bigint): Promise<void> {
+    return this.m.challengeOmission(this.client, epoch, node, role, bond);
   }
 }

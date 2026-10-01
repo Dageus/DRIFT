@@ -25,6 +25,19 @@ export interface ContextConfig {
   schemaDefinition?: string;
   /** First block to scan for registry and challenge logs, normally the core's deployment block. */
   fromBlock?: number;
+  /** Required for role 'tier2-owner'. */
+  tier2?: {
+    /** The Safe installed as the client's trustedSettler. */
+    safe: string;
+    /** Commit and reveal windows a proposal from this owner sets. Default 600 each. */
+    commitWindowSeconds: number;
+    revealWindowSeconds: number;
+  };
+  /** Options for role 'watcher'. */
+  watcher?: {
+    /** Open omission challenges from the hot wallet. Default false: report only. */
+    challenge: boolean;
+  };
 }
 
 export interface OperatorConfig {
@@ -46,6 +59,8 @@ export interface OperatorConfig {
     owner?: KeyRef;
   };
   attestations: { kind: 'eas'; graphqlUrl: string };
+  /** Tier 2 settlement relay shared by the Safe owners. Default: a directory under stateDir. */
+  relay: { kind: 'file'; dir: string };
   trees: { kind: 'ipfs'; apiUrl?: string; gatewayUrl?: string; authorizationEnv?: string };
   engine: { kind: 'local' } | { kind: 'grpc'; endpoint: string; evidence: 'none' | 'signed'; signers?: string[] };
   contexts: ContextConfig[];
@@ -117,6 +132,10 @@ export function parseConfig(raw: unknown): OperatorConfig {
   const k = c.obj(root.keys ?? {}, 'keys') ?? {};
   const keys = { settler: c.key(k.settler, 'keys.settler'), hotWallet: c.key(k.hotWallet, 'keys.hotWallet'), owner: c.key(k.owner, 'keys.owner') };
 
+  const r = c.obj(root.relay ?? { kind: 'file' }, 'relay') ?? {};
+  c.oneOf(r.kind, 'relay.kind', ['file'] as const);
+  const relay = { kind: 'file' as const, dir: c.str(r.dir, 'relay.dir', true) ?? `${stateDir}/relay` };
+
   const a = c.obj(root.attestations, 'attestations') ?? {};
   c.oneOf(a.kind, 'attestations.kind', ['eas'] as const);
   const attestations = { kind: 'eas' as const, graphqlUrl: c.str(a.graphqlUrl, 'attestations.graphqlUrl') ?? '' };
@@ -164,13 +183,34 @@ export function parseConfig(raw: unknown): OperatorConfig {
         c.fail(`${p}.roles`, "settling roles need keys.hotWallet to answer challenges and withdraw bonds");
       }
       if (roles.includes('tier2-owner') && !keys.owner) c.fail(`${p}.roles`, "role 'tier2-owner' needs keys.owner");
+      if (roles.includes('tier1') && roles.includes('tier2-owner')) {
+        c.fail(`${p}.roles`, "a context has one trusted settler: choose 'tier1' or 'tier2-owner'");
+      }
+      let tier2: ContextConfig['tier2'];
+      if (o.tier2 !== undefined || roles.includes('tier2-owner')) {
+        const t2 = c.obj(o.tier2, `${p}.tier2`) ?? {};
+        tier2 = {
+          safe: c.address(t2.safe, `${p}.tier2.safe`) ?? '',
+          commitWindowSeconds: c.num(t2.commitWindowSeconds, `${p}.tier2.commitWindowSeconds`, 600, 1),
+          revealWindowSeconds: c.num(t2.revealWindowSeconds, `${p}.tier2.revealWindowSeconds`, 600, 1)
+        };
+      }
+      let watcher: ContextConfig['watcher'];
+      if (o.watcher !== undefined) {
+        const w = c.obj(o.watcher, `${p}.watcher`) ?? {};
+        if (w.challenge !== undefined && typeof w.challenge !== 'boolean') c.fail(`${p}.watcher.challenge`, 'expected a boolean');
+        watcher = { challenge: w.challenge === true };
+        if (watcher.challenge && !keys.hotWallet) c.fail(`${p}.watcher.challenge`, 'challenging needs keys.hotWallet');
+      }
       contexts.push({
         name,
         client: c.address(o.client, `${p}.client`) ?? '',
         roles,
         schemaUID: c.bytes32(o.schemaUID, `${p}.schemaUID`) ?? '',
         schemaDefinition: c.str(o.schemaDefinition, `${p}.schemaDefinition`, true),
-        fromBlock: o.fromBlock === undefined ? undefined : c.num(o.fromBlock, `${p}.fromBlock`, 0, 0)
+        fromBlock: o.fromBlock === undefined ? undefined : c.num(o.fromBlock, `${p}.fromBlock`, 0, 0),
+        tier2,
+        watcher
       });
     });
   }
@@ -178,5 +218,5 @@ export function parseConfig(raw: unknown): OperatorConfig {
   if (c.errors.length) {
     throw new DriftConfigError(`DRIFT operator: invalid configuration:\n  - ${c.errors.join('\n  - ')}`);
   }
-  return { rpcUrl, blockTag, pollIntervalSeconds, stateDir, bondScanDepth, keys, attestations, trees, engine, contexts };
+  return { rpcUrl, blockTag, pollIntervalSeconds, stateDir, bondScanDepth, keys, attestations, relay, trees, engine, contexts };
 }
