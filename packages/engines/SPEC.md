@@ -16,6 +16,7 @@ An engine call takes one epoch's input and returns per-node scores, the settleme
 | 1 | in the settler (`LocalEpochEngine`) or one remote server (`--evidence none`) | none: the settler is trusted | nobody |
 | 1, attributable | one remote server (`--evidence signed`) | EIP-191 signature over `keccak256(journal)` | `GrpcEpochEngine` (signer allowlist) |
 | 2 | n servers, each `--evidence signed` | t-of-n signatures over identical journal bytes | `CommitteeEpochEngine` |
+| 2, on chain | n Safe owners, each with its own engine | t-of-n Safe owner signatures over the settlement transaction | the Safe and the client (ERC-1271) |
 | 3 | RISC Zero guest (`--evidence risc0`) | receipt for image ID `DRIFT_ENGINE_GUEST_ID` with the journal | nobody yet (see section 7) |
 
 Every client recomputes the input digest and the Merkle root from the returned scores, whatever the tier. A server therefore cannot return scores that disagree with its root, or a root computed over a different input, without the client noticing.
@@ -104,7 +105,16 @@ Evidence of every tier covers exactly these bytes. A journal states: "running en
 - **Tier 3 on chain.** The guest commits the journal. The server can produce succinct receipts but returns no on-chain seal yet. To settle on chain with a proof we still need:
   - `ProverOpts::groth16()` plus `risc0_ethereum_contracts::encode_seal` in the server;
   - a `postEpochRoot` branch in `DRIFTCore` that calls the RISC Zero verifier router with the pinned image ID and `sha256(journal)`, then checks the journal fields against its arguments.
-- **Tier 2 on chain.** The committee signatures exist, but no contract checks them yet. Two ways to do that are an ERC-1271 committee wallet as the trusted settler, or a t-of-n check in `postEpochRoot`.
+- **Tier 2 on chain.** This is done, with no contract change, by making a t-of-n Safe the `trustedSettler`. Each owner computes the epoch with its own engine and signs the settlement transaction built from its own root (`SafeSettler` in `@drift-network/sdk/safe`). Owners whose roots differ sign different hashes, so a root settles only if t owners computed it. `DRIFTSafeSettler.t.sol` runs this against the real Safe v1.4.1 bytecode:
+  - settlement in one round or two;
+  - the threshold is enforced, and owners split across two roots settle neither;
+  - an owner key cannot post directly;
+  - bonds and forfeited challenge bonds reach the Safe;
+  - the Safe executes a transaction built and signed by the SDK.
+
+  Execution gas for a 2-of-3 Safe settlement is 208,857 for one round and 189,117 for two rounds, against 125,375 for an EOA settler (`snapshots/`).
+
+  The journal signatures from `CommitteeEpochEngine` remain an off-chain audit trail. The Safe threshold is what the chain enforces.
 - **Cost.** Phi_c is O(n^2 * iterations) on big integers. That is cheap natively and expensive in the zkVM. Executor cycle counts for the vectors (`RISC0_DEV_MODE=1`, RISC Zero 3.0.6):
 
   | vector | nodes | records | max iterations | cycles | segments |

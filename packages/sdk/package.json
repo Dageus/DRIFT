@@ -36,6 +36,10 @@
       "import": "./dist/engines/remote/index.js",
       "types": "./dist/engines/remote/index.d.ts"
     },
+    "./safe": {
+      "import": "./dist/safe/index.js",
+      "types": "./dist/safe/index.d.ts"
+    },
     "./providers": {
       "import": "./dist/providers/index.js",
       "types": "./dist/providers/index.d.ts"
