@@ -1,0 +1,34 @@
+{
+  "name": "@drift-network/e2e",
+  "version": "0.1.0",
+  "description": "DRIFT live-network evaluation tooling: experiment key layout, funding plan, funder and sweeper",
+  "author": "Dageus",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "engines": {
+    "node": ">=20.10.0"
+  },
+  "bin": {
+    "drift-e2e": "./dist/bin.js"
+  },
+  "scripts": {
+    "build": "tsc --project tsconfig.json",
+    "typecheck": "tsc --project tsconfig.eslint.json",
+    "lint": "eslint .",
+    "test": "vitest run --config vitest.config.ts"
+  },
+  "dependencies": {
+    "ethers": "^6.16.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^25.9.1",
+    "eslint": "^10.9.1",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.68.0",
+    "vitest": "^4.1.8"
+  }
+}

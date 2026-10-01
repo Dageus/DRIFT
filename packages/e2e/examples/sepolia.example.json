@@ -1,0 +1,18 @@
+{
+  "chainId": 11155111,
+  "rpcUrlEnv": "SEPOLIA_RPC_URL",
+  "mnemonicEnv": "E2E_MNEMONIC",
+  "funder": { "mnemonicEnv": "MNEMONIC", "index": 0 },
+  "nodes": 30,
+  "attestations": { "perNodePerRound": 3, "rounds": 4 },
+  "tier1": { "epochs": 10 },
+  "tier2": { "epochs": 10, "owners": 3, "threshold": 2 },
+  "adversarial": { "omissionChallenges": 1, "answeredChallenges": 1, "watcherChallenges": 1, "deadRounds": 1 },
+  "claims": { "perEpoch": 5 },
+  "governance": { "proposals": 2, "votersPerProposal": 10 },
+  "bonds": { "settlementEth": "0.001", "challengeEth": "0.001" },
+  "gas": { "maxFeeGwei": "20", "priorityFeeGwei": "1" },
+  "margin": 1.5,
+  "reserveEth": "0.05",
+  "deploy": true
+}
