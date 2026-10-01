@@ -2,9 +2,18 @@ import * as fs from 'fs';
 import { performance } from 'perf_hooks';
 import type { TransactionReceipt } from 'ethers';
 
+export async function measureAndLogMetric(
+  label: string,
+  txReceiptPromise: Promise<TransactionReceipt | null>
+): Promise<void>;
 export async function measureAndLogMetric<T>(
   label: string,
-  txReceiptPromise: Promise<TransactionReceipt | null>,
+  txReceiptPromise: Promise<TransactionReceipt | null> | null,
+  computeTask: () => Promise<T>
+): Promise<T>;
+export async function measureAndLogMetric<T>(
+  label: string,
+  txReceiptPromise: Promise<TransactionReceipt | null> | null,
   computeTask?: () => Promise<T>
 ): Promise<T | void> {
   const start = performance.now();
@@ -14,7 +23,7 @@ export async function measureAndLogMetric<T>(
     computeResult = await computeTask();
   }
 
-  const receipt = await txReceiptPromise;
+  const receipt = txReceiptPromise ? await txReceiptPromise : null;
   const durationMs = Math.round(performance.now() - start);
 
   const metric = {

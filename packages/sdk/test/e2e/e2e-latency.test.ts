@@ -41,17 +41,12 @@ describe('End-to-End Latency and Calldata Bounds ($N = 10^6$)', () => {
 
     const managedSignerAddr = await managedSigner.getAddress();
 
-    const tx = await drift.core.registerContext(contextName);
-    if (tx && typeof tx.wait === 'function') {
-      await tx.wait();
-    }
+    // registerContext and registerNode wait for their receipts internally.
+    await drift.core.registerContext(contextName);
 
     console.log('Context registered');
 
-    const regNodeTx = await drift.core.registerNode(contextUID, '0x');
-    if (regNodeTx && typeof regNodeTx.wait === 'function') {
-      await regNodeTx.wait();
-    }
+    await drift.core.registerNode(contextUID, '0x');
     console.log('Node registered in context');
 
     const initData = new Interface([
@@ -113,7 +108,7 @@ describe('End-to-End Latency and Calldata Bounds ($N = 10^6$)', () => {
     globalTree = tree;
 
     const repContract = new Contract(clientAddress, SettlerArtifact.abi, managedSigner);
-    await repContract.postEpochRoot(1n, root, treeURI, signature).then((tx) => tx.wait());
+    await repContract.postEpochRoot!(1n, root, treeURI, signature).then((tx) => tx.wait());
   }, 800000);
 
   test('User Path Latency: Proof Generation to Execution', async () => {
@@ -123,7 +118,8 @@ describe('End-to-End Latency and Calldata Bounds ($N = 10^6$)', () => {
     let targetRowValues: string[] | null = null;
 
     for (const [i, v] of globalTree.entries()) {
-      if (v[0] === contextUID && v[1].toLowerCase() === managedSignerAddr.toLowerCase()) {
+      // Stored tree values are lowercase (buildEpochTree), so compare case-insensitively.
+      if (v[0]!.toLowerCase() === contextUID.toLowerCase() && v[1]!.toLowerCase() === managedSignerAddr.toLowerCase()) {
         targetIndex = i;
         targetRowValues = v;
         break;
@@ -133,8 +129,8 @@ describe('End-to-End Latency and Calldata Bounds ($N = 10^6$)', () => {
 
     const t0 = performance.now();
 
-    const roles = [targetRowValues[2]];
-    const scores = [BigInt(targetRowValues[3])];
+    const roles = [targetRowValues[2]!];
+    const scores = [BigInt(targetRowValues[3]!)];
     const proofs = [globalTree.getProof(targetIndex)];
 
     const payload = { roles, scores, proofs };
@@ -142,7 +138,7 @@ describe('End-to-End Latency and Calldata Bounds ($N = 10^6$)', () => {
     const t1 = performance.now();
     const proofExtractionLatencyMs = t1 - t0;
 
-    const siblingCount = payload.proofs[0].length;
+    const siblingCount = payload.proofs[0]!.length;
     const proofBytes = siblingCount * 32;
 
     console.log(`\n--- BENCHMARK RESULTS ---`);
@@ -151,7 +147,7 @@ describe('End-to-End Latency and Calldata Bounds ($N = 10^6$)', () => {
     console.log(`Proof Extraction Latency: ${proofExtractionLatencyMs.toFixed(2)} ms`);
 
     const repContract = new Contract(clientAddress, SettlerArtifact.abi, managedSigner);
-    const tx = await repContract.claimReputation(managedSignerAddr, role, 100n, 1n, payload.proofs[0]);
+    const tx = await repContract.claimReputation!(managedSignerAddr, role, 100n, 1n, payload.proofs[0]);
 
     const t2 = performance.now();
     const receipt = await tx.wait();
@@ -209,7 +205,7 @@ describe('End-to-End Latency and Calldata Bounds ($N = 10^6$)', () => {
     const repContract = new Contract(clientAddress, SettlerArtifact.abi, managedSigner);
 
     const tPrepStart = performance.now();
-    await repContract.claimReputation.populateTransaction(
+    await repContract.claimReputation!.populateTransaction(
       managedSignerAddr,
       role,
       100n,

@@ -72,7 +72,7 @@ export async function runGovernanceScenario(
   await driftAlice.core.registerNode(contextUID, '0x');
   await driftBob.core.registerNode(contextUID, '0x');
 
-  const roles = [
+  const roles: [string, string] = [
     keccak256(new AbiCoder().encode(['string'], ['ADMIN'])),
     keccak256(new AbiCoder().encode(['string'], ['MEMBER']))
   ];
@@ -142,7 +142,7 @@ export async function runGovernanceScenario(
     roles[0],
     100n,
     epoch,
-    testerPayload.proofs[0]
+    testerPayload.proofs[0]!
   );
 
   const proposalPayload = new AbiCoder().encode(

@@ -20,7 +20,7 @@ describe('DRIFT Proof-of-State Governance', () => {
     const contract = new Contract(result.clientAddress, IGovArtifact.abi, tester);
 
     try {
-      await contract.castVote(result.proposalId, true);
+      await contract.castVote!(result.proposalId, true);
       expect.unreachable('castVote should have reverted');
     } catch (err: any) {
       const errorData = err.data || err.info?.error?.data || err.error?.data;
