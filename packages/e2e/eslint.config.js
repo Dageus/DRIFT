@@ -3,7 +3,7 @@ import tseslint from 'typescript-eslint';
 
 // Same rules as the SDK's strict tier (packages/sdk/eslint.config.js), as in the operator.
 export default tseslint.config(
-  { ignores: ['dist/**', 'node_modules/**', 'e2e-run/**'] },
+  { ignores: ['dist/**', 'node_modules/**', 'e2e-run/**', 'e2e-analysis/**'] },
   js.configs.recommended,
   {
     files: ['src/**/*.ts', 'test/**/*.ts'],

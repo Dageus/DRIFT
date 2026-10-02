@@ -10,3 +10,4 @@ export { main } from './cli.js';
 export * from './fees.js';
 export * from './deploy.js';
 export * from './measure.js';
+export * from './analyze/index.js';

@@ -87,3 +87,30 @@ With `attestations.batch` > 1, each node's attestations of a round go out in `mu
 - journals every transfer to `e2e-run/funding-journal.jsonl`.
 
 Amounts in the config are decimal strings, so no ETH value passes through floating point.
+
+## Analysis
+
+`drift-e2e analyze <dir...> [--out <dir>]` turns the operator's recorder logs (one JSONL file per daemon process, `recorder.dir` in the operator config) into the evaluation's tables. It reads every `*.jsonl` under the given directories, so the logs of every daemon in a run, or of several runs, can be analysed together.
+
+- **Validation.** Every line is checked with the operator's `validateEvent`. Invalid lines, gaps or repeats in a file's `seq`, and transactions sent without a recorded receipt are listed in `quality.csv` and `quality.tex`; nothing is dropped silently.
+- **One definition.** Latencies come from the operator's `LATENCIES`, the same definitions the live `/metrics` histograms use.
+- **Merging processes.** The owners of one Tier 2 Safe name their contexts differently; contexts that recorded the same proposal are one group, labelled by their sorted names. A milestone seen by several processes (two owners recording the same publication) is kept once, at its earliest observation, and a pair latency uses the earliest start and the earliest end over all processes.
+- **Percentiles.** Nearest rank: the value at rank ceil(p/100 · n) of the sorted sample. The median is the lower middle value for even n.
+- **Reverted transactions** (for example two owners executing the same settlement at once) are counted apart from the gas statistics of their action, and their fees are included in the totals.
+- **Determinism.** The same logs give byte-identical files: rows are sorted, numbers have fixed digits, and no output records when it was generated.
+
+| File | Content |
+|---|---|
+| `latency.csv`, `latency.tex` | per latency and tier: n, median, p90, p99, min, max (seconds) |
+| `latency-samples.csv` | every sample, for pgfplots box plots and histograms |
+| `gas.csv`, `gas.tex` | gas per action and tier from receipts; reverted transactions; ETH paid |
+| `cost-per-epoch.csv`, `cost.tex` | ETH per settled epoch and per tier |
+| `tier2-rounds.csv`, `tier2-rounds-per-epoch.csv`, `tier2-steps.csv`, `tier2.tex` | rounds, outcomes, and the commit, reveal, publish, sign and execute steps |
+| `disputes.csv`, `watcher.csv`, `disputes.tex` | challenge detection and response, watcher detection |
+| `timeline.csv` | one row per epoch: t_E, O1 wait, snapshot, compute, settlement, finalization, bond, rounds, cost |
+| `quality.csv`, `quality.tex`, `inputs.csv` | data quality |
+| `summary.json` | everything above, plus the method notes |
+
+The LaTeX files are `tabular` environments in booktabs style with numbers grouped as `125{,}375`; `\input` them inside a `table` float.
+
+**Indexer check (opt-in).** With `--indexer-rpc-env <VAR> --eas <address> --schema <uid> [--from-block <n>]`, each snapshot's attestation count (what the indexer returned for the schema at t_E) is compared with the count rebuilt from EAS's own `Attested` and `Revoked` logs up to t_E (`indexer.csv`, `indexer.tex`). This turns the assumption that the indexer is fresh into a measured fact. All contexts are assumed to use the given schema.

@@ -10,6 +10,7 @@ import { assertPlanMatches, readPlan, writeManifest, writePlan } from './planFil
 import { balancesOf, fund, status, sweep, TRANSFER_GAS, type Log } from './ops.js';
 import { measure, writeMeasured } from './measure.js';
 import { feeHistory, feeReport, printFeeReport } from './fees.js';
+import { analyze, indexerCheck, loadEvents, renderFiles, writeFiles } from './analyze/index.js';
 
 const CONTRACTS_DIR = fileURLToPath(new URL('../../contracts', import.meta.url));
 
@@ -24,6 +25,10 @@ const USAGE = `usage: drift-e2e <command> [options]
   measure --config <file>               run every action once on a local anvil fork of the config's
                                         chain (never broadcasts there); writes <out>/gas-measured.json
   fees    --config <file> [--blocks <n>] [--caps 1,2,5]   base-fee percentiles from eth_feeHistory (read-only)
+
+  analyze <dir...> [--out <dir>]        recorder JSONL logs -> tables (CSV, LaTeX, summary.json);
+          [--indexer-rpc-env <VAR> --eas <addr> --schema <uid> [--from-block <n>]]
+                                        also check each snapshot's attestation count against EAS logs
 
   fund and sweep wait while the base fee is above the cap (--wait-minutes, default 60); they never pay more.
 
@@ -127,6 +132,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env,
       log('Store this mnemonic now (password manager); it is not written anywhere. Every experiment key derives from it.');
       return 0;
     }
+    if (cmd === 'analyze') return await runAnalyze(args, env, log);
     if (!cmd || cmd === 'help' || args.flags.has('help')) {
       log(USAGE);
       return cmd ? 0 : 2;
@@ -217,4 +223,33 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env,
     log(`error: ${(err as Error).message}`);
     return 1;
   }
+}
+
+async function runAnalyze(args: Args, env: NodeJS.ProcessEnv, log: Log): Promise<number> {
+  const dirs = args.cmd.slice(1);
+  if (dirs.length === 0) throw new Error('analyze needs at least one directory of event logs');
+  const loaded = loadEvents(dirs);
+  const analysis = analyze(loaded);
+  let indexer;
+  const rpcEnv = str(args, 'indexer-rpc-env');
+  if (rpcEnv) {
+    const url = env[rpcEnv];
+    const eas = str(args, 'eas');
+    const schemaUID = str(args, 'schema');
+    if (!url) throw new Error(`environment variable ${rpcEnv} is not set`);
+    if (!eas || !schemaUID) throw new Error('the indexer check needs --eas <address> and --schema <uid>');
+    const provider = new JsonRpcProvider(url, undefined, { cacheTimeout: -1 });
+    try {
+      indexer = await indexerCheck(analysis.events, { provider, eas, schemaUID, fromBlock: Number(str(args, 'from-block') ?? '0') });
+    } finally {
+      provider.destroy();
+    }
+  }
+  const out = str(args, 'out') ?? 'e2e-analysis';
+  const names = writeFiles(out, renderFiles(analysis, indexer));
+  log(`read ${loaded.files.length} file(s), ${analysis.counts.events} event(s) after merging ${analysis.counts.duplicates} duplicate observation(s)`);
+  log(`data quality: ${analysis.issues.length} issue(s)${analysis.issues.length ? ' (see quality.csv)' : ''}`);
+  if (indexer) log(`indexer check: ${indexer.filter((r) => !r.match).length} mismatch(es) in ${indexer.length} snapshot(s)`);
+  log(`wrote ${names.length} file(s) to ${out}`);
+  return 0;
 }

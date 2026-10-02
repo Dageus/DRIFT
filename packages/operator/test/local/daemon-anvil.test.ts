@@ -13,7 +13,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { createServer, type Server } from 'node:http';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, createWriteStream } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, createWriteStream } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -334,6 +334,9 @@ describe.skipIf(!enabled)('operator daemon on anvil', () => {
     provider?.destroy();
     anvil?.kill('SIGKILL');
     for (const f of deployments) rmSync(`${CONTRACTS}/deployments/${f}`, { recursive: true, force: true });
+    // DRIFT_E2E_KEEP_EVENTS=<dir> keeps the recorder logs (packages/e2e's analyze test reads them).
+    const keep = process.env.DRIFT_E2E_KEEP_EVENTS;
+    if (work && keep) cpSync(join(work, 'events'), keep, { recursive: true });
     if (work) rmSync(work, { recursive: true, force: true });
   });
 
