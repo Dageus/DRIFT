@@ -15,6 +15,7 @@ export {
   signEpochTier2,
   executeEpochTier2,
   evaluateReveals,
+  executorRank,
   roundStatusTier2,
   latestRoundTier2
 } from './tier2.js';

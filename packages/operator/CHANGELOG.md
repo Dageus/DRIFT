@@ -7,6 +7,10 @@ unpublished; versions follow the repository tags.
 ## [Unreleased]
 
 ### Added
+- Tier 2 executor election: one owner executes the Safe transaction and the others wait their
+  rank × `tier2.executeGraceSeconds` (default 60) before acting as backups; every executor checks
+  the Safe nonce before sending. Owners no longer race to execute, which made all but one revert
+  and pay for it.
 - Event recorder: versioned JSONL log (one file per process, fsynced per line) of settlement,
   Tier 2, dispute, watcher and transaction events with receipt gas and fees, plus Prometheus
   metrics derived from the same events. Config `recorder`, off by default.

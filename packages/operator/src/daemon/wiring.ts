@@ -59,8 +59,13 @@ export function makeTier2Steps(p: {
   store: IMerkleStore;
   commitWindow: number;
   revealWindow: number;
+  /** Seconds per rank a backup executor waits (see executeEpochTier2's election). */
+  executeGraceSeconds: number;
 }): Tier2Steps {
   const { base, owner, compute, transport, store } = p;
+  // When each round's signatures first reached the threshold, as this owner saw it.
+  const quorumSeenAt = new Map<string, bigint>();
+  const self = owner.getAddress();
   return {
     currentRound: (epoch) => latestRoundTier2(base, epoch),
     roundStatus: (proposalId) => roundStatusTier2(base, proposalId),
@@ -71,7 +76,15 @@ export function makeTier2Steps(p: {
     reveal: async (proposalId) => (await revealEpochTier2({ ...base, owner, proposalId, compute })).status,
     publish: async (proposalId) => (await publishEpochTreeTier2({ ...base, owner, proposalId, compute, transport, store })).status,
     sign: async (proposalId) => (await signEpochTier2({ ...base, owner, proposalId, transport, store })).status,
-    execute: async (proposalId) => (await executeEpochTier2({ ...base, sender: p.sender, proposalId })).status
+    execute: async (proposalId) =>
+      (
+        await executeEpochTier2({
+          ...base,
+          sender: p.sender,
+          proposalId,
+          election: { self: await self, graceSeconds: p.executeGraceSeconds, quorumSeenAt }
+        })
+      ).status
   };
 }
 
@@ -156,7 +169,8 @@ function assemble(config: OperatorConfig, log: Logger, o: DaemonOverrides): Asse
           transport,
           store,
           commitWindow: ctx.tier2!.commitWindowSeconds,
-          revealWindow: ctx.tier2!.revealWindowSeconds
+          revealWindow: ctx.tier2!.revealWindowSeconds,
+          executeGraceSeconds: ctx.tier2!.executeGraceSeconds
         });
         const deps = {
           chain,

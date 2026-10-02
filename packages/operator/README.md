@@ -79,6 +79,10 @@ An epoch is attempted in rounds 0, 1, ... at one Safe nonce. The signed proposal
 
 Round r+1 may be proposed (`proposeEpochTier2({ ..., round })`), and committed to, only while round r is dead. The current round (`latestRoundTier2`) is the highest round whose predecessors are all dead, so a round written early by an owner ignoring the rule is not followed. An agreed round is never abandoned however slowly it publishes and signs, and a root already executed on chain ends the epoch. The daemon proposes the next round automatically and stops with an error alert after `tier2.maxRounds` (default 5) dead rounds.
 
+### Who executes
+
+Once the signatures reach the threshold, one owner executes the Safe transaction; the others stand by. The eligible signers are ordered by `keccak256(proposalId, address)`, so the duty rotates between rounds. The first in that order executes at once, and the owner at rank r waits r × `tier2.executeGraceSeconds` (default 60) after it first saw the threshold reached, so a backup executes only when those ahead of it did not. Owners that did not sign rank last. Before sending, every executor checks that the Safe nonce still matches the settlement; if another owner already executed, it reports `already-done` instead of paying for a revert.
+
 The proposal announces only the epoch and the deadlines, never the root. Owners commit to their own root before any reveal exists. An owner whose root differs from the agreed one cannot publish or sign, and `executeEpochTier2` counts only signatures from owners with a matching, timely reveal. `FileSettlementRelay` suits owners who share a directory; any `ISettlementRelay` implementation works, and the relay is not trusted.
 
 ### Remote and committee engines

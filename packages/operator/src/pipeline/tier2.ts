@@ -44,7 +44,7 @@
  * to follow, and leaves signed, attributable evidence against an owner who copied a root instead of
  * computing it. It does not stop owners who collude to sign without following it.
  */
-import { Contract, type Signer, type TransactionResponse } from 'ethers';
+import { AbiCoder, Contract, keccak256, type Signer, type TransactionResponse } from 'ethers';
 import { buildOneRoundSettlement, safeTxHash, type SafeSettler } from '../safe/SafeSettler.js';
 import type { IEpochEngine } from '@drift-network/sdk/engines';
 import type { EpochResult } from '@drift-network/sdk/engines';
@@ -530,6 +530,28 @@ export async function signEpochTier2(p: SignEpochTier2Params): Promise<{ status:
 export interface ExecuteEpochTier2Params extends Tier2Base {
   sender: Signer;
   proposalId: string;
+  /**
+   * Executor election. Without it, any caller executes as soon as the signatures reach the
+   * threshold, so owners that all run this race, and every loser pays for a reverted transaction.
+   * With it, the eligible signers are ordered by keccak256(proposalId, address), which rotates the
+   * duty between rounds; the first executes at once and the owner at rank r waits r x graceSeconds
+   * after it first saw the threshold reached, so a backup acts only when those ahead of it did not.
+   * An owner that did not sign ranks last. `quorumSeenAt` must persist across calls (the daemon
+   * keeps it in memory; a restart only delays a backup).
+   */
+  election?: { self: string; graceSeconds: number; quorumSeenAt: Map<string, bigint> };
+}
+
+/** Rank of `self` in the executor order of a round: 0 executes first. */
+export function executorRank(proposalId: string, signers: string[], self: string): number {
+  const key = (a: string) => keccak256(AbiCoder.defaultAbiCoder().encode(['bytes32', 'address'], [proposalId, a]));
+  const order = [...new Set(signers.map((s) => s.toLowerCase()))].sort((a, b) => {
+    const ka = key(a);
+    const kb = key(b);
+    return ka < kb ? -1 : ka > kb ? 1 : 0;
+  });
+  const i = order.indexOf(self.toLowerCase());
+  return i === -1 ? order.length : i;
 }
 
 export async function executeEpochTier2(
@@ -549,6 +571,24 @@ export async function executeEpochTier2(
   );
   const signatures = (await p.relay.listSignatures(proposal.proposalId)).filter((s) => eligible.has(s.signer.toLowerCase()));
   if (BigInt(signatures.length) < e.threshold) return { status: 'waiting' };
+
+  if (p.election) {
+    const now = nowOf(p);
+    const seen = p.election.quorumSeenAt.get(proposal.proposalId) ?? now;
+    p.election.quorumSeenAt.set(proposal.proposalId, seen);
+    const rank = executorRank(proposal.proposalId, signatures.map((s) => s.signer), p.election.self);
+    if (now < seen + BigInt(rank * p.election.graceSeconds)) return { status: 'waiting' };
+  }
+
+  // Another owner may have executed since the root check above: the Safe nonce then no longer
+  // matches the settlement, and sending would only pay for a revert.
+  if ((await p.safeSettler.nonce()) !== settlement.tx.nonce) {
+    const now = (await client.epochRoots!(proposal.epoch)) as string;
+    if (same(now, settlement.root)) return { status: 'already-done' };
+    throw new DriftValidationError(
+      `DRIFT SDK: Safe nonce moved past proposal ${proposal.proposalId} without posting its root; the round must be re-proposed.`
+    );
+  }
 
   const tx = await p.safeSettler.execute(p.sender, settlement.tx, signatures);
   await tx.wait();

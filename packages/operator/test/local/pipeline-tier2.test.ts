@@ -23,6 +23,7 @@ import { FileSettlementRelay } from '../../src/pipeline/relay.js';
 import {
   commitEpochTier2,
   evaluateReveals,
+  executorRank,
   executeEpochTier2,
   proposeEpochTier2,
   publishEpochTreeTier2,
@@ -61,6 +62,9 @@ const ROLE = id('MEMBER');
 const owners = [1, 2, 3].map((i) => new Wallet('0x' + i.toString(16).padStart(64, '0')));
 const nodes = [Wallet.createRandom(), Wallet.createRandom(), Wallet.createRandom()].map((w) => w.address.toLowerCase());
 
+/** Mutable chain state the execute tests steer: the Safe nonce and successive epochRoots answers. */
+const chainState = { nonce: 4n, roots: [] as string[] };
+
 function fakeChain(): Provider {
   // A real Provider is its own ContractRunner (`provider.provider === provider`); this one too.
   const self: Record<string, unknown> = {};
@@ -75,11 +79,11 @@ function fakeChain(): Provider {
       switch (f.name) {
         case 'getOwners': return r(owners.map((o) => o.address));
         case 'getThreshold': return r(2n);
-        case 'nonce': return r(4n);
+        case 'nonce': return r(chainState.nonce);
         case 'contextUID': return r(CTX);
         case 'core': return r(CORE);
         case 'settlementBond': return r(10n ** 16n);
-        case 'epochRoots': return r('0x' + '00'.repeat(32));
+        case 'epochRoots': return r(chainState.roots.length > 1 ? chainState.roots.shift()! : (chainState.roots[0] ?? '0x' + '00'.repeat(32)));
         case 'epochLength': return r(1000n);
         case 'epochAnchorTimestamp': return r(0n);
         case 'eip712Domain': return r('0x0f', 'DRIFT_WeightedGovernance', '1', 31337n, CLIENT, '0x' + '00'.repeat(32), []);
@@ -151,6 +155,8 @@ describe('Tier 2 settlement steps', () => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'drift-relay-'));
     relay = new FileSettlementRelay(dir);
     t = 6000;
+    chainState.nonce = 4n;
+    chainState.roots = [];
     provider = fakeChain();
     safeSettler = new SafeSettler(provider, SAFE, CLIENT);
     transport = memoryTransport();
@@ -221,6 +227,65 @@ describe('Tier 2 settlement steps', () => {
     expect(call[0]).toBe(settlement.tx.to);
     expect(call[2]).toBe(settlement.tx.data);
     expect((call[9] as string).length).toBe(2 + 2 * 65 * 2);
+  });
+
+  describe('executor election', () => {
+    /** A round that reached quorum: published, signed by owners 0 and 2, not yet executed. */
+    async function signedRound() {
+      const { proposalId } = await propose();
+      await commitAndReveal(proposalId, [new LocalEpochEngine(), new LocalEpochEngine(), new LocalEpochEngine()]);
+      const pub = await publishEpochTreeTier2({ ...base(), owner: owners[1]!, proposalId, compute: compute(), transport });
+      await signEpochTier2({ ...base(), owner: owners[0]!, proposalId, transport });
+      await signEpochTier2({ ...base(), owner: owners[2]!, proposalId, transport });
+      return { proposalId, settlement: pub.settlement! };
+    }
+
+    it('orders executors deterministically per round and puts non-signers last', () => {
+      const signers = [owners[0]!.address, owners[2]!.address];
+      const ranks = (pid: string) => owners.map((o) => executorRank(pid, signers, o.address));
+      expect(ranks(id('round-a'))).toEqual(ranks(id('round-a')));
+      expect(ranks(id('round-a'))[1]).toBe(2); // owner 1 did not sign
+      expect([...ranks(id('round-a'))].sort()).toEqual([0, 1, 2]);
+      const firsts = new Set(Array.from({ length: 16 }, (_, i) => ranks(id(`round-${i}`)).indexOf(0)));
+      expect(firsts.size).toBe(2); // the duty rotates between the two signers
+    });
+
+    it('only the elected owner sends at once; backups send after their grace if the root is still missing', async () => {
+      const { proposalId } = await signedRound();
+      const signers = [owners[0]!.address, owners[2]!.address];
+      const byRank = [...owners].sort((a, b) => executorRank(proposalId, signers, a.address) - executorRank(proposalId, signers, b.address));
+      const wallets = byRank.map(() => new RecordingWallet(Wallet.createRandom().privateKey));
+      const seen = byRank.map(() => new Map<string, bigint>());
+      const exec = (i: number) =>
+        executeEpochTier2({ ...base(), sender: wallets[i]!, proposalId, election: { self: byRank[i]!.address, graceSeconds: 60, quorumSeenAt: seen[i]! } });
+
+      expect((await exec(1)).status).toBe('waiting');
+      expect((await exec(2)).status).toBe('waiting');
+      expect((await exec(0)).status).toBe('done');
+      expect(wallets.map((w) => w.sent.length)).toEqual([1, 0, 0]);
+
+      // The elected owner's transaction never lands (the fake chain keeps the root unset):
+      t += 60;
+      expect((await exec(2)).status).toBe('waiting'); // rank 2 waits 120 s
+      expect((await exec(1)).status).toBe('done');
+      t += 60;
+      expect((await exec(2)).status).toBe('done');
+      expect(wallets.map((w) => w.sent.length)).toEqual([1, 1, 1]);
+    });
+
+    it('does not send once another owner executed: the moved Safe nonce is checked before sending', async () => {
+      const { proposalId, settlement } = await signedRound();
+      const sender = new RecordingWallet(Wallet.createRandom().privateKey);
+      // Root still unset at the first check, posted by the time of the nonce check.
+      chainState.roots = ['0x' + '00'.repeat(32), settlement.root];
+      chainState.nonce = 5n;
+      expect((await executeEpochTier2({ ...base(), sender, proposalId })).status).toBe('already-done');
+      expect(sender.sent).toHaveLength(0);
+
+      chainState.roots = [];
+      await expect(executeEpochTier2({ ...base(), sender, proposalId })).rejects.toThrow(/nonce moved/);
+      expect(sender.sent).toHaveLength(0);
+    });
   });
 
   it('settles on the majority root and the dissenting owner refuses to sign', async () => {
