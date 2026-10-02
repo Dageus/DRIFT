@@ -11,6 +11,7 @@ import { balancesOf, fund, status, sweep, TRANSFER_GAS, type Log } from './ops.j
 import { measure, writeMeasured } from './measure.js';
 import { feeHistory, feeReport, printFeeReport } from './fees.js';
 import { analyze, indexerCheck, loadEvents, renderFiles, writeFiles } from './analyze/index.js';
+import { deployExperiment } from './setup.js';
 
 const CONTRACTS_DIR = fileURLToPath(new URL('../../contracts', import.meta.url));
 
@@ -25,12 +26,15 @@ const USAGE = `usage: drift-e2e <command> [options]
   measure --config <file>               run every action once on a local anvil fork of the config's
                                         chain (never broadcasts there); writes <out>/gas-measured.json
   fees    --config <file> [--blocks <n>] [--caps 1,2,5]   base-fee percentiles from eth_feeHistory (read-only)
+  deploy  --config <file>               deploy and configure the experiment (contracts, schema, Safe,
+                                        Tier 1 and Tier 2 contexts, members); resumable, never repeats
+                                        a transaction; writes <out>/deployment.json and deploy-state.json
 
   analyze <dir...> [--out <dir>]        recorder JSONL logs -> tables (CSV, LaTeX, summary.json);
           [--indexer-rpc-env <VAR> --eas <addr> --schema <uid> [--from-block <n>]]
                                         also check each snapshot's attestation count against EAS logs
 
-  fund and sweep wait while the base fee is above the cap (--wait-minutes, default 60); they never pay more.
+  fund, sweep and deploy wait while the base fee is above the cap (--wait-minutes, default 60); they never pay more.
 
   common: --out <dir> (default ./e2e-run)
   environment: the variables the config names (RPC URL, experiment mnemonic, funder key)`;
@@ -194,6 +198,15 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env,
     const plan = readPlan(planPath);
     assertPlanMatches(plan, slots);
     const p = provider(cfg, env);
+
+    if (cmd === 'deploy') {
+      const rpcUrl = env[cfg.rpcUrlEnv]!;
+      const m = await deployExperiment({ cfg, mnemonic, provider: p, rpcUrl, contractsDir: str(args, 'contracts') ?? CONTRACTS_DIR, stateDir: dir, plan, log, waitMs: waitMs(args) });
+      for (const [tier, c] of Object.entries(m.contexts)) log(`${tier}: client ${c.client}, context ${c.contextUID}, epoch length ${c.epochLength} s`);
+      if (m.safe) log(`safe ${m.safe.address} (${m.safe.threshold}-of-${m.safe.owners.length})`);
+      log(`schema ${m.eas.schemaUID}; ${m.nodes.length} node(s); start block ${m.startBlock}`);
+      return 0;
+    }
 
     if (cmd === 'fund') {
       const funder = loadFunder(cfg.funder, env).connect(p);

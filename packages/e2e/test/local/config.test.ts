@@ -41,4 +41,16 @@ describe('experiment config', () => {
     expect(() => parseExperimentConfig(baseConfig({ tier2: { epochs: 2, owners: 3, threshold: 4 } }))).toThrow(/tier2.threshold/);
     expect(() => parseExperimentConfig(baseConfig({ attestations: { perNodePerRound: 6, rounds: 1 } }))).toThrow(/below nodes/);
   });
+
+  it('defaults and checks the deployment settings', () => {
+    const cfg = parseExperimentConfig(baseConfig());
+    expect(cfg.runTag).toBe('drift-e2e');
+    expect(cfg.timing).toEqual({ epochLengthSeconds: 3600, disputeWindowSeconds: 900, responseWindowSeconds: 900 });
+    expect(cfg.eas.address).toBe('0xC2679fBD37d54388Ce493F1DB75320D236e1815e');
+    expect(() => parseExperimentConfig(baseConfig({ runTag: 'Bad Tag' }))).toThrow(/runTag/);
+    expect(() => parseExperimentConfig(baseConfig({ timing: { epochLengthSeconds: 200, disputeWindowSeconds: 100, responseWindowSeconds: 100 } }))).toThrow(
+      /must exceed disputeWindowSeconds \+ responseWindowSeconds/
+    );
+    expect(() => parseExperimentConfig(baseConfig({ eas: { address: '0x1234' } }))).toThrow(/eas.address/);
+  });
 });

@@ -78,6 +78,21 @@ With `attestations.batch` > 1, each node's attestations of a round go out in `mu
 | required (from empty keys, incl. 0.03 reserve) | 0.628 ETH | 1.914 ETH |
 | headroom | 21% | 23% |
 
+## Deployment
+
+`drift-e2e deploy --config <file>` sets the experiment up on the target chain, from the experiment mnemonic only (through the deployment-key guard below), and only after `plan` has written `funding-plan.json` for the same keys:
+
+1. the contract stack (`Deploy.s.sol`);
+2. an EAS schema unique to the run: `uint256 score, uint256 drift_<runTag>` (all-uint256, as the engine protocol requires);
+3. for Tier 2, a Safe with the configured owners and threshold, created through the canonical Safe v1.4.1 factory at a predictable address, and funded with two settlement bonds;
+4. one context per tier with epochs (`drift-e2e.<runTag>.tier1` / `.tier2`): the client, its dispute and response windows and bonds, every node registered and given the member role (the watcher's key too, in the Tier 1 context), and the epoch length last, so the epoch anchor follows every registration.
+
+It writes `deployment.json` (addresses, context UIDs, client addresses, the Safe, the schema UID, the start block for log scans), which the later phases read.
+
+`deploy` can be interrupted at any point and run again. Every step first checks chain state, so a step already done is never sent again; every transaction is signed and saved to `deploy-state.json` before it is broadcast, and on resume a saved transaction is waited for if pending, re-broadcast byte for byte if the network never saw it, or reconciled from chain state if its nonce was used by something else. A stack deployment interrupted inside forge resumes with `forge script --resume`. Re-running a completed deployment sends nothing. `runTag` names the deployment: the same tag resumes it, a new tag starts a fresh one. Settings the client allows only once (windows, epoch length) are checked against the config and refused if they differ.
+
+Experiment config fields used here: `runTag`, `timing` (`epochLengthSeconds`, default 3600; `disputeWindowSeconds` and `responseWindowSeconds`, default 900 each; the epoch must exceed their sum) and `eas` (`address`, `schemaRegistry`, default the canonical Sepolia deployment).
+
 ## Safety
 
 `fund`:

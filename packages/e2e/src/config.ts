@@ -43,7 +43,20 @@ export interface ExperimentConfig {
   reserveWei: bigint;
   /** Include the one-time contract deployment in the plan (false when reusing a deployment). */
   deploy: boolean;
+  /**
+   * Names this experiment on chain: context names, the schema's tag field and the Safe's salt
+   * derive from it, so a re-run with the same tag resumes the same deployment and a new tag starts
+   * a fresh one. Lowercase letters, digits and dashes.
+   */
+  runTag: string;
+  /** Epoch length and dispute/response windows set on both clients, in seconds. */
+  timing: { epochLengthSeconds: number; disputeWindowSeconds: number; responseWindowSeconds: number };
+  /** EAS and its schema registry on the target chain (defaults: the canonical Sepolia deployment). */
+  eas: { address: string; schemaRegistry: string };
 }
+
+export const SEPOLIA_EAS_ADDRESS = '0xC2679fBD37d54388Ce493F1DB75320D236e1815e';
+export const SEPOLIA_SCHEMA_REGISTRY_ADDRESS = '0x0a7E2Ff54e76B8E6659aedc9103FB21c038050D0';
 
 /** Contract floors (WeightedGovernanceClient.MIN_SETTLEMENT_BOND / MIN_CHALLENGE_BOND). */
 export const MIN_BOND_WEI = parseEther('0.001');
@@ -114,7 +127,7 @@ export function parseExperimentConfig(input: unknown): ExperimentConfig {
   const root = c.obj(input, 'config') ?? {};
   const known = new Set([
     'chainId', 'rpcUrlEnv', 'mnemonicEnv', 'funder', 'nodes', 'attestations', 'tier1', 'tier2',
-    'adversarial', 'claims', 'governance', 'bonds', 'gas', 'margin', 'reserveEth', 'deploy'
+    'adversarial', 'claims', 'governance', 'bonds', 'gas', 'margin', 'reserveEth', 'deploy', 'runTag', 'timing', 'eas'
   ]);
   for (const k of Object.keys(root)) if (!known.has(k)) c.fail(k, 'unknown field (typo?)');
 
@@ -195,9 +208,36 @@ export function parseExperimentConfig(input: unknown): ExperimentConfig {
     else deploy = root.deploy;
   }
 
+  const runTag = c.str(root.runTag, 'runTag', false) ?? 'drift-e2e';
+  if (!/^[a-z0-9][a-z0-9-]{0,31}$/.test(runTag)) c.fail('runTag', 'expected 1-32 lowercase letters, digits or dashes, starting with a letter or digit');
+
+  const tm = c.obj(root.timing, 'timing') ?? {};
+  const timing = {
+    epochLengthSeconds: c.int(tm.epochLengthSeconds, 'timing.epochLengthSeconds', 3600),
+    disputeWindowSeconds: c.int(tm.disputeWindowSeconds, 'timing.disputeWindowSeconds', 900),
+    responseWindowSeconds: c.int(tm.responseWindowSeconds, 'timing.responseWindowSeconds', 900)
+  };
+  if (timing.disputeWindowSeconds === 0) c.fail('timing.disputeWindowSeconds', 'must be positive');
+  if (timing.responseWindowSeconds === 0) c.fail('timing.responseWindowSeconds', 'must be positive');
+  // postEpochRoot requires epochLength > disputeWindow + responseWindow (WindowsExceedEpochLength).
+  if (timing.epochLengthSeconds <= timing.disputeWindowSeconds + timing.responseWindowSeconds) {
+    c.fail('timing.epochLengthSeconds', 'must exceed disputeWindowSeconds + responseWindowSeconds (the client refuses roots otherwise)');
+  }
+
+  const ea = c.obj(root.eas, 'eas') ?? {};
+  const isAddr = (v: unknown, path: string, def: string): string => {
+    const s = v === undefined ? def : v;
+    if (typeof s !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(s)) {
+      c.fail(path, 'expected a 20-byte hex address');
+      return def;
+    }
+    return s;
+  };
+  const eas = { address: isAddr(ea.address, 'eas.address', SEPOLIA_EAS_ADDRESS), schemaRegistry: isAddr(ea.schemaRegistry, 'eas.schemaRegistry', SEPOLIA_SCHEMA_REGISTRY_ADDRESS) };
+
   if (c.problems.length) throw new ExperimentConfigError(c.problems);
   return {
     chainId: BigInt(chainId), rpcUrlEnv, mnemonicEnv, funder, nodes, attestations, tier1, tier2, adversarial,
-    claims, governance, bonds, gas, marginBps, reserveWei, deploy
+    claims, governance, bonds, gas, marginBps, reserveWei, deploy, runTag, timing, eas
   };
 }
