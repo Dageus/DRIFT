@@ -122,12 +122,20 @@ export async function answerChallenges(
   }
 }
 
-/** Withdraws the bonds of finalized epochs among the latest `bondScanDepth`. */
-export async function withdrawBonds(d: DisputeDeps, state: ClientState, now: bigint): Promise<void> {
+/**
+ * Withdraws the bonds of finalized epochs among the latest `bondScanDepth`. `delay(epoch)` defers
+ * this operator's withdrawal by that many seconds past the end of the dispute window, so several
+ * operators of one settler (the owners of a Safe) do not all send it and all but one revert.
+ */
+export async function withdrawBonds(d: DisputeDeps, state: ClientState, now: bigint, delay?: (epoch: bigint) => Promise<bigint>): Promise<void> {
   const lowest = state.currentEpoch > BigInt(d.bondScanDepth) ? state.currentEpoch - BigInt(d.bondScanDepth) + 1n : 1n;
   for (let e = state.currentEpoch; e >= lowest; e--) {
     if ((await d.chain.epochBondAmount(e)) === 0n) continue;
     if (!(await isFinalized(d.chain, state, e, now))) continue;
+    if (delay) {
+      const wait = await delay(e);
+      if (wait > 0n && now <= (await d.chain.epochPostedAt(e)) + state.disputeWindow + wait) continue;
+    }
     const rec = recOf(d);
     try {
       await rec.action('bond.withdraw', () => d.actions.withdrawSettlementBond(e), { epoch: e });

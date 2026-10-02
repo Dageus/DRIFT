@@ -22,6 +22,12 @@ export interface Tier2Steps {
   currentRound(epoch: bigint): Promise<{ round: bigint; proposalId: string } | null>;
   /** open, agreed or dead (roundStatusTier2). */
   roundStatus(proposalId: string): Promise<RoundStatus>;
+  /**
+   * O1 for `epoch`: the head the snapshot uses has passed its boundary. Round 0 is proposed only
+   * once this holds, since owners cannot commit before it; a proposal made earlier would spend its
+   * commit window waiting for finality (about 13-19 minutes on Sepolia) and die. Omitted: no wait.
+   */
+  synced?(epoch: bigint): Promise<boolean>;
   propose(epoch: bigint, round: bigint): Promise<void>;
   commit(proposalId: string): Promise<StepStatus>;
   reveal(proposalId: string): Promise<StepStatus>;
@@ -29,6 +35,12 @@ export interface Tier2Steps {
   sign(proposalId: string): Promise<StepStatus>;
   /** Submits from the hot wallet once a threshold of eligible signatures exists. */
   execute(proposalId: string): Promise<StepStatus>;
+  /**
+   * Seconds this owner waits, past the dispute window, before withdrawing `epoch`'s bond: 0 for
+   * the owner elected for that epoch, rank x grace for the others, so normally one owner sends
+   * it. Omitted: no wait.
+   */
+  withdrawDelay?(epoch: bigint): Promise<bigint>;
 }
 
 export interface Tier2JobDeps extends DisputeDeps {
@@ -80,7 +92,7 @@ export async function runTier2Owner(d: Tier2JobDeps, status: ContextStatus): Pro
     }
   }
 
-  await withdrawBonds(d, state, now);
+  await withdrawBonds(d, state, now, d.steps.withdrawDelay?.bind(d.steps));
 }
 
 async function driveRound(
@@ -92,6 +104,10 @@ async function driveRound(
   // Start round 0, or replace a dead round with the next one, unless maxRounds is reached.
   let proposed: 'done' | 'already-done' = 'already-done';
   let current = await d.steps.currentRound(epoch);
+  if (!current && d.steps.synced && !(await d.steps.synced(epoch))) {
+    status.nextAction = `epoch ${epoch}: waiting for the head to pass its boundary (O1) before proposing`;
+    return;
+  }
   if (!current) {
     proposed = await propose(d, epoch, 0n);
     current = await d.steps.currentRound(epoch);

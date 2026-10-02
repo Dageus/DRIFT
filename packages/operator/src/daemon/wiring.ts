@@ -1,7 +1,7 @@
 import * as path from 'path';
-import { Contract, JsonRpcProvider, type Provider, type Signer } from 'ethers';
+import { Contract, JsonRpcProvider, id, type Provider, type Signer } from 'ethers';
 import type { Logger } from 'pino';
-import { DriftConfigError, DriftSettler, type IAttestationProvider } from '@drift-network/sdk';
+import { DriftConfigError, DriftSettler, checkEpochSynchronized, type IAttestationProvider } from '@drift-network/sdk';
 import { EASProvider } from '@drift-network/sdk/providers';
 import { LocalEpochEngine, type IEpochEngine } from '@drift-network/sdk/engines';
 import { IPFSTreeTransport, resolveEpochTree, type IMerkleStore, type ITreeTransport } from '@drift-network/sdk/merkle';
@@ -12,6 +12,7 @@ import { settleEpochTier1 } from '../pipeline/tier1.js';
 import {
   commitEpochTier2,
   executeEpochTier2,
+  executorRank,
   latestRoundTier2,
   proposeEpochTier2,
   roundStatusTier2,
@@ -69,6 +70,12 @@ export function makeTier2Steps(p: {
   return {
     currentRound: (epoch) => latestRoundTier2(base, epoch),
     roundStatus: (proposalId) => roundStatusTier2(base, proposalId),
+    withdrawDelay: async (epoch) => {
+      const owners = await base.safeSettler.owners();
+      return BigInt(executorRank(id(`withdraw:${epoch}`), owners, await self) * p.executeGraceSeconds);
+    },
+    synced: async (epoch) =>
+      (await checkEpochSynchronized(compute.snapshot.provider, base.safeSettler.client, epoch, compute.snapshot.blockTag ?? 'finalized')).synced,
     propose: async (epoch, round) => {
       await proposeEpochTier2({ ...base, proposer: owner, epoch, round, commitWindow: p.commitWindow, revealWindow: p.revealWindow });
     },

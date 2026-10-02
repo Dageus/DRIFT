@@ -24,6 +24,8 @@ class FakeSteps implements Tier2Steps {
   calls: { step: Step; proposalId: string }[] = [];
   results: Partial<Record<Step, StepStatus | Error>> = {};
   raceOnPropose = false;
+  synced?: (epoch: bigint) => Promise<boolean>;
+  withdrawDelay?: (epoch: bigint) => Promise<bigint>;
   pid = (round: bigint) => id(`proposal-${round}`);
   async currentRound() {
     const r = this.rounds.length - 1;
@@ -80,6 +82,34 @@ describe('runTier2Owner', () => {
     expect(t.steps.proposeCalls).toEqual([0n]);
     expect(t.status.tier2!.steps.propose).toBe('already-done');
     expect(t.status.nextAction).toBe('epoch 1 settled through the Safe');
+  });
+
+  it('proposes round 0 only once the head has passed the boundary (O1)', async () => {
+    const t = setup();
+    let synced = false;
+    t.steps.synced = async () => synced;
+    t.chain.now = 1101n;
+    await runTier2Owner(t.deps, t.status);
+    expect(t.steps.proposeCalls).toEqual([]);
+    expect(t.steps.calls).toEqual([]);
+    expect(t.status.nextAction).toMatch(/waiting for the head to pass its boundary \(O1\)/);
+
+    synced = true;
+    await runTier2Owner(t.deps, t.status);
+    expect(t.steps.proposeCalls).toEqual([0n]);
+  });
+
+  it('defers its bond withdrawal by its rank, so normally one owner sends it', async () => {
+    const t = setup();
+    t.chain.post(1n, '0x' + '11'.repeat(32), 1100n);
+    const disputeEnd = 1100n + (await t.chain.state()).disputeWindow;
+    t.steps.withdrawDelay = async () => 60n;
+    t.chain.now = disputeEnd + 1n;
+    await runTier2Owner(t.deps, t.status);
+    expect(t.actions.withdrawn).toEqual([]);
+    t.chain.now = disputeEnd + 61n;
+    await runTier2Owner(t.deps, t.status);
+    expect(t.actions.withdrawn).toEqual([1n]);
   });
 
   it('follows the stored proposal when another owner proposed first', async () => {
