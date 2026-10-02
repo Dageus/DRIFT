@@ -93,6 +93,18 @@ It writes `deployment.json` (addresses, context UIDs, client addresses, the Safe
 
 Experiment config fields used here: `runTag`, `timing` (`epochLengthSeconds`, default 3600; `disputeWindowSeconds` and `responseWindowSeconds`, default 900 each; the epoch must exceed their sum) and `eas` (`address`, `schemaRegistry`, default the canonical Sepolia deployment).
 
+## Run
+
+`drift-e2e run --config <file>` runs the experiment on the real chain against `deployment.json`, and `drift-e2e rehearse` runs the same code on a local anvil first (see RUNBOOK.md for the order of commands).
+
+- Daemons: the Tier 1 settler, one daemon per Tier 2 Safe owner (owner 0 serves the relay; the others write to it over HTTP, signed) and a watcher on the Tier 1 context, as `drift-operator run` child processes with generated configs (keys only in their environment) and the recorder on. Each Safe owner sends from its own hot wallet.
+- Members: attestation waves through EAS `multiAttest`, spread over the run; after each epoch finalizes, claims (proof from the operator API, checked against the on-chain root, or the tree from IPFS if the API fails); proposals and votes. They record `client.attest`, `client.claim`, `client.vote` and every transaction's receipt.
+- Scenarios, one of each by default: a node challenges its own included pair and the Tier 1 settler answers; a misbehaving settler posts a Tier 1 root omitting the watcher's pair, the watcher challenges, nobody answers and the challenge is claimed (the epoch rolls back and is re-posted); a dead Tier 2 round, with two owners offline until its reveal deadline passes.
+- Time: real mode follows the chain; a rehearsal fast-forwards chain time whenever every task is waiting for it.
+- Resume: every member transaction is journaled in `run-state.json` (signed and saved before it is broadcast), daemons are stateless, so re-running `run` after a crash continues without duplicates.
+- IPFS: real mode uses the node named by `services.ipfsApiUrlEnv`, or starts its own Kubo (repository under `<out>/kubo`, needs `ipfs` on PATH); a rehearsal uses an in-memory stand-in, and serves the EAS GraphQL queries from EAS's logs.
+- `plan` also prints the schedule: each tier's boundary-to-final path, its slack per epoch, and the run length.
+
 ## Safety
 
 `fund`:

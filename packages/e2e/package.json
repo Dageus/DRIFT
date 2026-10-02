@@ -23,7 +23,8 @@
   "dependencies": {
     "@drift-network/operator": "*",
     "@drift-network/sdk": "*",
-    "ethers": "^6.16.0"
+    "ethers": "^6.16.0",
+    "@openzeppelin/merkle-tree": "^1.0.8"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

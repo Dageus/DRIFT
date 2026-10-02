@@ -1,4 +1,4 @@
-import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, writeSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   Contract,
@@ -12,15 +12,15 @@ import {
   solidityPacked,
   toUtf8Bytes,
   type HDNodeWallet,
-  type JsonRpcProvider,
-  type TransactionReceipt
+  type JsonRpcProvider
 } from 'ethers';
 import { SAFE_V141 } from '@drift-network/operator';
 import type { ExperimentConfig } from './config.js';
 import { deriveSlots, deriveWallet, slotIndices, type KeySlot } from './keys.js';
 import { experimentDeployer, forgeEnv, type Deployment } from './deploy.js';
 import type { FundingPlan } from './plan.js';
-import { assertChain, waitForFeesUnderCap, type Log } from './ops.js';
+import { assertChain, type Log } from './ops.js';
+import { TxJournal, saveJson, type StepRecord } from './journal.js';
 import { spawnSync } from 'node:child_process';
 
 /** The member role every node holds in every context. */
@@ -99,20 +99,6 @@ export interface DeployManifest {
   watcher?: string;
 }
 
-interface StepRecord {
-  status: 'pending' | 'done';
-  at: string;
-  /** Transaction steps: the signed transaction is saved before it is broadcast. */
-  tx?: string;
-  from?: string;
-  nonce?: number;
-  raw?: string;
-  /** Set when the step was found already done on chain, with no transaction of ours. */
-  reconciled?: boolean;
-  gasUsed?: string;
-  block?: number;
-}
-
 interface StateFile {
   version: 1;
   chainId: string;
@@ -123,21 +109,7 @@ interface StateFile {
   steps: Record<string, StepRecord>;
 }
 
-/** Saves a JSON file atomically and durably: temp file, fsync, rename. */
-function saveJson(path: string, value: unknown): void {
-  const tmp = `${path}.tmp`;
-  const fd = openSync(tmp, 'w');
-  try {
-    writeSync(fd, JSON.stringify(value, null, 2) + '\n');
-    fsyncSync(fd);
-  } finally {
-    closeSync(fd);
-  }
-  renameSync(tmp, path);
-}
-
-/** Thrown by the fault-injection hooks the tests use to simulate a crash. */
-export class SimulatedCrash extends Error {}
+export { SimulatedCrash } from './journal.js';
 
 export interface DeployOptions {
   cfg: ExperimentConfig;
@@ -185,77 +157,24 @@ export async function deployExperiment(o: DeployOptions): Promise<DeployManifest
   state.startBlock ??= await provider.getBlockNumber();
   save();
 
-  let broadcasts = 0;
-  const done = (stepId: string, extra: Partial<StepRecord> = {}) => {
-    state.steps[stepId] = { ...state.steps[stepId], status: 'done', at: new Date().toISOString(), ...extra };
+  const done = (stepId: string) => {
+    state.steps[stepId] = { ...state.steps[stepId], status: 'done', at: new Date().toISOString() };
     save();
   };
-
-  const waitReceipt = async (hash: string): Promise<TransactionReceipt> => {
-    const r = await provider.waitForTransaction(hash, 1, o.receiptTimeoutMs ?? 30 * 60_000);
-    if (!r) throw new Error(`no receipt for ${hash} within the timeout; re-run deploy to resume`);
-    return r;
-  };
-
-  const finish = async (stepId: string, hash: string, isDone: () => Promise<boolean>): Promise<void> => {
-    const r = await waitReceipt(hash);
-    if (r.status !== 1) {
-      // A revert can mean another party already did it; only chain state decides.
-      if (await isDone()) return done(stepId, { gasUsed: r.gasUsed.toString(), block: r.blockNumber });
-      throw new Error(`step ${stepId}: transaction ${hash} reverted and the step is not done on chain; investigate before re-running`);
-    }
-    if (!(await isDone())) throw new Error(`step ${stepId}: ${hash} succeeded but the chain does not show the step done; investigate`);
-    done(stepId, { gasUsed: r.gasUsed.toString(), block: r.blockNumber });
-    log(`  ${stepId.padEnd(34)} ${r.gasUsed.toString().padStart(9)} gas`);
-  };
-
-  /** One transaction step, resumable as described above. */
+  const journal = new TxJournal({
+    provider,
+    chainId: cfg.chainId,
+    steps: state.steps,
+    save,
+    maxFeeWei: cfg.gas.maxFeeWei,
+    priorityFeeWei: cfg.gas.priorityFeeWei,
+    log,
+    waitMs: o.waitMs,
+    receiptTimeoutMs: o.receiptTimeoutMs,
+    faults: o.faults
+  });
   const txStep = async (stepId: string, signer: HDNodeWallet, req: { to: string; data?: string; value?: bigint }, isDone: () => Promise<boolean>): Promise<void> => {
-    const rec = state.steps[stepId];
-    if (rec?.status === 'done') {
-      if (!(await isDone())) throw new Error(`step ${stepId} is recorded done but the chain disagrees; is --state-dir from another deployment?`);
-      return;
-    }
-    if (rec?.status === 'pending' && rec.tx) {
-      const known = (await provider.getTransactionReceipt(rec.tx)) ?? (await provider.getTransaction(rec.tx));
-      if (known) return finish(stepId, rec.tx, isDone);
-      const used = (await provider.getTransactionCount(rec.from!, 'latest')) > rec.nonce!;
-      if (used) {
-        // Our nonce went to some other transaction; the chain decides whether the step happened.
-        if (await isDone()) return done(stepId, { reconciled: true });
-      } else {
-        log(`  ${stepId}: re-broadcasting the saved transaction ${rec.tx}`);
-        await provider.broadcastTransaction(rec.raw!);
-        return finish(stepId, rec.tx, isDone);
-      }
-    }
-    if (await isDone()) {
-      log(`  ${stepId.padEnd(34)} already on chain`);
-      return done(stepId, { reconciled: true });
-    }
-    const from = signer.address;
-    const fees = await waitForFeesUnderCap(provider, cfg.gas.maxFeeWei, cfg.gas.priorityFeeWei, { waitMs: o.waitMs ?? 60 * 60_000, log });
-    const nonce = await provider.getTransactionCount(from, 'pending');
-    const estimate = await provider.estimateGas({ from, to: req.to, data: req.data, value: req.value });
-    const raw = await signer.signTransaction({
-      type: 2,
-      chainId: cfg.chainId,
-      to: req.to,
-      data: req.data,
-      value: req.value ?? 0n,
-      nonce,
-      gasLimit: (estimate * 13n) / 10n,
-      maxFeePerGas: fees.maxFeePerGas,
-      maxPriorityFeePerGas: fees.maxPriorityFeePerGas
-    });
-    const hash = keccak256(raw);
-    state.steps[stepId] = { status: 'pending', at: new Date().toISOString(), tx: hash, from, nonce, raw };
-    save();
-    broadcasts++;
-    if (o.faults?.crashBeforeBroadcast === broadcasts) throw new SimulatedCrash(`simulated crash before broadcasting ${stepId}`);
-    await provider.broadcastTransaction(raw);
-    if (o.faults?.crashAfterBroadcast === broadcasts) throw new SimulatedCrash(`simulated crash after broadcasting ${stepId}`);
-    await finish(stepId, hash, isDone);
+    await journal.step(stepId, signer, req, isDone);
   };
 
   const read = async <T>(c: Contract, fn: string, ...args: unknown[]): Promise<T> => (await c.getFunction(fn).staticCall(...args)) as T;

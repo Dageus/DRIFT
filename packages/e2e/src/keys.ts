@@ -22,9 +22,11 @@ export const LAYOUT = {
   deployer: 0,
   'tier1-settler': 1,
   'tier1-hot': 2,
-  'tier2-hot': 3,
+  // Index 3 was a single Tier 2 hot wallet. Each owner runs its own daemon and sends from its own
+  // hot wallet (one key must never be used by two processes at once, or their nonces collide).
   'watcher-hot': 4,
   tier2OwnerBase: 10,
+  tier2HotBase: 30,
   nodeBase: 1000
 } as const;
 
@@ -47,8 +49,8 @@ export function slotIndices(cfg: Pick<ExperimentConfig, 'nodes' | 'tier1' | 'tie
     out.push({ role: 'tier1-hot', ordinal: 0, index: LAYOUT['tier1-hot'] });
   }
   if (cfg.tier2.epochs > 0) {
-    out.push({ role: 'tier2-hot', ordinal: 0, index: LAYOUT['tier2-hot'] });
     for (let i = 0; i < cfg.tier2.owners; i++) out.push({ role: 'tier2-owner', ordinal: i, index: LAYOUT.tier2OwnerBase + i });
+    for (let i = 0; i < cfg.tier2.owners; i++) out.push({ role: 'tier2-hot', ordinal: i, index: LAYOUT.tier2HotBase + i });
   }
   if (cfg.adversarial.watcherChallenges > 0) out.push({ role: 'watcher-hot', ordinal: 0, index: LAYOUT['watcher-hot'] });
   for (let i = 0; i < cfg.nodes; i++) out.push({ role: 'node', ordinal: i, index: LAYOUT.nodeBase + i });

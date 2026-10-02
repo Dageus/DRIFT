@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { JsonRpcProvider, formatEther, formatUnits, parseEther } from 'ethers';
@@ -12,6 +12,11 @@ import { measure, writeMeasured } from './measure.js';
 import { feeHistory, feeReport, printFeeReport } from './fees.js';
 import { analyze, indexerCheck, loadEvents, renderFiles, writeFiles } from './analyze/index.js';
 import { deployExperiment } from './setup.js';
+import { estimateSchedule, formatDuration } from './schedule.js';
+import { readManifest } from './setup.js';
+import { runExperiment } from './run/run.js';
+import { rehearse } from './run/rehearse.js';
+import { startKubo } from './run/services.js';
 
 const CONTRACTS_DIR = fileURLToPath(new URL('../../contracts', import.meta.url));
 
@@ -26,6 +31,13 @@ const USAGE = `usage: drift-e2e <command> [options]
   measure --config <file>               run every action once on a local anvil fork of the config's
                                         chain (never broadcasts there); writes <out>/gas-measured.json
   fees    --config <file> [--blocks <n>] [--caps 1,2,5]   base-fee percentiles from eth_feeHistory (read-only)
+  rehearse --config <file> [--measured <gas.json>] [--fork]
+                                        the whole experiment on a local anvil (Sepolia's EAS and Safe code
+                                        at their addresses; --fork: a fork of the config's chain, much
+                                        slower), time fast-forwarded, every key at its planned balance;
+                                        then analyze and gas vs plan (never broadcasts to a real chain)
+  run     --config <file>               the experiment on the real chain against <out>/deployment.json:
+                                        daemons, members, scenarios; resumable (re-run after a crash)
   deploy  --config <file>               deploy and configure the experiment (contracts, schema, Safe,
                                         Tier 1 and Tier 2 contexts, members); resumable, never repeats
                                         a transaction; writes <out>/deployment.json and deploy-state.json
@@ -51,7 +63,7 @@ function parseArgs(argv: string[]): Args {
     const a = argv[i]!;
     if (a.startsWith('--')) {
       const next = argv[i + 1];
-      if (next !== undefined && !next.startsWith('--') && !['--yes', '--offline'].includes(a)) {
+      if (next !== undefined && !next.startsWith('--') && !['--yes', '--offline', '--fork'].includes(a)) {
         flags.set(a.slice(2), next);
         i++;
       } else flags.set(a.slice(2), true);
@@ -159,6 +171,15 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env,
       writePlan(planPath, plan);
       writeManifest(join(dir, 'keys-manifest.json'), slots);
       printPlan(plan, log);
+      const schedule = estimateSchedule(cfg);
+      log('');
+      log(`schedule (epoch ${cfg.timing.epochLengthSeconds} s, dispute ${cfg.timing.disputeWindowSeconds} s, response ${cfg.timing.responseWindowSeconds} s, finality ~${cfg.timing.finalitySeconds} s):`);
+      for (const t of schedule.tiers) {
+        log(`  ${t.tier}: ${t.epochs} epochs, boundary-to-final ${t.criticalPathSeconds} s, slack ${t.slackSeconds} s/epoch, about ${formatDuration(t.durationSeconds)}`);
+      }
+      log(`  run length about ${formatDuration(schedule.durationSeconds)} (tiers side by side)`);
+      for (const w of schedule.warnings) log(`  WARNING ${w}`);
+      writeFileSync(join(dir, 'schedule.json'), JSON.stringify(schedule, null, 2) + '\n');
       log(`wrote ${planPath}`);
       if (args.flags.has('offline')) return 0;
       const p = provider(cfg, env);
@@ -187,6 +208,24 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env,
       log(`wrote ${out} (${result.samples.length} transactions, fork block ${result.forkBlock})`);
       return 0;
     }
+    if (cmd === 'rehearse') {
+      const chain = args.flags.has('fork') ? 'fork' : 'local';
+      const forkUrl = env[cfg.rpcUrlEnv];
+      if (chain === 'fork' && !forkUrl) throw new Error(`environment variable ${cfg.rpcUrlEnv} is not set`);
+      const measured = str(args, 'measured');
+      const r = await rehearse({ cfg, mnemonic, forkUrl, chain, contractsDir: str(args, 'contracts') ?? CONTRACTS_DIR, outDir: dir, gas: gasTable(measured ? loadMeasured(measured) : {}), log });
+      log('');
+      log(`rehearsal finished in ${formatDuration(r.wallSeconds)}: tier1 ${r.summary.epochs.tier1} and tier2 ${r.summary.epochs.tier2} epochs; scenarios ${JSON.stringify(r.summary.scenarios)}`);
+      log(`data quality: ${r.dataQualityIssues} issue(s); tables in ${r.analysisDir}`);
+      log('gas used vs plan, per role (gas from receipts; "at cap" prices it at the plan\'s max fee, without the margin):');
+      for (const s of r.spend) {
+        const pct = s.plannedGas > 0n ? `${((Number(s.usedGas) / Number(s.plannedGas)) * 100).toFixed(1)}%` : '-';
+        log(`  ${s.role.padEnd(14)} ${String(s.keys).padStart(3)} key(s)  gas ${String(s.usedGas).padStart(11)} of ${String(s.plannedGas).padStart(11)} planned (${pct.padStart(6)})  at cap ${eth(s.usedAtCapWei).padStart(14)}  funded ${eth(s.targetWei).padStart(14)}  lowest key left ${(s.minLeftShare * 100).toFixed(1)}%`);
+      }
+      const used = r.spend.reduce((a, s) => a + s.usedAtCapWei, 0n);
+      log(`  total at cap ${eth(used)} of ${eth(r.plan.requiredWei)} required; at the rehearsal's own fees the keys spent ${eth(r.spentWei)} (bonds included)`);
+      return 0;
+    }
     if (cmd === 'fees') {
       const blocks = Number(str(args, 'blocks') ?? '5000');
       const caps = (str(args, 'caps') ?? '1,2,3,5,10,20').split(',');
@@ -205,6 +244,45 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env,
       for (const [tier, c] of Object.entries(m.contexts)) log(`${tier}: client ${c.client}, context ${c.contextUID}, epoch length ${c.epochLength} s`);
       if (m.safe) log(`safe ${m.safe.address} (${m.safe.threshold}-of-${m.safe.owners.length})`);
       log(`schema ${m.eas.schemaUID}; ${m.nodes.length} node(s); start block ${m.startBlock}`);
+      return 0;
+    }
+
+    if (cmd === 'run') {
+      const manifestPath = join(dir, 'deployment.json');
+      if (!existsSync(manifestPath)) throw new Error(`${manifestPath} not found; run deploy first`);
+      const manifest = readManifest(manifestPath);
+      let ipfsApiUrl = cfg.services.ipfsApiUrlEnv ? env[cfg.services.ipfsApiUrlEnv] : undefined;
+      let ipfsGatewayUrl = cfg.services.ipfsGatewayUrlEnv ? env[cfg.services.ipfsGatewayUrlEnv] : undefined;
+      let kubo: Awaited<ReturnType<typeof startKubo>> | undefined;
+      if (!ipfsApiUrl) {
+        const base = cfg.run.apiPortBase;
+        kubo = await startKubo(join(dir, 'kubo'), { api: base + 10, gateway: base + 11, swarm: base + 12 }, log);
+        ipfsApiUrl = kubo.apiUrl;
+        ipfsGatewayUrl = kubo.gatewayUrl;
+      }
+      try {
+        const rpcUrl = env[cfg.rpcUrlEnv]!;
+        const s = await runExperiment({
+          cfg,
+          manifest,
+          mnemonic,
+          provider: p,
+          stateDir: dir,
+          mode: 'real',
+          services: { rpcUrl, easGraphqlUrl: cfg.services.easGraphqlUrl, ipfsApiUrl, ipfsGatewayUrl: ipfsGatewayUrl ?? ipfsApiUrl, ipfsAuthorizationEnv: cfg.services.ipfsAuthorizationEnv },
+          timing: {
+            blockTag: 'finalized',
+            pollIntervalSeconds: cfg.run.pollIntervalSeconds,
+            commitWindowSeconds: cfg.tier2.commitWindowSeconds,
+            revealWindowSeconds: cfg.tier2.revealWindowSeconds,
+            executeGraceSeconds: cfg.tier2.executeGraceSeconds
+          },
+          log
+        });
+        log(`run finished: events in ${s.eventsDir}; analyze with: drift-e2e analyze ${s.eventsDir} --out ${join(dir, 'analysis')}`);
+      } finally {
+        await kubo?.stop();
+      }
       return 0;
     }
 

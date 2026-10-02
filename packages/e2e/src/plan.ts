@@ -89,9 +89,14 @@ export function keyActions(cfg: ExperimentConfig, slot: KeySlot): { actions: [Ac
     case 'tier1-hot':
       a.push(['respondToChallenge', ans], ['withdrawSettlementBond', cfg.tier1.epochs]);
       break;
-    case 'tier2-hot':
-      a.push(['safeExecSettlement', cfg.tier2.epochs], ['withdrawSettlementBond', cfg.tier2.epochs]);
+    case 'tier2-hot': {
+      // One per owner. The executor rotates between the signers of each round, and a backup
+      // executes only if the elected one did not, so each owner's share is about epochs/owners;
+      // 1.5x that covers an uneven rotation, and an owner that runs dry is covered by a backup.
+      const shareOf = Math.min(cfg.tier2.epochs, Math.ceil((1.5 * cfg.tier2.epochs) / Math.max(1, cfg.tier2.owners)));
+      a.push(['safeExecSettlement', shareOf], ['withdrawSettlementBond', shareOf]);
       break;
+    }
     case 'watcher-hot':
       a.push(['registerNode', 1], ['challengeOmission', wc], ['claimUnansweredChallenge', wc]);
       capitalWei = BigInt(wc) * cb;

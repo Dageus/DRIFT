@@ -22,7 +22,17 @@ export interface ExperimentConfig {
   /** batch > 1 sends each node's attestations of a round in multiAttest transactions of up to `batch`. */
   attestations: { perNodePerRound: number; rounds: number; batch: number };
   tier1: { epochs: number };
-  tier2: { epochs: number; owners: number; threshold: number };
+  tier2: {
+    epochs: number;
+    owners: number;
+    threshold: number;
+    /** Commit and reveal windows of each Tier 2 round, seconds (wall clock). */
+    commitWindowSeconds: number;
+    revealWindowSeconds: number;
+    /** Seconds a backup executor waits per rank. */
+    executeGraceSeconds: number;
+    maxRounds: number;
+  };
   adversarial: {
     /** Tier 1 settler deliberately omits a pair, the node self-challenges, nobody answers, settler re-posts. */
     omissionChallenges: number;
@@ -49,8 +59,19 @@ export interface ExperimentConfig {
    * a fresh one. Lowercase letters, digits and dashes.
    */
   runTag: string;
-  /** Epoch length and dispute/response windows set on both clients, in seconds. */
-  timing: { epochLengthSeconds: number; disputeWindowSeconds: number; responseWindowSeconds: number };
+  /**
+   * Epoch length and dispute/response windows set on both clients, in seconds, plus the expected
+   * wait from a boundary until the finalized head passes it (O1), used only for the schedule
+   * estimate (Sepolia: 768-1152 s, about 960 on average).
+   */
+  timing: { epochLengthSeconds: number; disputeWindowSeconds: number; responseWindowSeconds: number; finalitySeconds: number };
+  /** How the run drives the operator daemons. */
+  run: { pollIntervalSeconds: number; apiPortBase: number };
+  /**
+   * Off-chain services of a real run. A rehearsal on a fork serves both itself (a log-based
+   * stand-in for the EAS indexer, an in-memory IPFS), so these are read only in real mode.
+   */
+  services: { easGraphqlUrl: string; ipfsApiUrlEnv?: string; ipfsGatewayUrlEnv?: string; ipfsAuthorizationEnv?: string };
   /** EAS and its schema registry on the target chain (defaults: the canonical Sepolia deployment). */
   eas: { address: string; schemaRegistry: string };
 }
@@ -127,7 +148,7 @@ export function parseExperimentConfig(input: unknown): ExperimentConfig {
   const root = c.obj(input, 'config') ?? {};
   const known = new Set([
     'chainId', 'rpcUrlEnv', 'mnemonicEnv', 'funder', 'nodes', 'attestations', 'tier1', 'tier2',
-    'adversarial', 'claims', 'governance', 'bonds', 'gas', 'margin', 'reserveEth', 'deploy', 'runTag', 'timing', 'eas'
+    'adversarial', 'claims', 'governance', 'bonds', 'gas', 'margin', 'reserveEth', 'deploy', 'runTag', 'timing', 'eas', 'run', 'services'
   ]);
   for (const k of Object.keys(root)) if (!known.has(k)) c.fail(k, 'unknown field (typo?)');
 
@@ -160,8 +181,14 @@ export function parseExperimentConfig(input: unknown): ExperimentConfig {
   const tier2 = {
     epochs: c.int(t2.epochs, 'tier2.epochs', 0),
     owners: c.int(t2.owners, 'tier2.owners', 3, MAX_TIER2_OWNERS),
-    threshold: c.int(t2.threshold, 'tier2.threshold', 2, MAX_TIER2_OWNERS)
+    threshold: c.int(t2.threshold, 'tier2.threshold', 2, MAX_TIER2_OWNERS),
+    commitWindowSeconds: c.int(t2.commitWindowSeconds, 'tier2.commitWindowSeconds', 90),
+    revealWindowSeconds: c.int(t2.revealWindowSeconds, 'tier2.revealWindowSeconds', 90),
+    executeGraceSeconds: c.int(t2.executeGraceSeconds, 'tier2.executeGraceSeconds', 60),
+    maxRounds: c.int(t2.maxRounds, 'tier2.maxRounds', 5)
   };
+  if (tier2.commitWindowSeconds === 0 || tier2.revealWindowSeconds === 0) c.fail('tier2', 'commit and reveal windows must be positive');
+  if (tier2.maxRounds === 0) c.fail('tier2.maxRounds', 'must be at least 1');
   if (tier2.epochs > 0 && (tier2.threshold < 1 || tier2.threshold > tier2.owners)) c.fail('tier2.threshold', `must be between 1 and owners (${tier2.owners})`);
   if (tier1.epochs + tier2.epochs === 0) c.fail('tier1.epochs', 'at least one tier needs epochs');
 
@@ -215,7 +242,8 @@ export function parseExperimentConfig(input: unknown): ExperimentConfig {
   const timing = {
     epochLengthSeconds: c.int(tm.epochLengthSeconds, 'timing.epochLengthSeconds', 3600),
     disputeWindowSeconds: c.int(tm.disputeWindowSeconds, 'timing.disputeWindowSeconds', 900),
-    responseWindowSeconds: c.int(tm.responseWindowSeconds, 'timing.responseWindowSeconds', 900)
+    responseWindowSeconds: c.int(tm.responseWindowSeconds, 'timing.responseWindowSeconds', 900),
+    finalitySeconds: c.int(tm.finalitySeconds, 'timing.finalitySeconds', 960)
   };
   if (timing.disputeWindowSeconds === 0) c.fail('timing.disputeWindowSeconds', 'must be positive');
   if (timing.responseWindowSeconds === 0) c.fail('timing.responseWindowSeconds', 'must be positive');
@@ -235,9 +263,20 @@ export function parseExperimentConfig(input: unknown): ExperimentConfig {
   };
   const eas = { address: isAddr(ea.address, 'eas.address', SEPOLIA_EAS_ADDRESS), schemaRegistry: isAddr(ea.schemaRegistry, 'eas.schemaRegistry', SEPOLIA_SCHEMA_REGISTRY_ADDRESS) };
 
+  const rn = c.obj(root.run, 'run') ?? {};
+  const run = { pollIntervalSeconds: c.int(rn.pollIntervalSeconds, 'run.pollIntervalSeconds', 10), apiPortBase: c.int(rn.apiPortBase, 'run.apiPortBase', 18700, 65000) };
+  if (run.pollIntervalSeconds === 0) c.fail('run.pollIntervalSeconds', 'must be at least 1');
+  const sv = c.obj(root.services, 'services') ?? {};
+  const services = {
+    easGraphqlUrl: c.str(sv.easGraphqlUrl, 'services.easGraphqlUrl', false) ?? 'https://sepolia.easscan.org/graphql',
+    ipfsApiUrlEnv: sv.ipfsApiUrlEnv === undefined ? undefined : c.envName(sv.ipfsApiUrlEnv, 'services.ipfsApiUrlEnv'),
+    ipfsGatewayUrlEnv: sv.ipfsGatewayUrlEnv === undefined ? undefined : c.envName(sv.ipfsGatewayUrlEnv, 'services.ipfsGatewayUrlEnv'),
+    ipfsAuthorizationEnv: sv.ipfsAuthorizationEnv === undefined ? undefined : c.envName(sv.ipfsAuthorizationEnv, 'services.ipfsAuthorizationEnv')
+  };
+
   if (c.problems.length) throw new ExperimentConfigError(c.problems);
   return {
     chainId: BigInt(chainId), rpcUrlEnv, mnemonicEnv, funder, nodes, attestations, tier1, tier2, adversarial,
-    claims, governance, bonds, gas, marginBps, reserveWei, deploy, runTag, timing, eas
+    claims, governance, bonds, gas, marginBps, reserveWei, deploy, runTag, timing, eas, run, services
   };
 }
