@@ -55,6 +55,8 @@ export interface JournalOptions {
   gasLimitBps?: bigint;
   /** How often to poll for a receipt. Default 2000 ms. */
   receiptPollMs?: number;
+  /** How long to keep re-reading chain state after a receipt before concluding the step is not done. Default 30000 ms. */
+  readLagMs?: number;
 }
 
 export interface StepOptions {
@@ -123,15 +125,25 @@ export class TxJournal {
         block: r.blockNumber
       });
     }
+    // The receipt and the read that follows may be served by different nodes of a load-balanced
+    // RPC, and the second can lag a block behind: ask again for a while before believing "not done".
+    const settled = async (): Promise<boolean> => {
+      const until = Date.now() + (this.o.readLagMs ?? 30_000);
+      for (;;) {
+        if (await isDone()) return true;
+        if (Date.now() >= until) return false;
+        await new Promise((res) => setTimeout(res, Math.min(1_000, this.o.receiptPollMs ?? 2_000)));
+      }
+    };
     if (r.status !== 1) {
       // A revert can mean another party already did it; only chain state decides.
-      if (await isDone()) {
+      if (await settled()) {
         this.done(stepId, { gasUsed: r.gasUsed.toString(), block: r.blockNumber });
         return r;
       }
       throw new Error(`step ${stepId}: transaction ${hash} reverted and the step is not done on chain; investigate before re-running`);
     }
-    if (!(await isDone())) throw new Error(`step ${stepId}: ${hash} succeeded but the chain does not show the step done; investigate`);
+    if (!(await settled())) throw new Error(`step ${stepId}: ${hash} succeeded but the chain does not show the step done; investigate`);
     this.done(stepId, { gasUsed: r.gasUsed.toString(), block: r.blockNumber, result: result?.(r) });
     if (opts.verbose ?? true) this.o.log(`  ${stepId.padEnd(34)} ${r.gasUsed.toString().padStart(9)} gas`);
     return r;
