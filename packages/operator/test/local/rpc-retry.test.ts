@@ -89,7 +89,7 @@ describe('RetryingJsonRpcProvider', () => {
     const s = await rpcServer((batch) => new Set(batch.map((r) => r.id)));
     server = s.server;
     provider = new RetryingJsonRpcProvider(s.url, 1, fast);
-    await expect(provider.getBalance(addr(9))).rejects.toThrow();
+    await expect(provider.getBalance(addr(9))).rejects.toThrow(/rate limited after 4 retries: Too Many Requests/);
     expect(s.batches).toHaveLength(fast.maxRetries + 1);
   });
 

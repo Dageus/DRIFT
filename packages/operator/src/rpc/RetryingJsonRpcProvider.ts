@@ -59,6 +59,7 @@ export class RetryingJsonRpcProvider extends JsonRpcProvider {
     const all = Array.isArray(payload) ? payload : [payload];
     const answered = new Map<number, Reply>();
     let pending = all;
+    let limit: { code?: unknown; message?: unknown; data?: unknown } | undefined;
     for (let attempt = 0; ; attempt++) {
       const last = attempt >= this.retry.maxRetries;
       let replies: unknown[];
@@ -70,6 +71,7 @@ export class RetryingJsonRpcProvider extends JsonRpcProvider {
         continue;
       }
       for (const r of replies) {
+        if (isRateLimited(r)) limit = ((r as { error?: object }).error ?? r) as typeof limit;
         const id = (r as { id?: unknown })?.id;
         if (typeof id !== 'number') continue; // a bare error with no id answers nothing
         if (isRateLimited(r) && !last) continue;
@@ -78,7 +80,15 @@ export class RetryingJsonRpcProvider extends JsonRpcProvider {
       pending = pending.filter((p) => !answered.has(p.id));
       // Unanswered requests are resent only when the reply showed a rate limit; out of retries, or
       // from a provider that drops entries for another reason, ethers reports them as it would have.
-      if (pending.length === 0 || last || !replies.some(isRateLimited)) break;
+      if (pending.length === 0 || !replies.some(isRateLimited)) break;
+      if (last) {
+        // Still rate-limited after every retry: answer with the provider's own error, not ethers'
+        // "missing response", so the caller sees why (a per-second burst or an exhausted quota).
+        const reason = typeof limit?.message === 'string' ? limit.message : 'Too Many Requests';
+        const error = { code: Number(limit?.code ?? -32005), message: `rate limited after ${this.retry.maxRetries} retries: ${reason}`, data: limit?.data };
+        for (const p of pending) answered.set(p.id, { id: p.id, error });
+        break;
+      }
       await sleep(this.backoff(attempt));
     }
     return all.map((p) => answered.get(p.id)).filter((r): r is Reply => r !== undefined) as JsonRpcResult[];
