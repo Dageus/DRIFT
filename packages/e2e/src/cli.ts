@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { JsonRpcProvider, formatEther, formatUnits, parseEther } from 'ethers';
+import { RetryingJsonRpcProvider } from '@drift-network/operator';
 import { parseExperimentConfig, type ExperimentConfig } from './config.js';
 import { deriveSlots, deriveWallet, loadFunder, loadMnemonic, newMnemonic, slotIndices } from './keys.js';
 import { gasTable, loadMeasured } from './gas.js';
@@ -93,7 +94,7 @@ function provider(cfg: ExperimentConfig, env: NodeJS.ProcessEnv): JsonRpcProvide
   const url = env[cfg.rpcUrlEnv];
   if (!url) throw new Error(`environment variable ${cfg.rpcUrlEnv} is not set`);
   // No read cache: balances must be current.
-  return new JsonRpcProvider(url, undefined, { cacheTimeout: -1 });
+  return new RetryingJsonRpcProvider(url, undefined, { cacheTimeout: -1 });
 }
 
 const waitMs = (args: Args): number => Number(str(args, 'wait-minutes') ?? '60') * 60_000;
@@ -329,7 +330,7 @@ async function runAnalyze(args: Args, env: NodeJS.ProcessEnv, log: Log): Promise
     const schemaUID = str(args, 'schema');
     if (!url) throw new Error(`environment variable ${rpcEnv} is not set`);
     if (!eas || !schemaUID) throw new Error('the indexer check needs --eas <address> and --schema <uid>');
-    const provider = new JsonRpcProvider(url, undefined, { cacheTimeout: -1 });
+    const provider = new RetryingJsonRpcProvider(url, undefined, { cacheTimeout: -1 });
     try {
       indexer = await indexerCheck(analysis.events, { provider, eas, schemaUID, fromBlock: Number(str(args, 'from-block') ?? '0') });
     } finally {

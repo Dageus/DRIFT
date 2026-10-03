@@ -22,3 +22,6 @@ export { HttpSettlementRelay, relayRequestDigest, RELAY_PREFIX, SIGNER_HEADER, S
 
 // Event recorder: versioned JSONL log and derived metrics.
 export * from './recorder/index.js';
+
+// JSON-RPC provider that retries rate-limited requests.
+export { RetryingJsonRpcProvider, type RetryOptions } from './rpc/RetryingJsonRpcProvider.js';

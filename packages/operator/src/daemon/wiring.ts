@@ -1,5 +1,6 @@
 import * as path from 'path';
-import { Contract, JsonRpcProvider, id, type Provider, type Signer } from 'ethers';
+import { Contract, id, type Provider, type Signer } from 'ethers';
+import { RetryingJsonRpcProvider } from '../rpc/RetryingJsonRpcProvider.js';
 import type { Logger } from 'pino';
 import { DriftConfigError, DriftSettler, checkEpochSynchronized, type IAttestationProvider } from '@drift-network/sdk';
 import { EASProvider } from '@drift-network/sdk/providers';
@@ -102,7 +103,7 @@ const noActions = { respondToChallenge: refuse, withdrawSettlementBond: refuse, 
 
 function assemble(config: OperatorConfig, log: Logger, o: DaemonOverrides): Assembled {
   const env = o.env ?? process.env;
-  const provider = o.provider ?? new JsonRpcProvider(config.rpcUrl);
+  const provider = o.provider ?? new RetryingJsonRpcProvider(config.rpcUrl);
   const recording = buildRecorder(config, log);
   // Transactions sent outside a labeled action are recorded under the process scope.
   const processRec = recording?.recorder.scope();
