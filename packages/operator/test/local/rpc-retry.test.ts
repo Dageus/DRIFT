@@ -13,7 +13,7 @@ interface Req {
  * A JSON-RPC server for chain 1 that answers eth_getBalance with the address's last byte, and
  * lets each test decide, per HTTP request, which entries come back rate-limited.
  */
-async function rpcServer(limit: (batch: Req[], call: number) => 'http429' | Set<number>): Promise<{ url: string; batches: Req[][]; server: Server }> {
+async function rpcServer(limit: (batch: Req[], call: number) => 'http429' | Set<number>, port = 0): Promise<{ url: string; batches: Req[][]; server: Server }> {
   const batches: Req[][] = [];
   const server = createServer((req, res) => {
     let body = '';
@@ -37,7 +37,7 @@ async function rpcServer(limit: (batch: Req[], call: number) => 'http429' | Set<
       res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(Array.isArray(parsed) ? replies : replies[0]));
     });
   });
-  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+  await new Promise<void>((r) => server.listen(port, '127.0.0.1', r));
   return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, batches, server };
 }
 
@@ -99,5 +99,18 @@ describe('RetryingJsonRpcProvider', () => {
     provider = new RetryingJsonRpcProvider(s.url, 1, fast);
     await expect(provider.send('eth_unknownMethod', [])).rejects.toThrow();
     expect(s.batches).toHaveLength(1);
+  });
+
+  it('retries a request that never left the machine', async () => {
+    // Reserve a port, close it, and bring the server up there only after the first attempts were refused.
+    const probe = await rpcServer(() => new Set());
+    const port = (probe.server.address() as AddressInfo).port;
+    await new Promise((r) => probe.server.close(r));
+    provider = new RetryingJsonRpcProvider(`http://127.0.0.1:${port}`, 1, { ...fast, maxRetries: 8, baseDelayMs: 20, maxDelayMs: 40 });
+    const balance = provider.getBalance(addr(3));
+    await new Promise((r) => setTimeout(r, 30));
+    const up = await rpcServer(() => new Set(), port);
+    server = up.server;
+    expect(await balance).toBe(3n);
   });
 });

@@ -26,7 +26,7 @@ const ALL_QUERY = `
   query GetAllAttestations($schema: String!, $take: Int!, $skip: Int!) {
     attestations(
       where: { schemaId: { equals: $schema }, revoked: { equals: false } }
-      orderBy: [{ time: asc }]
+      orderBy: [{ time: asc }, { id: asc }]
       take: $take
       skip: $skip
     ) {
@@ -47,7 +47,7 @@ const AT_QUERY = `
   query GetAttestationsAt($schema: String!, $asOf: Int!, $take: Int!, $skip: Int!) {
     attestations(
       where: { schemaId: { equals: $schema }, timeCreated: { lte: $asOf } }
-      orderBy: [{ time: asc }]
+      orderBy: [{ time: asc }, { id: asc }]
       take: $take
       skip: $skip
     ) {
@@ -62,9 +62,12 @@ const AT_QUERY = `
   }
 `;
 
-const PAGE_SIZE = 1000;
-// Safety bound on pagination — 500 pages * PAGE_SIZE covers 500_000
-const MAX_PAGES = 500;
+// The public easscan indexers close the connection on a response above roughly 140 kB (about 300
+// attestations), so pages stay well below it. Pages are cut by skip, which needs a total order:
+// attestations of one block share `time`, hence the id tie-break in the queries above.
+const PAGE_SIZE = 100;
+// Safety bound on pagination: 5000 pages * PAGE_SIZE covers 500_000
+const MAX_PAGES = 5000;
 
 interface EasGraphQLAttestation {
   id: string;

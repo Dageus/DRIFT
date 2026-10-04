@@ -34,6 +34,19 @@ const isRateLimitError = (e: unknown): boolean => {
   return o?.response?.statusCode === 429 || (typeof status === 'string' && status.startsWith('429')) || isRateLimited(e);
 };
 
+/**
+ * Failures before the request left the machine (DNS, connection refused): resending cannot
+ * duplicate anything. A reset or timeout after connecting is not retried here, since the node may
+ * already have accepted the request.
+ */
+const UNSENT_CODES = new Set(['ENOTFOUND', 'EAI_AGAIN', 'ECONNREFUSED']);
+const isUnsentError = (e: unknown): boolean => {
+  for (let o = e as { code?: unknown; cause?: unknown; error?: unknown } | undefined, d = 0; o && d < 4; o = (o.cause ?? o.error) as typeof o, d++) {
+    if (typeof o.code === 'string' && UNSENT_CODES.has(o.code)) return true;
+  }
+  return false;
+};
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
@@ -42,7 +55,8 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  * individual entries, sometimes as a bare error object with no id; ethers then reports "missing
  * response for request" and fails the call. This provider resends only the requests whose answer
  * was rate-limited or missing, backing off exponentially, and leaves every other answer, errors
- * included, to ethers. Batches are capped at 10 requests (ethers' default is 100) so one burst
+ * included, to ethers. A request that never left the machine (a DNS failure, a refused connection)
+ * is retried the same way, so a resolver blip does not fail a long-running caller. Batches are capped at 10 requests (ethers' default is 100) so one burst
  * does not trip a per-second limit.
  */
 export class RetryingJsonRpcProvider extends JsonRpcProvider {
@@ -66,7 +80,7 @@ export class RetryingJsonRpcProvider extends JsonRpcProvider {
       try {
         replies = await super._send(pending.length === 1 ? pending[0]! : pending);
       } catch (e) {
-        if (last || !isRateLimitError(e)) throw e;
+        if (last || !(isRateLimitError(e) || isUnsentError(e))) throw e;
         await sleep(this.backoff(attempt));
         continue;
       }
