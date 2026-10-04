@@ -27,6 +27,8 @@ const CLIENT = new Interface([
   'function requiredChallengeBond() view returns (uint256)',
   'function lastClaimedEpoch(address node, bytes32 role) view returns (uint256)',
   'function hasVoted(uint256 proposalId, address account) view returns (bool)',
+  'function getProposalSnapshot(uint256 proposalId) view returns (uint256 snapshotEpoch, uint32 configVersion)',
+  'error EpochNotYetFinalized(uint256 epoch)',
   'function challengeOmission(uint256 epoch, address missingNode, bytes32 role) payable',
   'function claimUnansweredChallenge(uint256 epoch, address node, bytes32 role)',
   'function claimReputation(address node, bytes32 role, uint256 score, uint256 epoch, bytes32[] proof)',
@@ -209,23 +211,41 @@ export async function runExperiment(o: RunOptions): Promise<RunSummary> {
       return hit ? (hit.args.id as bigint).toString() : undefined;
     };
     let proposalId = await findCreated();
-    if (!proposalId) {
+    // A proposal snapshots the client's latest posted epoch, which must be final. That epoch is
+    // pp.epoch on schedule, but a later one when settlement is catching up after an outage, and
+    // the next root may land between the check and the transaction: then wait for that one.
+    const notFinal = (err: unknown) => /EpochNotYetFinalized|0xa30df1b1/.test(`${(err as Error).message} ${(err as { data?: string }).data ?? ''}`);
+    for (let attempt = 0; !proposalId; attempt++) {
       const w = node(pp.proposer);
-      const p = await proofOf(tier, pp.epoch, w.address);
+      const cur = Number(await view<bigint>(c, 'currentEpoch'));
+      await waitFor(`${tier} epoch ${cur} to finalize for proposal ${pp.index}`, () => finalized(tier, cur));
+      const p = await proofOf(tier, cur, w.address);
       const data = CLIENT.encodeFunctionData('createProposalWithProofs', [description, ZeroAddress, '0x', 1, [role], [p.score], [p.proof]]);
-      await send(createId, w, { to: m.contexts[tier]!.client, data }, async () => (await findCreated()) !== undefined, rec, 'client.propose', (r) => {
-        const e = r.logs.map((l) => { try { return CLIENT.parseLog(l); } catch { return null; } }).find((x) => x?.name === 'ProposalCreated');
-        return e ? (e.args.id as bigint).toString() : undefined;
-      });
+      try {
+        await send(createId, w, { to: m.contexts[tier]!.client, data }, async () => (await findCreated()) !== undefined, rec, 'client.propose', (r) => {
+          const e = r.logs.map((l) => { try { return CLIENT.parseLog(l); } catch { return null; } }).find((x) => x?.name === 'ProposalCreated');
+          return e ? (e.args.id as bigint).toString() : undefined;
+        });
+      } catch (err) {
+        // Lost the race on chain instead of at the estimate: the journal holds the reverted
+        // transaction, so drop it and send a new one against the newer epoch.
+        const revertedOnChain = /reverted and the step is not done/.test((err as Error).message) && !(await finalized(tier, Number(await view<bigint>(c, 'currentEpoch'))));
+        if (attempt >= 20 || !(notFinal(err) || revertedOnChain)) throw err;
+        if (revertedOnChain) delete state.steps[createId];
+        log(`proposal ${pp.index}: a newer ${tier} epoch was posted after epoch ${cur}; waiting for it to finalize`);
+        continue;
+      }
       proposalId = await findCreated();
       if (!proposalId) throw new Error(`proposal ${pp.index} was not created`);
     }
+    // Votes are checked against the proposal's snapshot epoch, which need not be pp.epoch.
+    const snapshotEpoch = Number((await view<[bigint, bigint]>(c, 'getProposalSnapshot', BigInt(proposalId)))[0]);
     await inParallel(pp.voters, 8, async (v) => {
       const w = node(v);
       const id = `vote:${pp.index}:${v}`;
       const isDone = () => view<boolean>(c, 'hasVoted', BigInt(proposalId), w.address);
       if (journal.isDone(id) || (await isDone())) return;
-      const p = await proofOf(tier, pp.epoch, w.address);
+      const p = await proofOf(tier, snapshotEpoch, w.address);
       rec.emit('client.vote', { node: w.address, proposalId, proofFetchMs: Math.round(p.ms), proofDepth: p.proof.length });
       await send(id, w, { to: m.contexts[tier]!.client, data: CLIENT.encodeFunctionData('castVoteWithProofs', [BigInt(proposalId), true, [role], [p.score], [p.proof]]) }, isDone, rec, 'client.vote');
     });
@@ -364,7 +384,11 @@ export async function runExperiment(o: RunOptions): Promise<RunSummary> {
     const others = daemons.names().filter((n) => n.startsWith('tier2-owner-') && n !== 'tier2-owner-0');
     for (let e = 1; e <= cfg.tier2.epochs; e++) {
       if (state.marks[`tier2:${e}`]) continue;
-      const dead = scenarios.deadRound.includes(e) && !state.marks[`dead:${e}`];
+      let dead = scenarios.deadRound.includes(e) && !state.marks[`dead:${e}`];
+      if (dead && (await posted('tier2', e))) {
+        log(`tier2 epoch ${e} was settled before the dead-round scenario could run; skipping it`);
+        dead = false;
+      }
       if (dead) for (const n of others) await daemons.stop(n);
       await clock.until(ctx.epochAnchorTimestamp + ctx.epochLength * e + 1);
       if (dead) {
