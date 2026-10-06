@@ -105,7 +105,7 @@ Evidence of every tier covers exactly these bytes. A journal states: "running en
 - **Tier 3 on chain.** The guest commits the journal. The server can produce succinct receipts but returns no on-chain seal yet. To settle on chain with a proof we still need:
   - `ProverOpts::groth16()` plus `risc0_ethereum_contracts::encode_seal` in the server;
   - a `postEpochRoot` branch in `DRIFTCore` that calls the RISC Zero verifier router with the pinned image ID and `sha256(journal)`, then checks the journal fields against its arguments.
-- **Tier 2 on chain.** This is done, with no contract change, by making a t-of-n Safe the `trustedSettler`. Each owner computes the epoch with its own engine and signs the settlement transaction built from its own root (`SafeSettler` in `@drift-network/sdk/safe`). Owners whose roots differ sign different hashes, so a root settles only if t owners computed it. `DRIFTSafeSettler.t.sol` runs this against the real Safe v1.4.1 bytecode:
+- **Tier 2 on chain.** This is done, with no contract change, by making a t-of-n Safe the `trustedSettler`. Each owner computes the epoch with its own engine and signs the settlement transaction built from its own root (`SafeSettler` in `@drift-network/operator`). Owners whose roots differ sign different hashes, so a root settles only if t owners computed it. `DRIFTSafeSettler.t.sol` runs this against the real Safe v1.4.1 bytecode:
   - settlement in one round or two;
   - the threshold is enforced, and owners split across two roots settle neither;
   - an owner key cannot post directly;
@@ -140,4 +140,4 @@ Secure multi-party computation hides each party's inputs from the others. Phi_c'
 
 - `packages/sdk/test/local/engine-vectors.test.ts` writes them from the TypeScript reference (`UPDATE_ENGINE_VECTORS=1`) and checks them.
 - `core/tests/vectors.rs` checks the Rust core against them.
-- `packages/sdk/test/local/engine-grpc.test.ts` checks the running server against the TypeScript client.
+- `packages/operator/test/local/engine-grpc.test.ts` checks the running server against the TypeScript client.

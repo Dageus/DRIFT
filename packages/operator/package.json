@@ -1,0 +1,61 @@
+{
+  "name": "@drift-network/operator",
+  "version": "0.1.0",
+  "description": "Operator tooling for DRIFT: settlement pipeline, Safe (Tier 2) settlement, remote and committee engines",
+  "author": "Dageus",
+  "license": "MIT",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Dageus/DRIFT.git",
+    "directory": "packages/operator"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "engines": {
+    "node": ">=20.10.0"
+  },
+  "files": [
+    "dist",
+    "proto"
+  ],
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./api": {
+      "import": "./dist/api/index.js",
+      "types": "./dist/api/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc --project tsconfig.json && node scripts/copy-proto.mjs",
+    "typecheck": "tsc --project tsconfig.eslint.json",
+    "lint": "eslint .",
+    "test": "vitest run --config vitest.config.ts"
+  },
+  "dependencies": {
+    "@drift-network/sdk": "*",
+    "@grpc/grpc-js": "^1.14.5",
+    "@grpc/proto-loader": "^0.8.1",
+    "@openzeppelin/merkle-tree": "^1.0.8",
+    "ethers": "^6.16.0",
+    "pino": "^9.14.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^25.9.1",
+    "eslint": "^10.9.1",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.68.0",
+    "vitest": "^4.1.8"
+  },
+  "bin": {
+    "drift-operator": "./dist/bin.js"
+  },
+  "optionalDependencies": {
+    "fastify": "^5.12.5"
+  }
+}

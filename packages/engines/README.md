@@ -19,7 +19,7 @@ cargo test             # core against vectors/
 cargo build            # target/debug/drift-engine
 ```
 
-The SDK's `engine-grpc.test.ts` starts `target/debug/drift-engine` itself and is skipped when the binary is missing.
+The operator package's `engine-grpc.test.ts` starts `target/debug/drift-engine` itself and is skipped when the binary is missing.
 
 ## Run
 
@@ -31,7 +31,7 @@ DRIFT_ENGINE_SIGNING_KEY=0x... drift-engine --evidence signed  # committee membe
 From TypeScript:
 
 ```ts
-import { GrpcEpochEngine, CommitteeEpochEngine } from '@drift-network/sdk/engines/remote';
+import { GrpcEpochEngine, CommitteeEpochEngine } from '@drift-network/operator';
 
 const engine = new GrpcEpochEngine({ endpoint: '127.0.0.1:50051', evidence: 'signed', signers: [operator] });
 const { entries, merkleRoot, evidence } = await engine.computeEpoch(input);

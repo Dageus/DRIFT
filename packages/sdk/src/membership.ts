@@ -3,7 +3,7 @@ import type { AttestationRecord } from './types.js';
 /**
  * Join time of every party that counts as a member, keyed by lowercase address. A party absent
  * from the map is not a member. Two sources build it: the current registry state (local mode) and
- * the registry state at an epoch boundary (settlement, src/pipeline/membership.ts).
+ * the registry state at an epoch boundary (settlement, packages/operator/src/pipeline/membership.ts).
  */
 export type JoinTimes = Map<string, bigint>;
 

@@ -16,5 +16,5 @@ export { REPUTATION_ENGINES } from './EnginesMapping.js';
 export type { EngineCreationParams } from './EnginesMapping.js';
 
 // Settlement-side engine boundary: one call per epoch, returning scores plus evidence. Remote
-// implementations (gRPC, committee) live in '@drift-network/sdk/engines/remote'.
+// implementations (gRPC, committee) live in @drift-network/operator.
 export * from './epoch/index.js';

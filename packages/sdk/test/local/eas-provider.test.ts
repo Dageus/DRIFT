@@ -58,4 +58,26 @@ describe('EASProvider boundary snapshot', () => {
     expect(bodies[0]!.query).toContain('revoked: { equals: false }');
     expect(records.find((r) => r.uid === 'revoked')!.revoked).toBe(true);
   });
+
+  it('pages in small, totally ordered pages', async () => {
+    // The public indexer drops a response above roughly 140 kB, so one page must stay small; skip
+    // pagination over attestations sharing a block time needs the id tie-break.
+    const all = Array.from({ length: 250 }, (_, i) => row(`a${i}`, 900));
+    const bodies: { query: string; variables: { take: number; skip: number } }[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init: { body: string }) => {
+        const body = JSON.parse(init.body) as (typeof bodies)[number];
+        bodies.push(body);
+        return { json: async () => ({ data: { attestations: all.slice(body.variables.skip, body.variables.skip + body.variables.take) } }) };
+      })
+    );
+
+    const records = await new EASProvider('http://eas', SCHEMA).fetchAllContextRecords('0xctx', T_E);
+
+    expect(records.map((r) => r.uid)).toEqual(all.map((r) => r.id));
+    expect(bodies.map((b) => b.variables.skip)).toEqual([0, 100, 200]);
+    expect(bodies.every((b) => b.variables.take === 100)).toBe(true);
+    expect(bodies[0]!.query).toContain('orderBy: [{ time: asc }, { id: asc }]');
+  });
 });

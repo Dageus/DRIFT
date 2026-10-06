@@ -11,6 +11,7 @@ export {
   decodeJournal,
   schemaWidth,
   validateInput,
-  settle
+  settle,
+  journalHash
 } from './protocol.js';
 export type { EigenTrustParams, EpochMember, EpochInput, EngineJournal, EngineEvidence, EpochResult } from './protocol.js';

@@ -30,6 +30,14 @@ export {
   DriftEngineError
 } from './errors.js';
 
+// Contract modules, also reachable as drift.core / .factory / .governance / .reputation.
+export { ReputationModule } from './modules/reputation.js';
+
+// Off-chain mirror of DRIFTCore.verifyAttestation's membership rule, shared by local mode and the
+// operator's boundary snapshot.
+export { filterContextRecords } from './membership.js';
+export type { JoinTimes } from './membership.js';
+
 // Utilities
 export { SchemaEncoder } from './schema-encoder.js';
 export * as utils from './utils.js';

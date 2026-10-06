@@ -1,0 +1,347 @@
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
+import { JsonRpcProvider, formatEther, formatUnits, parseEther } from 'ethers';
+import { RetryingJsonRpcProvider } from '@drift-network/operator';
+import { parseExperimentConfig, type ExperimentConfig } from './config.js';
+import { deriveSlots, deriveWallet, loadFunder, loadMnemonic, newMnemonic, slotIndices } from './keys.js';
+import { gasTable, loadMeasured } from './gas.js';
+import { buildPlan, topUps, type FundingPlan } from './plan.js';
+import { assertPlanMatches, readPlan, writeManifest, writePlan } from './planFile.js';
+import { balancesOf, fund, status, sweep, TRANSFER_GAS, type Log } from './ops.js';
+import { measure, writeMeasured } from './measure.js';
+import { feeHistory, feeReport, printFeeReport } from './fees.js';
+import { analyze, indexerCheck, loadEvents, renderFiles, writeFiles } from './analyze/index.js';
+import { deployExperiment } from './setup.js';
+import { estimateSchedule, formatDuration } from './schedule.js';
+import { readManifest } from './setup.js';
+import { runExperiment } from './run/run.js';
+import { rehearse } from './run/rehearse.js';
+import { startKubo } from './run/services.js';
+
+const CONTRACTS_DIR = fileURLToPath(new URL('../../contracts', import.meta.url));
+
+const USAGE = `usage: drift-e2e <command> [options]
+
+  keys new                              print a fresh 24-word mnemonic (store it; it is not saved)
+  keys manifest --config <file>         write <out>/keys-manifest.json (addresses only)
+  plan    --config <file> [--measured <gas.json>] [--offline]
+  fund    --config <file> [--yes]       top up every key to its planned target (dry run without --yes)
+  status  --config <file>               balance vs target per key
+  sweep   --config <file> [--yes] [--dust-eth <x>]   return leftovers to the funder
+  measure --config <file>               run every action once on a local anvil fork of the config's
+                                        chain (never broadcasts there); writes <out>/gas-measured.json
+  fees    --config <file> [--blocks <n>] [--caps 1,2,5]   base-fee percentiles from eth_feeHistory (read-only)
+  rehearse --config <file> [--measured <gas.json>] [--fork]
+                                        the whole experiment on a local anvil (Sepolia's EAS and Safe code
+                                        at their addresses; --fork: a fork of the config's chain, much
+                                        slower), time fast-forwarded, every key at its planned balance;
+                                        then analyze and gas vs plan (never broadcasts to a real chain)
+  run     --config <file>               the experiment on the real chain against <out>/deployment.json:
+                                        daemons, members, scenarios; resumable (re-run after a crash)
+  deploy  --config <file>               deploy and configure the experiment (contracts, schema, Safe,
+                                        Tier 1 and Tier 2 contexts, members); resumable, never repeats
+                                        a transaction; writes <out>/deployment.json and deploy-state.json
+
+  analyze <dir...> [--out <dir>]        recorder JSONL logs -> tables (CSV, LaTeX, summary.json);
+          [--indexer-rpc-env <VAR> --eas <addr> --schema <uid> [--from-block <n>]]
+                                        also check each snapshot's attestation count against EAS logs
+
+  fund, sweep and deploy wait while the base fee is above the cap (--wait-minutes, default 60); they never pay more.
+
+  common: --out <dir> (default ./e2e-run)
+  environment: the variables the config names (RPC URL, experiment mnemonic, funder key)`;
+
+interface Args {
+  cmd: string[];
+  flags: Map<string, string | true>;
+}
+
+function parseArgs(argv: string[]): Args {
+  const cmd: string[] = [];
+  const flags = new Map<string, string | true>();
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i]!;
+    if (a.startsWith('--')) {
+      const next = argv[i + 1];
+      if (next !== undefined && !next.startsWith('--') && !['--yes', '--offline', '--fork'].includes(a)) {
+        flags.set(a.slice(2), next);
+        i++;
+      } else flags.set(a.slice(2), true);
+    } else cmd.push(a);
+  }
+  return { cmd, flags };
+}
+
+const str = (args: Args, name: string): string | undefined => {
+  const v = args.flags.get(name);
+  return typeof v === 'string' ? v : undefined;
+};
+
+function loadConfig(args: Args): ExperimentConfig {
+  const path = str(args, 'config');
+  if (!path) throw new Error('--config <file> is required');
+  return parseExperimentConfig(JSON.parse(readFileSync(path, 'utf8')));
+}
+
+function outDir(args: Args): string {
+  const dir = str(args, 'out') ?? 'e2e-run';
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+function provider(cfg: ExperimentConfig, env: NodeJS.ProcessEnv): JsonRpcProvider {
+  const url = env[cfg.rpcUrlEnv];
+  if (!url) throw new Error(`environment variable ${cfg.rpcUrlEnv} is not set`);
+  // No read cache: balances must be current.
+  return new RetryingJsonRpcProvider(url, undefined, { cacheTimeout: -1 });
+}
+
+const waitMs = (args: Args): number => Number(str(args, 'wait-minutes') ?? '60') * 60_000;
+
+const eth = (wei: bigint) => `${Number(formatEther(wei)).toFixed(6)} ETH`;
+
+function printPlan(plan: FundingPlan, log: Log): void {
+  log(`plan for chain ${plan.chainId}, gas cap ${formatUnits(plan.maxFeeWei, 'gwei')} gwei, margin x${Number(plan.marginBps) / 10_000}`);
+  log('');
+  log('per role:');
+  const roles = new Map<string, { keys: number; funded: number; target: bigint; capital: bigint }>();
+  for (const k of plan.keys) {
+    const r = roles.get(k.role) ?? { keys: 0, funded: 0, target: 0n, capital: 0n };
+    r.keys++;
+    if (k.targetWei > 0n) r.funded++;
+    r.target += k.targetWei;
+    r.capital += k.capitalWei;
+    roles.set(k.role, r);
+  }
+  for (const [role, r] of roles) log(`  ${role.padEnd(14)} ${String(r.keys).padStart(5)} key(s)  ${eth(r.target).padStart(16)}  (bonds/capital ${eth(r.capital)})`);
+  log('');
+  log('per action (gas at the cap, before margin):');
+  const actions = new Map<string, { count: number; gas: bigint; source: string }>();
+  for (const k of plan.keys) {
+    for (const a of k.actions) {
+      const e = actions.get(a.action) ?? { count: 0, gas: a.gasEach, source: a.source };
+      e.count += a.count;
+      actions.set(a.action, e);
+    }
+  }
+  for (const [action, e] of actions) {
+    const mark = e.source === 'estimate' ? ' *' : '';
+    log(`  ${(action + mark).padEnd(26)} ${String(e.count).padStart(6)} x ${String(e.gas).padStart(9)} gas = ${eth(BigInt(e.count) * e.gas * plan.maxFeeWei).padStart(16)}`);
+  }
+  log('');
+  log(`keys total        ${eth(plan.totalTargetWei)}`);
+  log(`funder fees       ${eth(plan.funderFeeWei)}`);
+  log(`reserve           ${eth(plan.reserveWei)}`);
+  log(`required (from empty keys) ${eth(plan.requiredWei)}`);
+  if (plan.estimatedActions.length) {
+    log('');
+    log(`* ${plan.estimatedActions.length} action(s) still use ESTIMATED gas; run measure on a Sepolia fork before funding for real.`);
+  }
+}
+
+export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env, log: Log = console.log): Promise<number> {
+  const args = parseArgs(argv);
+  const [cmd, sub] = args.cmd;
+  try {
+    if (cmd === 'keys' && sub === 'new') {
+      log(newMnemonic());
+      log('Store this mnemonic now (password manager); it is not written anywhere. Every experiment key derives from it.');
+      return 0;
+    }
+    if (cmd === 'analyze') return await runAnalyze(args, env, log);
+    if (!cmd || cmd === 'help' || args.flags.has('help')) {
+      log(USAGE);
+      return cmd ? 0 : 2;
+    }
+    const cfg = loadConfig(args);
+    const dir = outDir(args);
+    const mnemonic = loadMnemonic(cfg.mnemonicEnv, env);
+    const slots = deriveSlots(mnemonic, slotIndices(cfg));
+    const planPath = join(dir, 'funding-plan.json');
+
+    if (cmd === 'keys' && sub === 'manifest') {
+      writeManifest(join(dir, 'keys-manifest.json'), slots);
+      log(`wrote ${slots.length} key(s) to ${join(dir, 'keys-manifest.json')}`);
+      return 0;
+    }
+
+    if (cmd === 'plan') {
+      const measured = str(args, 'measured');
+      const plan = buildPlan(cfg, slots, gasTable(measured ? loadMeasured(measured) : {}));
+      writePlan(planPath, plan);
+      writeManifest(join(dir, 'keys-manifest.json'), slots);
+      printPlan(plan, log);
+      const schedule = estimateSchedule(cfg);
+      log('');
+      log(`schedule (epoch ${cfg.timing.epochLengthSeconds} s, dispute ${cfg.timing.disputeWindowSeconds} s, response ${cfg.timing.responseWindowSeconds} s, finality ~${cfg.timing.finalitySeconds} s):`);
+      for (const t of schedule.tiers) {
+        log(`  ${t.tier}: ${t.epochs} epochs, boundary-to-final ${t.criticalPathSeconds} s, slack ${t.slackSeconds} s/epoch, about ${formatDuration(t.durationSeconds)}`);
+      }
+      log(`  run length about ${formatDuration(schedule.durationSeconds)} (tiers side by side)`);
+      for (const w of schedule.warnings) log(`  WARNING ${w}`);
+      writeFileSync(join(dir, 'schedule.json'), JSON.stringify(schedule, null, 2) + '\n');
+      log(`wrote ${planPath}`);
+      if (args.flags.has('offline')) return 0;
+      const p = provider(cfg, env);
+      const funder = loadFunder(cfg.funder, env).connect(p);
+      const [funderBal, balances] = await Promise.all([p.getBalance(funder.address), balancesOf(p, plan.keys.map((k) => k.address))]);
+      const todo = topUps(plan, balances);
+      const needNow = todo.reduce((s, t) => s + t.amount, 0n) + BigInt(todo.length) * TRANSFER_GAS * plan.maxFeeWei + plan.reserveWei;
+      log(`funder ${funder.address}: ${eth(funderBal)}; needed now (current key balances, fees, reserve): ${eth(needNow)}`);
+      if (needNow > funderBal) {
+        log(`NOT ENOUGH: short by ${eth(needNow - funderBal)}. Reduce the experiment or the gas cap; nothing was sent.`);
+        return 1;
+      }
+      log('the funder can cover this plan.');
+      return 0;
+    }
+
+    if (cmd === 'measure') {
+      const forkUrl = env[cfg.rpcUrlEnv];
+      if (!forkUrl) throw new Error(`environment variable ${cfg.rpcUrlEnv} is not set`);
+      // When a plan exists, the deployer must be the one it funds.
+      const existing = existsSync(planPath) ? readPlan(planPath) : undefined;
+      if (existing) assertPlanMatches(existing, slots);
+      const result = await measure({ forkUrl, experimentMnemonic: mnemonic, contractsDir: str(args, 'contracts') ?? CONTRACTS_DIR, plan: existing, log });
+      const out = join(dir, 'gas-measured.json');
+      writeMeasured(out, result);
+      log(`wrote ${out} (${result.samples.length} transactions, fork block ${result.forkBlock})`);
+      return 0;
+    }
+    if (cmd === 'rehearse') {
+      const chain = args.flags.has('fork') ? 'fork' : 'local';
+      const forkUrl = env[cfg.rpcUrlEnv];
+      if (chain === 'fork' && !forkUrl) throw new Error(`environment variable ${cfg.rpcUrlEnv} is not set`);
+      const measured = str(args, 'measured');
+      const r = await rehearse({ cfg, mnemonic, forkUrl, chain, contractsDir: str(args, 'contracts') ?? CONTRACTS_DIR, outDir: dir, gas: gasTable(measured ? loadMeasured(measured) : {}), log });
+      log('');
+      log(`rehearsal finished in ${formatDuration(r.wallSeconds)}: tier1 ${r.summary.epochs.tier1} and tier2 ${r.summary.epochs.tier2} epochs; scenarios ${JSON.stringify(r.summary.scenarios)}`);
+      log(`data quality: ${r.dataQualityIssues} issue(s); tables in ${r.analysisDir}`);
+      log('gas used vs plan, per role (gas from receipts; "at cap" prices it at the plan\'s max fee, without the margin):');
+      for (const s of r.spend) {
+        const pct = s.plannedGas > 0n ? `${((Number(s.usedGas) / Number(s.plannedGas)) * 100).toFixed(1)}%` : '-';
+        log(`  ${s.role.padEnd(14)} ${String(s.keys).padStart(3)} key(s)  gas ${String(s.usedGas).padStart(11)} of ${String(s.plannedGas).padStart(11)} planned (${pct.padStart(6)})  at cap ${eth(s.usedAtCapWei).padStart(14)}  funded ${eth(s.targetWei).padStart(14)}  lowest key left ${(s.minLeftShare * 100).toFixed(1)}%`);
+      }
+      const used = r.spend.reduce((a, s) => a + s.usedAtCapWei, 0n);
+      log(`  total at cap ${eth(used)} of ${eth(r.plan.requiredWei)} required; at the rehearsal's own fees the keys spent ${eth(r.spentWei)} (bonds included)`);
+      return 0;
+    }
+    if (cmd === 'fees') {
+      const blocks = Number(str(args, 'blocks') ?? '5000');
+      const caps = (str(args, 'caps') ?? '1,2,3,5,10,20').split(',');
+      const report = feeReport(await feeHistory(provider(cfg, env), blocks), cfg.gas.priorityFeeWei, caps);
+      printFeeReport(report, log, cfg.gas.priorityFeeWei);
+      return 0;
+    }
+
+    const plan = readPlan(planPath);
+    assertPlanMatches(plan, slots);
+    const p = provider(cfg, env);
+
+    if (cmd === 'deploy') {
+      const rpcUrl = env[cfg.rpcUrlEnv]!;
+      const m = await deployExperiment({ cfg, mnemonic, provider: p, rpcUrl, contractsDir: str(args, 'contracts') ?? CONTRACTS_DIR, stateDir: dir, plan, log, waitMs: waitMs(args) });
+      for (const [tier, c] of Object.entries(m.contexts)) log(`${tier}: client ${c.client}, context ${c.contextUID}, epoch length ${c.epochLength} s`);
+      if (m.safe) log(`safe ${m.safe.address} (${m.safe.threshold}-of-${m.safe.owners.length})`);
+      log(`schema ${m.eas.schemaUID}; ${m.nodes.length} node(s); start block ${m.startBlock}`);
+      return 0;
+    }
+
+    if (cmd === 'run') {
+      const manifestPath = join(dir, 'deployment.json');
+      if (!existsSync(manifestPath)) throw new Error(`${manifestPath} not found; run deploy first`);
+      const manifest = readManifest(manifestPath);
+      let ipfsApiUrl = cfg.services.ipfsApiUrlEnv ? env[cfg.services.ipfsApiUrlEnv] : undefined;
+      let ipfsGatewayUrl = cfg.services.ipfsGatewayUrlEnv ? env[cfg.services.ipfsGatewayUrlEnv] : undefined;
+      let kubo: Awaited<ReturnType<typeof startKubo>> | undefined;
+      if (!ipfsApiUrl) {
+        const base = cfg.run.apiPortBase;
+        kubo = await startKubo(join(dir, 'kubo'), { api: base + 10, gateway: base + 11, swarm: base + 12 }, log);
+        ipfsApiUrl = kubo.apiUrl;
+        ipfsGatewayUrl = kubo.gatewayUrl;
+      }
+      try {
+        const rpcUrl = env[cfg.rpcUrlEnv]!;
+        const s = await runExperiment({
+          cfg,
+          manifest,
+          mnemonic,
+          provider: p,
+          stateDir: dir,
+          mode: 'real',
+          services: { rpcUrl, easGraphqlUrl: cfg.services.easGraphqlUrl, ipfsApiUrl, ipfsGatewayUrl: ipfsGatewayUrl ?? ipfsApiUrl, ipfsAuthorizationEnv: cfg.services.ipfsAuthorizationEnv },
+          timing: {
+            blockTag: 'finalized',
+            pollIntervalSeconds: cfg.run.pollIntervalSeconds,
+            commitWindowSeconds: cfg.tier2.commitWindowSeconds,
+            revealWindowSeconds: cfg.tier2.revealWindowSeconds,
+            executeGraceSeconds: cfg.tier2.executeGraceSeconds
+          },
+          log
+        });
+        log(`run finished: events in ${s.eventsDir}; analyze with: drift-e2e analyze ${s.eventsDir} --out ${join(dir, 'analysis')}`);
+      } finally {
+        await kubo?.stop();
+      }
+      return 0;
+    }
+
+    if (cmd === 'fund') {
+      const funder = loadFunder(cfg.funder, env).connect(p);
+      await fund(plan, funder, { yes: args.flags.has('yes'), priorityWei: cfg.gas.priorityFeeWei, journalPath: join(dir, 'funding-journal.jsonl'), log, waitMs: waitMs(args) });
+      return 0;
+    }
+    if (cmd === 'status') {
+      const rows = await status(plan, p);
+      for (const r of rows) log(`  ${r.ok ? 'ok ' : 'LOW'} ${r.role.padEnd(14)} ${String(r.ordinal).padStart(4)} ${r.address} ${eth(r.balanceWei).padStart(16)} / ${eth(r.targetWei)}`);
+      const low = rows.filter((r) => !r.ok).length;
+      log(low ? `${low} key(s) below target` : 'all keys at or above target');
+      return low ? 1 : 0;
+    }
+    if (cmd === 'sweep') {
+      const funder = loadFunder(cfg.funder, env);
+      const dust = str(args, 'dust-eth');
+      const keys = plan.keys.map((k) => ({ role: k.role, ordinal: k.ordinal, signer: deriveWallet(mnemonic, k.index).connect(p) }));
+      await sweep(keys, funder.address, plan.chainId, {
+        yes: args.flags.has('yes'), maxFeeWei: plan.maxFeeWei, priorityWei: cfg.gas.priorityFeeWei,
+        dustWei: dust ? parseEther(dust) : 0n, journalPath: join(dir, 'funding-journal.jsonl'), log, waitMs: waitMs(args)
+      });
+      return 0;
+    }
+    log(USAGE);
+    return 2;
+  } catch (err) {
+    log(`error: ${(err as Error).message}`);
+    return 1;
+  }
+}
+
+async function runAnalyze(args: Args, env: NodeJS.ProcessEnv, log: Log): Promise<number> {
+  const dirs = args.cmd.slice(1);
+  if (dirs.length === 0) throw new Error('analyze needs at least one directory of event logs');
+  const loaded = loadEvents(dirs);
+  const analysis = analyze(loaded);
+  let indexer;
+  const rpcEnv = str(args, 'indexer-rpc-env');
+  if (rpcEnv) {
+    const url = env[rpcEnv];
+    const eas = str(args, 'eas');
+    const schemaUID = str(args, 'schema');
+    if (!url) throw new Error(`environment variable ${rpcEnv} is not set`);
+    if (!eas || !schemaUID) throw new Error('the indexer check needs --eas <address> and --schema <uid>');
+    const provider = new RetryingJsonRpcProvider(url, undefined, { cacheTimeout: -1 });
+    try {
+      indexer = await indexerCheck(analysis.events, { provider, eas, schemaUID, fromBlock: Number(str(args, 'from-block') ?? '0') });
+    } finally {
+      provider.destroy();
+    }
+  }
+  const out = str(args, 'out') ?? 'e2e-analysis';
+  const names = writeFiles(out, renderFiles(analysis, indexer));
+  log(`read ${loaded.files.length} file(s), ${analysis.counts.events} event(s) after merging ${analysis.counts.duplicates} duplicate observation(s)`);
+  log(`data quality: ${analysis.issues.length} issue(s)${analysis.issues.length ? ' (see quality.csv)' : ''}`);
+  if (indexer) log(`indexer check: ${indexer.filter((r) => !r.match).length} mismatch(es) in ${indexer.length} snapshot(s)`);
+  log(`wrote ${names.length} file(s) to ${out}`);
+  return 0;
+}

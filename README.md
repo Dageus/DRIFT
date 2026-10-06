@@ -76,11 +76,13 @@ Contract addresses are stored in `packages/contracts/deployments/{chainId}.json`
 
 - [`/contracts`](./packages/contracts/) — Foundry project containing core protocol registries, soulbound token factories, context gatekeepers, and governance templates.
 
-- [`/sdk`](./packages/sdk/) — Node.js/TypeScript SDK with data providers, off-chain computation engines, and EIP-712 settlement oracles.
+- [`/sdk`](./packages/sdk/): TypeScript SDK for members and dApps: data providers, reputation engines, claims, voting, disputes, and settlement tree resolution.
+
+- [`/operator`](./packages/operator/): Node-only operator tooling built on the SDK: the settlement pipeline (Tier 1 and Tier 2), the Safe settler, remote and committee engines.
 
 - [`/engines`](./packages/engines/): Rust workspace with the deterministic reputation engine, its gRPC server, and the RISC Zero zkVM guest. [`SPEC.md`](./packages/engines/SPEC.md) defines the engine protocol.
 
-- [`/protos`](./packages/protos/): the engine protocol's gRPC definition, shared by the Rust server and the SDK client.
+- [`/protos`](./packages/protos/): the engine protocol's gRPC definition, shared by the Rust server and the operator package's client.
 
 ## Prerequisites
 

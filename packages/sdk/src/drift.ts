@@ -185,7 +185,7 @@ export class Drift {
   /**
    * Keeps attestations between *current* members, made after both joined (see
    * filterContextRecords). Local mode reads the registry as it is now; settlement reads it at the
-   * epoch boundary instead (src/pipeline/membership.ts).
+   * epoch boundary instead (packages/operator/src/pipeline/membership.ts).
    */
   private async _dropPreJoinAttestations(
     contextUID: string,

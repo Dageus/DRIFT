@@ -8,7 +8,7 @@ const CURRENT_VERSION = 1;
 /**
  * Filesystem-backed trust graph storage for Node/server-side SDK use, where `localStorage`
  * (LocalTrustStore's backing store) does not exist. One JSON file per viewer under `storageDir`,
- * mirroring LocalTreeStore's persistence pattern for Merkle trees (packages/sdk/src/merkle).
+ * mirroring LocalTreeStore's persistence pattern for Merkle trees (packages/operator/src/store).
  *
  * Unlike LocalTrustStore, filesystem errors are not swallowed: a server process that can't
  * persist trust weights should fail loudly rather than silently losing them.

@@ -1,0 +1,16 @@
+{
+  // Typecheck and lint against the SDK's sources, so neither needs the SDK built first. The build
+  // (tsconfig.json) resolves @drift-network/sdk through the workspace package and its dist, as a
+  // published install would.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": "..",
+    "paths": {
+      "@drift-network/sdk": ["../sdk/src/index.ts"],
+      "@drift-network/sdk/*": ["../sdk/src/*/index.ts"]
+    }
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts", "*.ts"],
+  "exclude": ["node_modules", "dist"]
+}
